@@ -1,0 +1,385 @@
+const { masterPool, getTenantDbName } = require('../config/database');
+
+const toNumber = (value, fieldName, { min = 0, integer = false } = {}) => {
+    const numberValue = Number(value);
+    if (!Number.isFinite(numberValue) || numberValue < min || (integer && !Number.isInteger(numberValue))) {
+        throw new Error(`${fieldName} không hợp lệ.`);
+    }
+    return numberValue;
+};
+
+const toBooleanNumber = (value, fieldName) => {
+    if (typeof value === 'boolean') return Number(value);
+    if ([0, 1, '0', '1'].includes(value)) return Number(value);
+    throw new Error(`${fieldName} phải là true/false hoặc 0/1.`);
+};
+
+const validateCommissions = async (connection, dbName, commissions) => {
+    if (!Array.isArray(commissions)) {
+        throw new Error('commissions phải là một mảng.');
+    }
+
+    const roleIds = new Set();
+    for (const commission of commissions) {
+        const roleId = toNumber(commission.role_id, 'role_id', { min: 1, integer: true });
+        const percent = toNumber(commission.commission_percent ?? 0, 'commission_percent');
+        const fixedAmount = toNumber(commission.commission_fixed_amount ?? 0, 'commission_fixed_amount');
+
+        if (percent > 100) throw new Error('commission_percent không được lớn hơn 100.');
+        if (roleIds.has(roleId)) throw new Error('Không được khai báo trùng role_id trong commissions.');
+        roleIds.add(roleId);
+
+        const [roles] = await connection.query(
+            `SELECT id FROM \`${dbName}\`.roles WHERE id = ? AND deleted_at IS NULL`,
+            [roleId]
+        );
+        if (roles.length === 0) throw new Error(`Chức vụ có ID ${roleId} không tồn tại hoặc đã bị xóa.`);
+    }
+};
+
+const validateInitialInventory = async (connection, dbName, inventories) => {
+    if (!Array.isArray(inventories)) {
+        throw new Error('inventory phải là một mảng.');
+    }
+
+    const branchIds = new Set();
+    for (const inventory of inventories) {
+        const branchId = toNumber(inventory.branch_id, 'branch_id', { min: 1, integer: true });
+        toNumber(inventory.quantity, 'quantity', { min: 0, integer: true });
+
+        if (branchIds.has(branchId)) throw new Error('Không được khai báo trùng branch_id trong inventory.');
+        branchIds.add(branchId);
+
+        const [branches] = await connection.query(
+            `SELECT id FROM \`${dbName}\`.branches WHERE id = ? AND deleted_at IS NULL`,
+            [branchId]
+        );
+        if (branches.length === 0) throw new Error(`Chi nhánh có ID ${branchId} không tồn tại hoặc đã bị xóa.`);
+    }
+};
+
+const insertOrUpdateCommissions = async (connection, dbName, productId, commissions, executorName) => {
+    for (const commission of commissions) {
+        const roleId = Number(commission.role_id);
+        const percent = Number(commission.commission_percent ?? 0);
+        const fixedAmount = Number(commission.commission_fixed_amount ?? 0);
+
+        await connection.query(
+            `INSERT INTO \`${dbName}\`.product_commissions
+                (product_id, role_id, commission_percent, commission_fixed_amount, created_by, updated_by, deleted_at)
+             VALUES (?, ?, ?, ?, ?, ?, NULL)
+             ON DUPLICATE KEY UPDATE
+                commission_percent = VALUES(commission_percent),
+                commission_fixed_amount = VALUES(commission_fixed_amount),
+                updated_by = VALUES(updated_by),
+                deleted_at = NULL,
+                deleted_by = NULL`,
+            [productId, roleId, percent, fixedAmount, executorName, executorName]
+        );
+    }
+};
+
+const syncCommissions = async (connection, dbName, productId, commissions, executorName) => {
+    if (commissions.length === 0) {
+        await connection.query(
+            `UPDATE \`${dbName}\`.product_commissions
+             SET deleted_at = NOW(), deleted_by = ?, updated_by = ?
+             WHERE product_id = ? AND deleted_at IS NULL`,
+            [executorName, executorName, productId]
+        );
+        return;
+    }
+
+    const roleIds = commissions.map(item => Number(item.role_id));
+    await connection.query(
+        `UPDATE \`${dbName}\`.product_commissions
+         SET deleted_at = NOW(), deleted_by = ?, updated_by = ?
+         WHERE product_id = ? AND deleted_at IS NULL AND role_id NOT IN (?)`,
+        [executorName, executorName, productId, roleIds]
+    );
+
+    await insertOrUpdateCommissions(connection, dbName, productId, commissions, executorName);
+};
+
+const createProduct = async (tenantId, productData, executorName) => {
+    const dbName = await getTenantDbName(tenantId);
+    const connection = await masterPool.getConnection();
+
+    try {
+        const {
+            name, images, description, benefits, price, unit, is_product,
+            is_treatment_combo = false, default_sessions = 1, session_unit = 'buổi',
+            next_appointment_days = 0, is_active = true, commissions, inventory
+        } = productData;
+
+        if (!name || !String(name).trim()) throw new Error('Tên sản phẩm/dịch vụ không được để trống.');
+        toNumber(price, 'price');
+        toBooleanNumber(is_product, 'is_product');
+        toNumber(default_sessions, 'default_sessions', { min: 0, integer: true });
+        toNumber(next_appointment_days, 'next_appointment_days', { min: 0, integer: true });
+
+        if (images !== undefined && images !== null && !Array.isArray(images)) {
+            throw new Error('images phải là một mảng JSON hoặc null.');
+        }
+        if (commissions !== undefined && commissions !== null && !Array.isArray(commissions)) {
+            throw new Error('commissions phải là một mảng, null hoặc không gửi field này.');
+        }
+        if (inventory !== undefined && inventory !== null && !Array.isArray(inventory)) {
+            throw new Error('inventory phải là một mảng, null hoặc không gửi field này.');
+        }
+
+        await connection.beginTransaction();
+        if (Array.isArray(commissions) && commissions.length > 0) {
+            await validateCommissions(connection, dbName, commissions);
+        }
+        if (Array.isArray(inventory) && inventory.length > 0) {
+            await validateInitialInventory(connection, dbName, inventory);
+        }
+
+        const [existing] = await connection.query(
+            `SELECT id FROM \`${dbName}\`.products WHERE name = ? AND deleted_at IS NULL`,
+            [String(name).trim()]
+        );
+        if (existing.length > 0) throw new Error('Tên sản phẩm/dịch vụ này đã tồn tại.');
+
+        const [result] = await connection.query(
+            `INSERT INTO \`${dbName}\`.products
+                (name, images, description, benefits, price, unit, is_product, is_treatment_combo,
+                 default_sessions, session_unit, next_appointment_days, is_active, created_by)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [
+                String(name).trim(), images === undefined || images === null ? null : JSON.stringify(images),
+                description || null, benefits || null, Number(price), unit || null,
+                toBooleanNumber(is_product, 'is_product'), toBooleanNumber(is_treatment_combo, 'is_treatment_combo'), Number(default_sessions),
+                session_unit || 'buổi', Number(next_appointment_days), toBooleanNumber(is_active, 'is_active'), executorName
+            ]
+        );
+        const productId = result.insertId;
+
+        if (Array.isArray(commissions)) {
+            await insertOrUpdateCommissions(connection, dbName, productId, commissions, executorName);
+        }
+
+        if (Array.isArray(inventory)) {
+            for (const item of inventory) {
+                await connection.query(
+                    `INSERT INTO \`${dbName}\`.inventory (branch_id, product_id, quantity, created_by, updated_by)
+                     VALUES (?, ?, ?, ?, ?)`,
+                    [Number(item.branch_id), productId, Number(item.quantity), executorName, executorName]
+                );
+            }
+        }
+
+        await connection.commit();
+        return productId;
+    } catch (error) {
+        await connection.rollback();
+        throw error;
+    } finally {
+        connection.release();
+    }
+};
+
+const getProducts = async (tenantId, searchKeyword = '', isProduct, userRole, userBranchId) => {
+    const dbName = await getTenantDbName(tenantId);
+    
+    // Tuyệt đối không query cột is_active nữa
+    let query = `SELECT * FROM \`${dbName}\`.products WHERE deleted_at IS NULL`;
+    const params = [];
+
+    if (searchKeyword) {
+        // Tìm kiếm không phân biệt hoa/thường một cách triệt để
+        query += ' AND LOWER(name) LIKE LOWER(?)';
+        params.push(`%${searchKeyword}%`);
+    }
+    if (isProduct !== undefined) {
+        query += ' AND is_product = ?';
+        params.push(Number(isProduct));
+    }
+    query += ' ORDER BY created_at DESC';
+
+    const [products] = await masterPool.query(query, params);
+    if (products.length === 0) return products;
+
+    const productIds = products.map(product => product.id);
+
+    // 1. Lấy thông tin hoa hồng
+    const [commissions] = await masterPool.query(
+        `SELECT pc.id, pc.product_id, pc.role_id, pc.commission_percent, pc.commission_fixed_amount,
+                r.name AS role_name
+         FROM \`${dbName}\`.product_commissions pc
+         INNER JOIN \`${dbName}\`.roles r ON r.id = pc.role_id
+         WHERE pc.product_id IN (?) AND pc.deleted_at IS NULL
+         ORDER BY pc.id ASC`,
+        [productIds]
+    );
+
+    // 2. Lấy thông tin tồn kho
+    let inventoryQuery = `
+        SELECT i.id, i.product_id, i.branch_id, i.quantity, b.name AS branch_name
+        FROM \`${dbName}\`.inventory i
+        INNER JOIN \`${dbName}\`.branches b ON b.id = i.branch_id
+        WHERE i.product_id IN (?) AND b.deleted_at IS NULL
+    `;
+    const inventoryParams = [productIds];
+
+    // LOGIC PHÂN QUYỀN: Nếu là Nhân viên (Không phải Manager), chỉ hiển thị tồn kho của cơ sở họ đang làm việc
+    if (String(userRole).toUpperCase() !== 'MANAGER' && userBranchId) {
+        inventoryQuery += ' AND i.branch_id = ?';
+        inventoryParams.push(userBranchId);
+    }
+    inventoryQuery += ' ORDER BY i.branch_id ASC';
+
+    const [inventories] = await masterPool.query(inventoryQuery, inventoryParams);
+
+    return products.map(product => {
+        // Bóc tách để loại bỏ hoàn toàn is_active khỏi response trả về Frontend
+        const { is_active, ...cleanProduct } = product; 
+        
+        return {
+            ...cleanProduct,
+            commissions: commissions.filter(item => item.product_id === product.id),
+            inventory: inventories.filter(item => item.product_id === product.id)
+        };
+    });
+};
+
+const getProductById = async (tenantId, productId, userRole, userBranchId) => {
+    const dbName = await getTenantDbName(tenantId);
+    
+    const [products] = await masterPool.query(
+        `SELECT * FROM \`${dbName}\`.products WHERE id = ? AND deleted_at IS NULL`,
+        [productId]
+    );
+
+    if (products.length === 0) {
+        throw new Error('Không tìm thấy sản phẩm hoặc sản phẩm đã bị xóa.');
+    }
+    
+    const { is_active, ...cleanProduct } = products[0];
+
+    const [commissions] = await masterPool.query(
+        `SELECT pc.id, pc.product_id, pc.role_id, pc.commission_percent, pc.commission_fixed_amount, r.name AS role_name
+         FROM \`${dbName}\`.product_commissions pc
+         INNER JOIN \`${dbName}\`.roles r ON r.id = pc.role_id
+         WHERE pc.product_id = ? AND pc.deleted_at IS NULL`,
+        [productId]
+    );
+
+    let inventoryQuery = `
+        SELECT i.id, i.product_id, i.branch_id, i.quantity, b.name AS branch_name
+        FROM \`${dbName}\`.inventory i
+        INNER JOIN \`${dbName}\`.branches b ON b.id = i.branch_id
+        WHERE i.product_id = ? AND b.deleted_at IS NULL
+    `;
+    const inventoryParams = [productId];
+
+    if (String(userRole).toUpperCase() !== 'MANAGER' && userBranchId) {
+        inventoryQuery += ' AND i.branch_id = ?';
+        inventoryParams.push(userBranchId);
+    }
+
+    const [inventories] = await masterPool.query(inventoryQuery, inventoryParams);
+
+    return {
+        ...cleanProduct,
+        commissions,
+        inventory: inventories
+    };
+};
+
+const updateProduct = async (tenantId, productId, updateData, executorName) => {
+    const dbName = await getTenantDbName(tenantId);
+    const connection = await masterPool.getConnection();
+
+    try {
+        await connection.beginTransaction();
+        const [products] = await connection.query(
+            `SELECT id FROM \`${dbName}\`.products WHERE id = ? AND deleted_at IS NULL`,
+            [productId]
+        );
+        if (products.length === 0) throw new Error('Sản phẩm/dịch vụ không tồn tại hoặc đã bị xóa.');
+
+        const updateFields = [];
+        const params = [];
+        const allowedFields = [
+            'description', 'benefits', 'unit', 'is_product', 'is_treatment_combo',
+            'default_sessions', 'session_unit', 'next_appointment_days', 'is_active', 'price'
+        ];
+
+        if (updateData.name !== undefined) {
+            if (!String(updateData.name).trim()) throw new Error('Tên sản phẩm/dịch vụ không được để trống.');
+            const [existing] = await connection.query(
+                `SELECT id FROM \`${dbName}\`.products WHERE name = ? AND id != ? AND deleted_at IS NULL`,
+                [String(updateData.name).trim(), productId]
+            );
+            if (existing.length > 0) throw new Error('Tên sản phẩm/dịch vụ này đã tồn tại.');
+            updateFields.push('name = ?');
+            params.push(String(updateData.name).trim());
+        }
+
+        if (updateData.images !== undefined) {
+            if (updateData.images !== null && !Array.isArray(updateData.images)) throw new Error('images phải là một mảng JSON hoặc null.');
+            updateFields.push('images = ?');
+            params.push(updateData.images === null ? null : JSON.stringify(updateData.images));
+        }
+
+        for (const field of allowedFields) {
+            if (updateData[field] === undefined) continue;
+            if (field === 'price') toNumber(updateData[field], 'price');
+            if (['default_sessions', 'next_appointment_days'].includes(field)) {
+                toNumber(updateData[field], field, { min: 0, integer: true });
+            }
+            if (['is_product', 'is_treatment_combo', 'is_active'].includes(field)) {
+                updateFields.push(`${field} = ?`);
+                params.push(toBooleanNumber(updateData[field], field));
+            } else {
+                updateFields.push(`${field} = ?`);
+                params.push(['description', 'benefits', 'unit', 'session_unit'].includes(field) ? (updateData[field] || null) : Number(updateData[field]));
+            }
+        }
+
+        if (updateFields.length > 0) {
+            updateFields.push('updated_by = ?');
+            params.push(executorName, productId);
+            await connection.query(
+                `UPDATE \`${dbName}\`.products SET ${updateFields.join(', ')} WHERE id = ?`,
+                params
+            );
+        }
+
+        if (updateData.commissions !== undefined) {
+            await validateCommissions(connection, dbName, updateData.commissions);
+            await syncCommissions(connection, dbName, productId, updateData.commissions, executorName);
+        }
+
+        await connection.commit();
+    } catch (error) {
+        await connection.rollback();
+        throw error;
+    } finally {
+        connection.release();
+    }
+};
+
+const deleteProduct = async (tenantId, productId, executorName) => {
+    const dbName = await getTenantDbName(tenantId);
+    const [result] = await masterPool.query(
+        `UPDATE \`${dbName}\`.products SET deleted_at = NOW(), deleted_by = ?
+         WHERE id = ? AND deleted_at IS NULL`,
+        [executorName, productId]
+    );
+    if (result.affectedRows === 0) throw new Error('Sản phẩm/dịch vụ không tồn tại hoặc đã bị xóa.');
+};
+
+const restoreProduct = async (tenantId, productId, executorName) => {
+    const dbName = await getTenantDbName(tenantId);
+    const [result] = await masterPool.query(
+        `UPDATE \`${dbName}\`.products SET deleted_at = NULL, deleted_by = NULL, updated_by = ?
+         WHERE id = ? AND deleted_at IS NOT NULL`,
+        [executorName, productId]
+    );
+    if (result.affectedRows === 0) throw new Error('Sản phẩm/dịch vụ chưa bị xóa hoặc không tồn tại.');
+};
+
+module.exports = { createProduct, getProducts, getProductById, updateProduct, deleteProduct, restoreProduct };

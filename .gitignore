@@ -1,0 +1,38 @@
+# Dependencies
+node_modules/
+
+# Environment variables (Bảo mật)
+.env
+.env.local
+.env.development
+.env.test
+.env.production
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS generated files (File rác của hệ điều hành)
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Editor directories and files (Cấu hình của các IDE)
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Testing / Coverage
+coverage/
+.nyc_output/
