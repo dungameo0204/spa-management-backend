@@ -30,6 +30,15 @@ const getList = async (req, res) => {
     }
 };
 
+const getDetail = async (req, res) => {
+    try {
+        const customer = await customerService.getCustomerById(req.user.tenant_id, req.params.id);
+        res.status(200).json({ message: 'Lấy thông tin khách hàng thành công', data: customer });
+    } catch (error) {
+        res.status(404).json({ message: error.message });
+    }
+};
+
 const update = async (req, res) => {
     try {
         const customerId = req.params.id;
@@ -95,4 +104,4 @@ const restore = async (req, res) => {
     }
 };
 
-module.exports = { create, getList, update, resetPassword, remove, restore };
+module.exports = { create, getList, getDetail, update, resetPassword, remove, restore };

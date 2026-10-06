@@ -26,7 +26,8 @@ const getList = async (req, res) => {
             endDate: req.query.endDate,
             productName: req.query.productName,
             minAmount: req.query.minAmount,
-            maxAmount: req.query.maxAmount
+            maxAmount: req.query.maxAmount,
+            hasDebt: req.query.hasDebt
         };
 
         const invoices = await invoiceService.getInvoices(tenantId, filters, userRole, userBranchId);

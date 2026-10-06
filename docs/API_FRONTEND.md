@@ -62,7 +62,7 @@ Mẫu response danh sách:
 
 ## 4. Danh sách nhanh API đang được mount
 
-Tại thời điểm hiện tại, `src/server.js` mount **51 endpoint** hoạt động:
+Tại thời điểm hiện tại, `src/server.js` mount các endpoint hoạt động sau:
 
 | Nhóm | Endpoint |
 |---|---|
@@ -72,11 +72,15 @@ Tại thời điểm hiện tại, `src/server.js` mount **51 endpoint** hoạt 
 | Role | `POST/GET /api/roles`, `PUT/DELETE /api/roles/:id`, `PATCH /api/roles/:id/restore` |
 | Staff | `POST/GET /api/staffs`, `PUT/DELETE /api/staffs/:id`, `PATCH /api/staffs/:id/restore` |
 | Branch | `POST/GET /api/branches`, `PUT/DELETE /api/branches/:id`, `PATCH /api/branches/:id/restore` |
-| Customer | `POST /api/customers/reset-password`, `POST/GET /api/customers`, `PUT/DELETE /api/customers/:id`, `PATCH /api/customers/:id/restore` |
+| Customer | `POST /api/customers/reset-password`, `POST/GET /api/customers`, `GET/PUT/DELETE /api/customers/:id`, `PATCH /api/customers/:id/restore` |
 | Product | `POST/GET /api/products`, `GET /api/products/:id`, `PUT/DELETE /api/products/:id`, `PATCH /api/products/:id/restore` |
 | Inventory import | `POST/GET /api/inventory-imports`, `PUT/DELETE /api/inventory-imports/:id` |
 | Expense | `POST/GET /api/expenses`, `GET /api/expenses/:id`, `PUT/DELETE /api/expenses/:id` |
 | Invoice | `POST/GET /api/invoices`, `GET /api/invoices/:id`, `PUT/DELETE /api/invoices/:id` |
+| Appointment | `POST/GET /api/appointments`, `GET /api/appointments/:id`, `PUT/DELETE /api/appointments/:id` |
+| Customer booking | `GET /api/customer-bookings` |
+| Customer wallet log | `POST/GET /api/customer-wallet-logs`, `GET/PUT/DELETE /api/customer-wallet-logs/:id` |
+| Debt payment | `POST/GET /api/debt-payments`, `GET/PUT/DELETE /api/debt-payments/:id` |
 | Treatment | `POST /api/treatments`, `POST /api/treatments/execute`, `DELETE /api/treatments/execute/:historyId`, `PUT /api/treatments/execute/:historyId/staffs`, `GET /api/treatments/commissions` |
 
 ---
@@ -415,6 +419,13 @@ Không cần token.
 - Mỗi item trả: `id`, `fullname`, `phone_number`, `avatar`, `address`, `wallet_balance`, `total_debt`, `note`, `created_at`, `updated_at`.
 - Không bao giờ trả `password`.
 
+### `GET /api/customers/:id` — Cần token
+
+- Lấy thông tin một khách hàng active trong tenant đang đăng nhập.
+- Trả: `id`, `fullname`, `phone_number`, `avatar`, `address`, `wallet_balance`, `total_debt`, `note`, `created_at`, `updated_at`, `created_by`, `updated_by`.
+- Không bao giờ trả `password`.
+- Không tồn tại hoặc đã soft-delete trả `404`.
+
 ### `PUT /api/customers/:id` — Cần token
 
 Body hỗ trợ: `fullname`, `phone_number`, `password`, `avatar`, `address`, `note`.
@@ -451,7 +462,6 @@ Mọi endpoint trong mục này yêu cầu Bearer token của MANAGER. Product �
   "default_sessions": 1,
   "session_unit": "buổi",
   "next_appointment_days": 0,
-  "is_active": true,
   "commissions": [
     { "role_id": 2, "commission_percent": 10, "commission_fixed_amount": 0 }
   ],
@@ -467,7 +477,7 @@ Mọi endpoint trong mục này yêu cầu Bearer token của MANAGER. Product �
 | `name`, `price`, `is_product` | Có | Tên unique trong product chưa xóa; `price >= 0`; `is_product` nhận boolean hoặc `0/1`. |
 | `images` | Không | Mảng JSON hoặc `null`. |
 | `description`, `benefits`, `unit` | Không | Chuỗi; rỗng được lưu `null`. |
-| `is_treatment_combo`, `default_sessions`, `session_unit`, `next_appointment_days`, `is_active` | Không | Default theo schema; hai field số buổi/ngày là số nguyên `>= 0`. |
+| `is_treatment_combo`, `default_sessions`, `session_unit`, `next_appointment_days` | Không | Default theo schema; hai field số buổi/ngày là số nguyên `>= 0`. |
 | `commissions` | Không | Có thể bỏ qua, gửi `null` hoặc `[]` nếu sản phẩm/dịch vụ không áp dụng hoa hồng. Nếu gửi dòng `{ role_id, commission_percent?, commission_fixed_amount? }`, `role_id` không lặp, role phải active, percent 0–100. |
 | `inventory` | Không | Dùng cho tồn đầu kỳ. Có thể bỏ qua, gửi `null` hoặc `[]` — phù hợp với dịch vụ hoặc hàng hóa sẽ nhập kho sau. Nếu gửi dòng `{ branch_id, quantity }`, `branch_id` không lặp, branch phải active, quantity là số nguyên `>= 0`. |
 
@@ -497,7 +507,8 @@ Thành công `201`: `{ "message": "Tạo sản phẩm/dịch vụ thành công",
 
 ### `PUT /api/products/:id`
 
-- Partial update: `name`, `images`, `description`, `benefits`, `price`, `unit`, `is_product`, `is_treatment_combo`, `default_sessions`, `session_unit`, `next_appointment_days`, `is_active`.
+- Partial update: `name`, `images`, `description`, `benefits`, `price`, `unit`, `is_product`, `is_treatment_combo`, `default_sessions`, `session_unit`, `next_appointment_days`.
+- `is_active` là cột legacy trong schema và bị API Product bỏ qua khi create/update; trạng thái sử dụng product được quản lý bằng xóa mềm (`deleted_at`).
 - Nếu gửi `commissions`, backend đồng bộ toàn bộ danh sách: role không còn trong body bị xóa mềm, role trong body được tạo/cập nhật. Có thể gửi `[]` để xóa hết commission.
 - API này không nhận `inventory`, để không điều chỉnh tồn kho không có chứng từ. Dùng `POST /api/inventory-imports` để tăng tồn.
 - Thành công `200`: `{ "message": "Cập nhật sản phẩm/dịch vụ thành công" }`.
@@ -509,9 +520,16 @@ Thành công `201`: `{ "message": "Tạo sản phẩm/dịch vụ thành công",
 
 ---
 
-13. Nhập kho /api/inventory-importsTạo phiếu nhập dùng transaction: tạo header, các item snapshot và cập nhật inventory.quantity cùng lúc.Lưu ý Phân quyền: STAFF chỉ xem/tạo phiếu ở cơ sở mình, và chỉ được SỬA/XÓA phiếu nhập trong ngày. MANAGER được toàn quyền mọi cơ sở.
+## 13. Nhập kho `/api/inventory-imports`
 
-POST /api/inventory-importsJSON{
+Tạo phiếu nhập dùng transaction: tạo header, các item snapshot và cập nhật `inventory.quantity` cùng lúc.
+
+*Lưu ý Phân quyền: STAFF chỉ xem/tạo phiếu ở cơ sở mình, và chỉ được SỬA/XÓA phiếu nhập trong ngày. MANAGER được toàn quyền mọi cơ sở.*
+
+### `POST /api/inventory-imports`
+
+```json
+{
   "branch_id": 1,
   "import_code": "PN20261003001",
   "import_date": "2026-10-03 14:30:00",
@@ -527,24 +545,48 @@ POST /api/inventory-importsJSON{
     }
   ]
 }
-FieldBắt buộcQuy tắcimport_code, itemsCóimport_code unique; items không rỗng.branch_idKhôngMANAGER bắt buộc truyền. STAFF có thể bỏ trống (hệ thống tự lấy branch_id từ Token của nhân viên).import_dateKhôngBỏ qua thì dùng thời điểm hiện tại.supplier_name, noteKhôngChuỗi hoặc null.items[].product_id, quantity, unit_priceCóProduct active; quantity nguyên > 0; unit price >= 0; không lặp product trong cùng phiếu.items[].discount_percent, discount_amountKhôngDefault 0; percent 0–100, amount >= 0.Frontend không gửi total_amount, product_name, total_price. Backend snapshot tên product và tự tính:total_price = quantity × unit_price − (quantity × unit_price × discount_percent / 100) − discount_amountNếu thành tiền âm, API từ chối. Thành công 201:JSON{
+```
+
+| Field | Bắt buộc | Quy tắc |
+|---|:---:|---|
+| `import_code`, `items` | Có | `import_code` unique; `items` không rỗng. |
+| `branch_id` | Không | MANAGER bắt buộc truyền. STAFF có thể bỏ trống (tự lấy từ Token). |
+| `import_date` | Không | Bỏ qua thì dùng thời điểm hiện tại. |
+| `supplier_name`, `note` | Không | Chuỗi hoặc null. |
+| `items[].product_id`, `quantity`, `unit_price` | Có | Product active; quantity > 0; unit price >= 0; không lặp product. |
+| `items[].discount_percent`, `discount_amount` | Không | Default 0; percent 0–100, amount >= 0. |
+
+> Frontend không gửi `total_amount`, `product_name`, `total_price`. Backend tự tính tiền và lưu snapshot. Nếu thành tiền âm, API từ chối.
+
+Thành công `201`:
+```json
+{
   "message": "Tạo phiếu nhập kho thành công",
   "inventoryImportId": 5,
   "totalAmount": 5700000
 }
+```
 
-GET /api/inventory-imports?search=&branchId=&startDate=&endDate=search: theo import_code hoặc supplier_name.branchId: lọc chi nhánh (STAFF tự động bị ép dùng branch của họ).startDate, endDate: lọc theo ngày nhập hàng (Định dạng bắt buộc dùng dấu gạch ngang YYYY-MM-DD).Response: Mỗi bản ghi có header, branch_name và bao gồm luôn mảng items (chi tiết sản phẩm) bên trong.GET /api/inventory-imports/:idTrả header (kèm branch_name) và items snapshot (Dùng khi cần tải lại chi tiết một phiếu cụ thể).Thành công: { "message": "Lấy chi tiết phiếu nhập kho thành công", "data": { "items": [] } }.PUT /api/inventory-imports/:idBody JSON: Cấu trúc gửi lên y hệt POST.Logic (Ghi đè): Dùng transaction để hoàn trả toàn bộ số lượng tồn kho của các items cũ, xóa mềm items cũ, sau đó tính toán tiền và cộng lượng tồn kho mới của các items gửi lên. (Mảng items gửi lên phải chứa toàn bộ sản phẩm của phiếu nhập đó, kể cả sản phẩm không thay đổi số lượng).Không cần truyền branch_id (Backend tự lấy từ phiếu cũ).Thành công 200: { "message": "Cập nhật phiếu nhập kho thành công", "totalAmount": 5700000 }DELETE /api/inventory-imports/:idLogic: Xóa mềm phiếu nhập kho và các items. Hệ thống tự động trừ lại đúng số lượng đã nhập ra khỏi inventory.quantity.Thành công 200: { "message": "Xóa phiếu nhập kho và trừ kho thành công" }
+### `GET /api/inventory-imports`
+Lọc nâng cao theo: `search` (Mã/NCC), `branchId`, `startDate`, `endDate` (YYYY-MM-DD). Trả về danh sách phiếu nhập.
+
+### `GET /api/inventory-imports/:id`
+Trả header (kèm `branch_name`) và `items` snapshot.
+
+### `PUT /api/inventory-imports/:id`
+Ghi đè phiếu nhập (Cấu trúc giống POST). Sử dụng Transaction để hoàn trả tồn kho cũ, và tính toán lại tồn kho mới an toàn.
+
+### `DELETE /api/inventory-imports/:id`
+Xóa mềm phiếu nhập kho và trừ lại số lượng tồn kho tự động.
 
 ---
 
 ## 14. Quản lý Phiếu chi `/api/expenses`
 
-Quản lý các khoản chi tiêu, thanh toán của Spa (như tiền điện, nước, nhập hàng ngoài, v.v.).
-*Lưu ý Phân quyền: STAFF chỉ xem/thêm/sửa/xóa phiếu chi tại cơ sở của mình. MANAGER được toàn quyền trên mọi cơ sở.*
+Quản lý các khoản chi tiêu, thanh toán của Spa (tiền điện, nước, v.v.).
+*Lưu ý Phân quyền: STAFF chỉ xem/thêm/sửa/xóa phiếu chi tại cơ sở của mình. MANAGER được toàn quyền.*
 
 ### `POST /api/expenses`
-
-**Tạo mới phiếu chi.**
 
 ```json
 {
@@ -554,33 +596,48 @@ Quản lý các khoản chi tiêu, thanh toán của Spa (như tiền điện, n
   "note": "Tiền điện tháng 9",
   "expense_date": "2026-10-04 10:00:00"
 }
-FieldBắt buộcQuy tắcamountCóSố tiền chi (Dạng số, >= 0).expense_typeCóLoại phiếu chi / Mục đích chi (Chuỗi không được rỗng).branch_idKhôngMANAGER bắt buộc truyền để chọn cơ sở. STAFF có thể bỏ trống (hệ thống tự lấy branch_id từ Token của nhân viên).expense_dateKhôngThời gian chi tiền. Bỏ qua thì dùng thời điểm hiện tại. (Định dạng YYYY-MM-DD HH:mm:ss).noteKhôngGhi chú thêm (Chuỗi hoặc null).Response (Thành công 201):JSON{
+```
+
+| Field | Bắt buộc | Quy tắc |
+|---|:---:|---|
+| `amount` | Có | Số tiền chi >= 0. |
+| `expense_type` | Có | Loại phiếu chi. |
+| `branch_id` | Không | MANAGER bắt buộc truyền. STAFF tự lấy từ token. |
+| `expense_date` | Không | (YYYY-MM-DD HH:mm:ss). |
+| `note` | Không | Ghi chú thêm. |
+
+Thành công `201`:
+```json
+{
   "message": "Tạo phiếu chi thành công",
   "expenseId": 1,
   "amount": 500000
 }
-GET /api/expenses?search=&branchId=&startDate=&endDate=Lấy danh sách phiếu chi.search: Tìm kiếm theo loại phiếu chi (expense_type) hoặc ghi chú (note).branchId: Lọc theo chi nhánh (STAFF tự động bị ép dùng branch của họ).startDate, endDate: Lọc theo khoảng ngày chi tiền (expense_date). Định dạng bắt buộc dùng dấu gạch ngang YYYY-MM-DD.Response 200: Trả về mảng data chứa danh sách phiếu chi (đã bao gồm trường branch_name để hiển thị).GET /api/expenses/:idLấy chi tiết một phiếu chi cụ thể.Trả về thông tin chi tiết của 1 phiếu chi (Kèm branch_name).Báo lỗi 403/404 nếu STAFF cố tình truy cập vào ID phiếu chi của cơ sở khác.Thành công 200: { "message": "Lấy chi tiết phiếu chi thành công", "data": { ... } }.PUT /api/expenses/:idCập nhật phiếu chi.Body JSON: Gửi lên các trường cần cập nhật (Có thể gửi 1 trường hoặc nhiều trường giống cấu trúc POST). Frontend không cần gửi lại branch_id.Logic: Backend sẽ tự kiểm tra quyền và cập nhật. Báo lỗi nếu STAFF cố tình sửa phiếu của cơ sở khác.Thành công 200: { "message": "Cập nhật phiếu chi thành công" }DELETE /api/expenses/:idXóa phiếu chi.Logic: Xóa mềm phiếu chi (deleted_at = NOW()).Báo lỗi nếu STAFF cố tình xóa phiếu của cơ sở khác.Thành công 200: { "message": "Xóa phiếu chi thành công" }
+```
 
+### Các API khác của Phiếu chi:
+- **`GET /api/expenses`**: Hỗ trợ `search`, `branchId`, `startDate`, `endDate`.
+- **`GET /api/expenses/:id`**: Lấy chi tiết phiếu.
+- **`PUT /api/expenses/:id`**: Cập nhật thông tin phiếu.
+- **`DELETE /api/expenses/:id`**: Xóa mềm phiếu chi.
 
-Markdown---
+---
 
 ## 15. Quản lý Hóa đơn Bán hàng `/api/invoices`
 
-Module xử lý giao dịch thanh toán, tự động trừ số dư ví, tự động tính công nợ khách hàng, tự động chia hoa hồng nhân viên và tự động sinh thẻ liệu trình (nếu mua dịch vụ/combo). Toàn bộ xử lý qua Transaction.
-
-*Lưu ý Phân quyền: STAFF chỉ tạo/xem được hóa đơn ở cơ sở mình, và chỉ được SỬA/XÓA hóa đơn được tạo trong ngày hôm nay. MANAGER toàn quyền.*
+Xử lý giao dịch thanh toán, tự động trừ ví, tính công nợ, chia hoa hồng nhân viên và sinh thẻ liệu trình qua Transaction.
+*Lưu ý Phân quyền: STAFF chỉ tạo/xem được hóa đơn ở cơ sở mình, và chỉ được SỬA/XÓA hóa đơn được tạo trong ngày hôm nay.*
 
 ### `POST /api/invoices`
-
-**Tạo mới hóa đơn.** 
 
 ```json
 {
   "customer_id": 1,
+  "branch_id": 1,
   "discount_percent": 10,
   "discount_amount": 0,
   "paid_amount": 1000000,
-  "wallet_used": 500000, 
+  "wallet_used": 500000,
   "payment_method": "Ví + Chuyển khoản",
   "note": "Khách dùng 500k trong ví, còn lại nợ",
   "invoice_date": "2026-10-04",
@@ -588,119 +645,494 @@ Module xử lý giao dịch thanh toán, tự động trừ số dư ví, tự �
     {
       "product_id": 2,
       "quantity": 1,
+      "unit_price": 1500000,
       "discount_percent": 0,
       "discount_amount": 0,
       "consultants": [
-        {
-          "staff_id": 2,
-          "revenue_amount": 500000,
-          "role_type": "Tư vấn chính"
-        }
+        { "staff_id": 2, "revenue_amount": 500000, "role_type": "Tư vấn chính" }
       ]
-    },
-    {
-      "product_id": 4,
-      "quantity": 2,
-      "discount_percent": 0,
-      "discount_amount": 0,
-      "consultants": [] 
     }
   ]
 }
-FieldBắt buộcQuy tắccustomer_id, itemsCóitems không được rỗng. Khách hàng phải tồn tại.branch_idKhôngMANAGER bắt buộc truyền. STAFF có thể bỏ trống (Hệ thống tự lấy theo Token).paid_amountKhôngSố tiền khách trả bằng Tiền mặt / Chuyển khoản / Thẻ. Mặc định 0.wallet_usedKhôngSố tiền muốn trích từ số dư ví của khách. Backend sẽ chặn nếu ví không đủ.discount_percent, discount_amountKhôngChiết khấu tổng hóa đơn (áp dụng sau khi đã cộng dồn chiết khấu từng sản phẩm).invoice_dateKhôngNgày ghi trên hóa đơn (YYYY-MM-DD). Bỏ qua thì dùng thời điểm hiện tại.items[].consultantsKhôngMảng nhân viên tư vấn/chăm sóc. Nếu không có ai, gửi mảng rỗng [] hoặc bỏ key này.Logic Backend tự động:Tổng tiền = Tổng (Tiền từng món sau chiết khấu) - Chiết khấu tổng hóa đơn.Công nợ = Tổng tiền - paid_amount - wallet_used. (Nếu > 0 sẽ tự cộng vào total_debt của khách).Nếu sản phẩm có is_product = 0 hoặc is_treatment_combo = 1, hệ thống tự sinh thẻ liệu trình.Response (Thành công 201):JSON{
+```
+
+| Field | Bắt buộc | Quy tắc |
+|---|:---:|---|
+| `customer_id`, `items` | Có | Khách hàng phải tồn tại; `items` không rỗng. |
+| `branch_id` | Có với MANAGER | Cơ sở lập hóa đơn. STAFF bị backend buộc dùng `branch_id` trong token, nên không cần/không thể chọn cơ sở khác. |
+| `paid_amount`, `wallet_used` | Không | Mặc định 0. Backend chặn nếu ví không đủ; `wallet_used` không được lớn hơn `total_amount`; và `paid_amount + wallet_used` không được lớn hơn `total_amount`. `wallet_used` được lưu riêng trên invoice và được trả lại ở API list/detail. |
+| `discount_percent`, `discount_amount` | Không | Chiết khấu tổng hóa đơn. |
+| `items[].product_id`, `items[].quantity` | Có | Product chưa xóa; quantity là số nguyên `> 0`. |
+| `items[].unit_price` | Không | Giá bán một đơn vị do frontend nhập, phải `>= 0`. Nếu không gửi, backend dùng `products.price`. `items[].price` cũng được hỗ trợ như alias tương thích. Giá thực dùng được snapshot vào `invoice_items.snapshot_price`. |
+| `items[].discount_percent`, `items[].discount_amount` | Không | Mặc định `0`; backend chặn thành tiền dòng âm. |
+| `items[].consultants` | Không | Mảng nhân viên tư vấn/chăm sóc. Mỗi dòng có `staff_id`, `revenue_amount?`, `role_type?`; `revenue_amount` mặc định `0`, phải `>= 0`, và tổng `revenue_amount` của tất cả consultant trong **một item** không được vượt `final_price` của item sau chiết khấu. STAFF chỉ được chọn nhân viên thuộc branch trong token, MANAGER có thể chọn nhân viên branch khác. |
+
+> **Backend tự động:** Tính công nợ, giảm trừ ví, sinh thẻ liệu trình (nếu sp có `is_treatment_combo = 1`).
+
+Backend tự tính `totalAmount`, không tin tổng tiền do frontend tự tính. Điều kiện thanh toán là `0 <= wallet_used <= totalAmount`, `paid_amount >= 0`, và `paid_amount + wallet_used <= totalAmount`; request vượt tổng hóa đơn bị từ chối trước khi trừ ví. Nếu thanh toán đủ thì `paid_amount + wallet_used = totalAmount`; nếu nhỏ hơn, phần thiếu là công nợ. `debtAmount` luôn được tính bằng `totalAmount - paid_amount - wallet_used`; ví dụ `totalAmount: 6.000.000`, `paid_amount: 0`, `wallet_used: 6.000.000` sẽ có `debtAmount: 0`.
+
+Khi gửi `items[].consultants`, backend kiểm tra từng `staff_id` còn hoạt động, `revenue_amount` hợp lệ và tổng tiền chia sale trên từng mặt hàng. Ví dụ item thành tiền `10.000.000` chỉ cho phép chia A `6.000.000` + B `4.000.000` (hoặc thấp hơn), không được vượt `10.000.000`. STAFF còn bị kiểm tra consultant thuộc đúng branch trong token; nếu không hợp lệ request bị từ chối với HTTP `400`.
+
+Hàng hóa (`is_product = 1`) vẫn được phép bán vượt tồn. Nếu branch chưa có bản ghi `inventory` cho product, backend tự tạo dòng inventory với tồn âm (ví dụ bán `2` sẽ tạo `quantity = -2`) để phục vụ đối soát; nếu đã có dòng, tồn kho được trừ bình thường và vẫn có thể âm.
+
+Thành công `201`:
+```json
+{
   "message": "Tạo hóa đơn thành công",
   "invoiceId": 12,
   "totalAmount": 1350000,
-  "debtAmount": 350000,
+  "debtAmount": 0,
   "walletUsed": 500000
 }
-GET /api/invoices?search=&branchId=&startDate=&endDate=&productName=&minAmount=&maxAmount=Lấy danh sách hóa đơn (Hỗ trợ lọc nâng cao):search: Tìm theo tên KH, số điện thoại hoặc Ghi chú.branchId: Lọc theo chi nhánh (STAFF tự động bị ép dùng branch của họ).startDate, endDate: Lọc theo ngày lập hóa đơn (YYYY-MM-DD).productName: Lọc các hóa đơn có chứa sản phẩm/dịch vụ tên tương ứng.minAmount, maxAmount: Lọc theo khoảng giá trị tổng tiền của hóa đơn.Response: Mảng danh sách hóa đơn (đã giấu thông tin trừ ví nội bộ trong chuỗi payment_method để UI hiển thị sạch đẹp).GET /api/invoices/:idLấy chi tiết một hóa đơn cụ thể.Trả về thông tin Header, kèm mảng items. Trong mỗi item sẽ có mảng consultants đi kèm.Báo lỗi 404 nếu STAFF cố truy cập hóa đơn chi nhánh khác.PUT /api/invoices/:idCập nhật hóa đơn (Cơ chế Ghi đè toàn bộ).Body JSON: Gửi lên y hệt cấu trúc POST ban đầu.Lưu ý: Frontend phải gửi toàn bộ danh sách items và consultants hiện tại của hóa đơn. Nếu có sản phẩm bị xóa hoặc đổi số lượng, chỉnh sửa trực tiếp trên mảng đó rồi gửi lên.Logic Backend: Sử dụng Transaction khôi phục (Revert) toàn bộ số dư ví, trừ nợ cũ và xóa liệu trình cũ. Sau đó tự động tính toán lại và áp dụng dữ liệu hóa đơn mới. An toàn tuyệt đối.DELETE /api/invoices/:idXóa hóa đơn.Logic Backend:Hoàn trả tiền vào ví khách hàng (nếu hóa đơn này có dùng ví).Trừ đi số nợ trong hồ sơ khách hàng (nếu hóa đơn này có ghi nợ).Xóa mềm (thu hồi) toàn bộ thẻ liệu trình, hoa hồng nhân viên và chi tiết hóa đơn liên quan.Thành công 200: { "message": "Xóa hóa đơn thành công (Đã hoàn trả công nợ, ví tiền và thu hồi liệu trình)" 
-
-
-## 14. MiniApp: route có trong source nhưng chưa sử dụng được
-
-File `src/routes/miniappRoutes.js` khai báo 3 endpoint, nhưng **`src/server.js` không import và không mount router này**. Vì vậy hiện tại không có URL `/api/miniapp/*` nào hoạt động qua HTTP; request sẽ nhận 404.
-
-| Endpoint dự kiến | Trạng thái mã nguồn |
-|---|---|
-| `POST /api/miniapp/login` | Có handler `miniappLogin`, nhưng router chưa mount. |
-| `GET /api/miniapp/profile` | Router tham chiếu `getMyProfile`, nhưng controller không export hàm này. |
-| `POST /api/miniapp/bookings` | Router tham chiếu `bookAppointment`, nhưng controller không export hàm này. |
-
-> Không nên mount nguyên file `miniappRoutes.js` trước khi bổ sung hai handler còn thiếu: Express sẽ báo lỗi vì callback route không phải function.
-
-Nếu chỉ xét handler `miniappLogin` đã viết, body dự kiến là:
-
-```json
-{ "tenantId": 3, "phone_number": "0900000000", "password": "secret" }
 ```
 
-Và response thành công dự kiến `200`:
+### `GET /api/invoices`
 
-```json
-{
-  "message": "Đăng nhập thành công",
-  "token": "<customer-jwt>",
-  "data": { "id": 10, "fullname": "Phạm Khách Hàng", "avatar": null }
-}
-```
+Query tùy chọn: `search`, `branchId`, `startDate`, `endDate`, `productName`, `minAmount`, `maxAmount`, `hasDebt`.
+
+- `search`: tìm trong ghi chú, tên hoặc số điện thoại khách hàng.
+- `branchId`: MANAGER lọc theo cơ sở; STAFF luôn chỉ xem cơ sở trong token.
+- `startDate`, `endDate`: lọc theo `invoice_date` (dạng `YYYY-MM-DD`).
+- `productName`: tìm theo `invoice_items.snapshot_name`.
+- `minAmount`, `maxAmount`: lọc `total_amount`, phải `>= 0`.
+- `hasDebt`: `true`/`1` chỉ lấy hóa đơn còn công nợ (`debt_amount > 0`); `false`/`0` chỉ lấy hóa đơn không còn công nợ (`debt_amount = 0`). Ví dụ: `GET /api/invoices?hasDebt=true`.
+- Thành công `200`: `{ "message": "Lấy danh sách thành công", "total": 1, "data": [ ... ] }`. Mỗi invoice trả `wallet_used` riêng; `payment_method` không chứa số tiền ví.
+
+### `GET /api/invoices/:id`
+
+Lấy header hóa đơn, gồm `paid_amount`, `wallet_used`, `debt_amount`, `branch_name`, `customer_name`, `phone_number`, danh sách `items`, và mỗi item có `consultants`. STAFF không thể lấy hóa đơn cơ sở khác. Thành công `200`: `{ "message": "Lấy chi tiết hóa đơn thành công", "data": { ... } }`; không có quyền/không tồn tại trả `404`.
+
+### `PUT /api/invoices/:id`
+
+Ghi đè **toàn bộ** `items`; body phải gửi `items` theo cấu trúc của POST, trong đó từng item cũng ưu tiên `unit_price` (hoặc `price`) và chỉ fallback `products.price` khi không gửi giá. Các field header có thể gửi: `customer_id`, `discount_percent`, `discount_amount`, `paid_amount`, `wallet_used`, `payment_method`, `note`, `invoice_date`.
+
+Trong một transaction, backend hoàn trả ví/công nợ/tồn kho cũ, xóa mềm item và thẻ liệu trình cũ, sau đó áp dụng hóa đơn mới. Hàng hóa mới cũng dùng cơ chế tồn âm nếu chưa có dòng inventory. Áp dụng cùng các điều kiện thanh toán của POST: `wallet_used` không vượt `totalAmount` và `paid_amount + wallet_used` không được vượt `totalAmount`. Bị chặn nếu thẻ liệu trình từ hóa đơn đã có lịch sử sử dụng **hoặc hóa đơn đã có phiếu thu nợ active**; khi có phiếu thu nợ, API trả lỗi `Không thể sửa hóa đơn đã có phiếu thu nợ.` STAFF chỉ sửa hóa đơn của cơ sở mình được tạo trong ngày hiện tại.
+
+### `DELETE /api/invoices/:id`
+
+Xóa mềm hóa đơn trong transaction, hoàn ví, giảm công nợ, hoàn lại tồn kho **một lần theo từng invoice item hàng hóa** và xóa mềm item/thẻ liệu trình liên quan. Bị chặn nếu bất kỳ thẻ liệu trình nào của hóa đơn đã được sử dụng hoặc đã có phiếu thu nợ active; khi có phiếu thu nợ, API trả lỗi `Không thể xóa hóa đơn đã có phiếu thu nợ.` STAFF chỉ xóa hóa đơn cơ sở mình được tạo trong ngày hiện tại.
 
 ---
 
-## 15. Database và phạm vi API hiện tại
+## 16. Lịch hẹn `/api/appointments`
 
-Hệ thống sử dụng mô hình multi-tenant:
+Tất cả tài khoản đã đăng nhập được thao tác lịch hẹn. MANAGER được thao tác lịch hẹn của mọi cơ sở trong tenant. STAFF chỉ xem/tạo/sửa/xóa lịch hẹn thuộc branch trong token.
 
-1. `db_system_master` lưu tenant và user đăng nhập hệ thống.
-2. Khi tạo Spa, backend tạo một database tenant mới và clone table từ `db_spa_template`.
-3. Với dữ liệu nghiệp vụ, service lấy `database_name` theo `req.user.tenant_id` rồi query trực tiếp vào DB của Spa đó.
+### `POST /api/appointments`
 
-### 15.1. Database master: `db_system_master`
+```json
+{
+  "customer_id": 1,
+  "branch_id": 1,
+  "appointment_date": "2026-10-10T09:30:00",
+  "note": "Khách tái khám da",
+  "status": "Chờ xử lý"
+}
+```
 
-| Bảng | Mục đích | API hiện có |
+- `customer_id`, `appointment_date` bắt buộc. Khách hàng phải còn hoạt động; `appointment_date` phải là ngày giờ hợp lệ.
+- `status` tùy chọn, mặc định `Chờ xử lý`; là chuỗi không rỗng, tối đa 50 ký tự.
+- Với MANAGER, `branch_id` bắt buộc và phải là branch active. Với STAFF, backend luôn dùng branch trong token và bỏ qua `branch_id` gửi lên.
+- Thành công `201`: `{ "message": "Tạo lịch hẹn thành công", "appointmentId": 1 }`.
+
+### `GET /api/appointments`
+
+Query tùy chọn: `search`, `branchId`, `status`, `startDate`, `endDate`.
+
+- `search`: tìm gần đúng theo tên/số điện thoại khách hàng hoặc ghi chú.
+- `branchId`: MANAGER có thể lọc branch; STAFF luôn bị khóa ở branch token và query này bị bỏ qua.
+- `status`: lọc khớp chính xác trạng thái lịch hẹn.
+- `startDate`, `endDate`: lọc theo ngày hẹn `appointment_date` dạng `YYYY-MM-DD`.
+- Dữ liệu trả thêm `customer_name`, `phone_number`, `branch_name`; sắp xếp theo ngày hẹn tăng dần.
+
+### `GET /api/appointments/:id`
+
+Lấy chi tiết một lịch hẹn. STAFF nhận `404` khi id thuộc cơ sở khác hoặc đã bị xóa.
+
+### `PUT /api/appointments/:id`
+
+Partial update các field: `customer_id`, `branch_id`, `appointment_date`, `note`, `status`.
+
+- MANAGER được thay đổi `branch_id` sang mọi branch active.
+- STAFF chỉ sửa appointment thuộc branch token; `branch_id` trong body bị bỏ qua nên không thể chuyển lịch hẹn sang branch khác.
+- Gửi `note: ""` để xóa ghi chú (`null`).
+
+### `DELETE /api/appointments/:id`
+
+Xóa mềm lịch hẹn. MANAGER xóa được mọi branch; STAFF chỉ xóa được lịch hẹn của branch token.
+
+---
+
+## 17. Booking do khách đặt `/api/customer-bookings`
+
+Đây là API quản trị **chỉ đọc** booking do khách tạo từ MiniApp. Backend quản trị không có `POST`, `PUT`, `DELETE` cho resource này; việc khách tạo/sửa/hủy booking thuộc MiniApp.
+
+### `GET /api/customer-bookings`
+
+Query tùy chọn: `search`, `branchId`, `customerId`, `productId`, `status`, `startDate`, `endDate`.
+
+- `search`: tìm gần đúng theo `customer_name`, `customer_phone`, ghi chú hoặc tên dịch vụ đã chọn.
+- `branchId`: MANAGER có thể lọc branch; STAFF luôn bị khóa ở branch token.
+- `customerId`, `productId`, `status`: lọc khớp chính xác.
+- `startDate`, `endDate`: lọc theo `booking_time` dạng `YYYY-MM-DD`.
+- Kết quả trả thêm `branch_name`, `product_name`; nếu booking liên kết customer hệ thống thì có thêm `registered_customer_name`, `registered_customer_phone`.
+- Thành công `200`: `{ "message": "Lấy danh sách booking khách hàng thành công", "total": 1, "data": [ ... ] }`.
+
+---
+
+## 18. Nạp ví khách hàng `/api/customer-wallet-logs`
+
+Ghi nhận khách nạp tiền vào ví. Trong **một transaction**, backend tạo `customer_wallet_logs` và cộng `total_received` vào `customers.wallet_balance`.
+
+### `POST /api/customer-wallet-logs`
+
+```json
+{
+  "customer_id": 1,
+  "branch_id": 1,
+    "paid_amount": 1000000,
+    "bonus_percent": 10,
+  "payment_method": "TRANSFER",
+  "note": "Nạp ví khuyến mãi tháng 10"
+}
+```
+
+- `customer_id`, `paid_amount` bắt buộc; `paid_amount >= 0`.
+- Có thể nhập khuyến mãi bằng `bonus_percent` hoặc `bonus_amount` (hoặc gửi cả hai nếu khớp). Hai giá trị đều phải `>= 0`.
+- Chỉ gửi `bonus_percent`: backend tính `bonus_amount = paid_amount * bonus_percent / 100`.
+- Chỉ gửi `bonus_amount`: backend tính ngược `bonus_percent = bonus_amount * 100 / paid_amount`, làm tròn 2 chữ số. Không giới hạn mức phần trăm để hỗ trợ thưởng theo số tiền.
+- Khi `paid_amount = 0`, chỉ được tặng theo `bonus_amount > 0`; `bonus_percent` được lưu là `0.00`. Vì vậy Spa có thể tặng trực tiếp, ví dụ `paid_amount: 0`, `bonus_amount: 2000000`.
+- `paid_amount` và `bonus_amount` không được cùng bằng `0`. Nếu gửi đồng thời percent và amount nhưng không khớp với `paid_amount`, backend trả `400`.
+- Backend luôn tự tính/lưu `total_received = paid_amount + bonus_amount`.
+- `payment_method` tùy chọn, mặc định `CASH`; chỉ nhận `CASH`, `TRANSFER`, `CARD`.
+- MANAGER bắt buộc gửi `branch_id`. STAFF luôn dùng branch token và bỏ qua `branch_id` gửi lên.
+- Thành công `201` trả `walletLogId`, `paidAmount`, `bonusPercent`, `bonusAmount`, `totalReceived`, `walletBalance` mới.
+
+### `GET /api/customer-wallet-logs`
+
+Query tùy chọn: `search`, `branchId`, `customerId`, `paymentMethod`, `startDate`, `endDate`.
+
+- `search`: tên/số điện thoại khách hoặc ghi chú.
+- `branchId`: MANAGER có thể lọc branch; STAFF bị khóa branch token.
+- `paymentMethod`: `CASH`, `TRANSFER` hoặc `CARD`.
+- `startDate`, `endDate`: lọc theo thời điểm nạp (`created_at`) dạng `YYYY-MM-DD`.
+
+### `GET /api/customer-wallet-logs/:id`
+
+Xem một giao dịch nạp ví. STAFF không xem được giao dịch của branch khác.
+
+### `PUT /api/customer-wallet-logs/:id`
+
+Sửa giao dịch nạp ví. Có thể gửi một phần field; field không truyền sẽ giữ giá trị cũ.
+
+```json
+{
+  "paid_amount": 1000000,
+  "bonus_percent": 10.5,
+  "payment_method": "TRANSFER",
+  "note": "Điều chỉnh ưu đãi nạp ví"
+}
+```
+
+- Hỗ trợ sửa `customer_id`, `branch_id`, `paid_amount`, `bonus_percent`, `bonus_amount`, `payment_method`, `note`.
+- Nếu không gửi `bonus_percent` và `bonus_amount`, backend giữ tỷ lệ bonus cũ và tính lại `bonus_amount` nếu `paid_amount` thay đổi.
+- Backend luôn tính lại `total_received`; không tin giá trị `total_received` từ frontend.
+- Trong một transaction, backend khóa log và customer bằng `FOR UPDATE`, sau đó chỉ cộng/trừ **phần chênh lệch** `total_received` vào ví.
+- Nếu đổi `customer_id`, backend hoàn tác toàn bộ tiền cũ ở khách cũ và cộng toàn bộ tiền mới cho khách mới trong cùng transaction.
+- Nếu số dư hiện tại không đủ để trừ phần cần hoàn tác, API trả `400` và không thay đổi log/số dư.
+- STAFF chỉ sửa được log của branch token và không thể chuyển log sang branch khác.
+
+### `DELETE /api/customer-wallet-logs/:id`
+
+Soft-delete giao dịch nạp ví và trừ lại `total_received` khỏi ví khách trong cùng transaction.
+
+- Backend khóa log và ví khách bằng `FOR UPDATE` trước khi trừ tiền.
+- Nếu số dư ví không đủ để hoàn tác, API trả `400`; log không bị xóa và số dư không thay đổi.
+- STAFF chỉ xóa được log thuộc branch token.
+
+---
+
+## 19. Thu nợ khách hàng `/api/debt-payments`
+
+Ghi nhận tiền khách thanh toán công nợ. Trong cùng transaction, backend tạo/cập nhật/xóa mềm `debt_payments` và điều chỉnh tương ứng `customers.total_debt`.
+
+### `POST /api/debt-payments`
+
+```json
+{
+  "customer_id": 1,
+  "branch_id": 1,
+  "invoice_id": 30,
+  "amount": 500000,
+  "payment_method": "TRANSFER",
+  "payment_date": "2026-10-06 10:30:00",
+  "note": "Khách thanh toán công nợ"
+}
+```
+
+- Bắt buộc: `customer_id`, `amount`; `amount` phải lớn hơn `0` và không được vượt `customers.total_debt` hiện tại.
+- `branch_id`: MANAGER bắt buộc gửi; STAFF luôn dùng branch trong token và bỏ qua `branch_id` từ body.
+- `invoice_id` tùy chọn. Nếu gửi, hóa đơn phải active, thuộc đúng `customer_id` và đúng branch; tổng các debt payment active của hóa đơn không được vượt `invoices.debt_amount`.
+- `payment_method` mặc định `CASH`; chỉ nhận `CASH`, `TRANSFER`, `CARD`.
+- `payment_date` tùy chọn, mặc định thời điểm hiện tại.
+- Thành công `201`: trả `debtPaymentId`, `amount`, `totalDebt` còn lại của khách.
+
+### `GET /api/debt-payments`
+
+Query tùy chọn: `search`, `branchId`, `customerId`, `invoiceId`, `paymentMethod`, `startDate`, `endDate`.
+
+- `search`: tên/số điện thoại khách hoặc ghi chú.
+- `branchId`: MANAGER có thể lọc; STAFF luôn bị khóa branch token.
+- `startDate`, `endDate`: lọc theo `payment_date` dạng `YYYY-MM-DD`.
+
+### `GET /api/debt-payments/:id`
+
+Xem chi tiết một phiếu thu nợ, gồm thông tin khách/branch và tổng nợ của hóa đơn nếu phiếu có `invoice_id`. STAFF không xem được phiếu thuộc branch khác.
+
+### `PUT /api/debt-payments/:id`
+
+Partial update các field: `customer_id`, `branch_id`, `invoice_id`, `amount`, `payment_method`, `payment_date`, `note`.
+
+- Backend khóa phiếu thu nợ và customer bằng `FOR UPDATE`.
+- Cùng khách: `total_debt` được điều chỉnh bằng chênh lệch giữa amount cũ và amount mới.
+- Đổi khách: backend cộng lại amount cũ vào công nợ khách cũ và trừ amount mới ở công nợ khách mới trong cùng transaction.
+- Tất cả quy tắc không vượt tổng công nợ/tổng debt của invoice vẫn được kiểm tra. STAFF không thể chuyển phiếu sang branch khác.
+
+### `DELETE /api/debt-payments/:id`
+
+Soft-delete phiếu thu nợ và cộng lại `amount` vào `customers.total_debt` trong cùng transaction. STAFF chỉ xóa được phiếu của branch token.
+
+---
+
+## 20. Thẻ Liệu trình `/api/treatments`
+
+Hệ thống tự động sinh thẻ khi item có `is_treatment_combo = 1`; MANAGER cũng có thể tạo thẻ thủ công. Tất cả người dùng đã đăng nhập đều xem được thẻ liệu trình của **mọi cơ sở trong cùng tenant**. STAFF chỉ được tạo/sửa/xóa history tại cơ sở trong token; `branch_id` trong history là cơ sở khách đến làm.
+
+### `GET /api/treatments`
+
+API này hỗ trợ query filter để tìm danh sách thẻ liệu trình. Tất cả query đều không bắt buộc và có thể kết hợp với nhau.
+
+| Query | Kiểu | Mô tả |
 |---|---|---|
-| `tenants` | Thông tin Spa, database tenant, hạn dùng, audit/xóa mềm. | Có `/api/tenants`. |
-| `users` | Tài khoản SUPER_ADMIN/MANAGER/STAFF; `tenant_id` FK `tenants.id`; `branch_id` là ID branch trong DB tenant. | Có `/api/auth`, `/api/users`. |
-| `subscription_packages` | Danh mục gói thuê bao. | Chưa có API. |
-| `pending_orders` | Đơn mua/gia hạn chờ thanh toán. | Chưa có API. |
-| `payment_logs` | Log webhook/giao dịch thanh toán hệ thống. | Chưa có API. |
+| `customerId` | number | Lọc theo ID khách hàng (`treatments.customer_id`). |
+| `invoiceId` | number | Lọc các thẻ được sinh từ hóa đơn tương ứng (`treatments.invoice_id`). |
+| `customerSearch` | string | Tìm gần đúng theo tên hoặc số điện thoại khách hàng. |
+| `productSearch` | string | Tìm gần đúng theo tên sản phẩm/dịch vụ. Ví dụ: `productSearch=lông`. |
+| `status` | `active` / `completed` | `active`: còn buổi (`remaining_sessions > 0`); `completed`: đã hết buổi (`remaining_sessions = 0`). |
+| `startDate` | `YYYY-MM-DD` | Lọc từ ngày tạo thẻ, theo `treatments.created_at`. |
+| `endDate` | `YYYY-MM-DD` | Lọc đến ngày tạo thẻ, theo `treatments.created_at`. |
+| `branchId` | number | Lọc theo branch của hóa đơn gốc. Thẻ tạo thủ công không có invoice vẫn được bao gồm theo logic hiện tại. |
 
-### 15.2. Database mỗi Spa (clone từ `db_spa_template`)
+- `customerSearch` tìm theo tên/số điện thoại; `productSearch` tìm tên dịch vụ.
+- `status=active` lọc thẻ còn buổi; `status=completed` lọc thẻ hết buổi.
+- `startDate`, `endDate`: lọc ngày tạo thẻ; `invoiceId` lọc toàn bộ thẻ liệu trình được sinh từ một hóa đơn, không phụ thuộc branch của hóa đơn; `branchId` lọc thẻ tạo từ hóa đơn của một cơ sở (thẻ thủ công không có invoice vẫn được bao gồm theo nghiệp vụ hiện tại).
+- Thành công `200`: `{ "message": "Lấy danh sách liệu trình thành công", "data": [ ... ] }`.
 
-| Bảng | Mục đích/quan hệ chính | API hiện có |
-|---|---|---|
-| `branches` | Chi nhánh, cấu hình ngân hàng/payment provider. | Có `/api/branches`. |
-| `roles` | Chức vụ nhân sự. | Có `/api/roles`. |
-| `staffs` | Hồ sơ nhân viên; FK `roles`, `branches`. | Có `/api/staffs`. |
-| `customers` | Khách hàng, wallet/debt, mật khẩu MiniApp. | Có `/api/customers`. |
-| `appointments` | Lịch hẹn; FK `customers`, `branches`. | Chưa có API. |
-| `customer_bookings` | Booking do khách tạo; FK `customers`, `branches`, `products`. | Chưa có API; MiniApp booking handler cũng chưa viết. |
-| `products` | Sản phẩm/dịch vụ. | Có `/api/products`. |
-| `product_commissions` | Hoa hồng theo sản phẩm/chức vụ. | Ghi/đọc lồng trong `/api/products`. |
-| `inventory` | Tồn kho theo branch + product; unique `(branch_id, product_id)`. | Tạo kèm product, tăng qua phiếu nhập, đọc lồng trong products. |
-| `inventory_imports` | Header phiếu nhập; FK `branches`. | Có `/api/inventory-imports`. |
-| `inventory_import_items` | Chi tiết nhập, snapshot giá/tên; FK `inventory_imports`, `products`. | Có trong `GET /api/inventory-imports/:id`. |
-| `invoices` | Hóa đơn; FK `customers`, `branches`. | Chưa có API. |
-| `invoice_items` | Dòng hóa đơn; FK `invoices`, `products`, có consultant staff. | Chưa có API. |
-| `invoice_item_consultants` | Nhân sự tư vấn của invoice item; FK `invoice_items`, `staffs`. | Chưa có API. |
-| `treatments` | Liệu trình; FK `customers`, `products`, `invoices`. | Chưa có API. |
-| `treatment_history` | Lịch sử buổi điều trị; FK `treatments`, `branches`. | Chưa có API. |
-| `treatment_history_staffs` | Nhân viên thực hiện buổi điều trị; FK `treatment_history`, `staffs`. | Chưa có API. |
-| `customer_wallet_logs` | Nạp ví khách; FK `customers`, `branches`. | Chưa có API. |
-| `debt_payments` | Thu nợ khách hàng. | Chưa có API. |
-| `expense_vouchers` | Phiếu chi theo chi nhánh. | Chưa có API. |
-| `bank_transactions` | Giao dịch ngân hàng theo chi nhánh. | Chưa có API. |
-| `orders` | Đơn hàng online. | Chưa có API. |
-| `order_items` | Dòng đơn hàng; FK `orders`, `products`. | Chưa có API. |
-| `promotions` | Chương trình khuyến mãi. | Chưa có API. |
-| `app_contents` | Banner/thông báo MiniApp theo hệ thống/branch. | Chưa có API. |
+Ví dụ tìm các thẻ liệu trình có tên dịch vụ chứa `lông`:
 
-> Toàn bộ bảng tenant có cột audit/xóa mềm không phải lúc nào cũng được service hiện tại kiểm tra đầy đủ. Ví dụ service branch/role/customer/staff chỉ lấy bản ghi `deleted_at IS NULL` khi đọc danh sách.
+```http
+GET /api/treatments?productSearch=lông
+Authorization: Bearer <token>
+```
 
-## 16. Lưu ý tích hợp quan trọng
+Ví dụ gọi bằng cURL:
 
-1. `attachTenantDB` trong `src/middlewares/tenant.js` có logic chặn tenant bị khóa/hết hạn và gửi header `X-Expire-Warning`, `X-Expire-Days-Left`. Tuy nhiên middleware này hiện **không được gắn vào bất kỳ route nào**, nên frontend chưa thể dựa vào hai header đó.
-2. Không có endpoint health check, upload file, refresh token, logout hoặc OpenAPI/Swagger.
-3. Các API list không có `page`, `limit`, `sort`; frontend cần chủ động xử lý lượng dữ liệu lớn hoặc backend cần được mở rộng.
-4. Khi xây màn hình khôi phục, API list branch/role/staff/customer không trả bản ghi xóa mềm; frontend vẫn có thể gọi restore nếu đã lưu ID, nhưng không có API list deleted riêng. Riêng `/api/users` trả `deleted_at` nên hỗ trợ hiển thị tài khoản khóa.
-5. Chưa có API mount cho appointments, hóa đơn, thanh toán, liệu trình, đơn hàng, promotion hoặc nội dung app; không nên gọi trực tiếp database từ frontend.
+```bash
+curl -G "http://localhost:5000/api/treatments" \
+  --data-urlencode "productSearch=lông" \
+  -H "Authorization: Bearer <token>"
+```
+
+Ví dụ kết hợp nhiều điều kiện:
+
+```http
+GET /api/treatments?customerId=1&productSearch=lông&status=active&startDate=2026-10-01&endDate=2026-10-31
+Authorization: Bearer <token>
+```
+
+Lưu ý: endpoint này trả danh sách `data`. Muốn xem chi tiết một thẻ và toàn bộ lịch sử thực hiện, gọi `GET /api/treatments/:id`.
+
+### `GET /api/treatments/:id`
+
+Trả thông tin thẻ, khách hàng, sản phẩm, cơ sở của hóa đơn gốc (nếu có) và `histories`; từng history chứa `staffs` cùng `commission_amount_snapshot`. Thành công `200`: `{ "message": "Lấy chi tiết liệu trình thành công", "data": { ... } }`; không tồn tại/đã xóa trả `404`.
+
+#### Cách gọi
+
+`id` là `treatments.id` của thẻ liệu trình cần xem:
+
+```http
+GET /api/treatments/17
+Authorization: Bearer <token>
+```
+
+Ví dụ cURL:
+
+```bash
+curl -X GET "http://localhost:5000/api/treatments/17" \
+  -H "Authorization: Bearer <token>"
+```
+
+Ví dụ JavaScript:
+
+```js
+const response = await fetch('http://localhost:5000/api/treatments/17', {
+  headers: {
+    Authorization: `Bearer ${token}`
+  }
+});
+
+const result = await response.json();
+```
+
+Endpoint này **không hỗ trợ query parameter**. Không truyền `customerId`, `invoiceId`, `branchId`, `status`, `startDate` hoặc `endDate` cho endpoint detail. Các bộ lọc đó chỉ dùng với `GET /api/treatments`.
+
+#### Các field trả về
+
+`data` gồm các field của bảng `treatments` và các field bổ sung:
+
+- `id`: ID thẻ liệu trình.
+- `customer_id`: ID khách hàng.
+- `product_id`: ID sản phẩm/dịch vụ.
+- `invoice_id`: ID hóa đơn sinh ra thẻ, có thể `null` nếu thẻ được tạo thủ công.
+- `total_sessions`: Tổng số buổi.
+- `remaining_sessions`: Số buổi còn lại.
+- `note`: Ghi chú của thẻ.
+- `created_at`, `updated_at`, `deleted_at`, `created_by`, `updated_by`, `deleted_by`.
+- `customer_name`, `phone_number`: Tên và số điện thoại khách hàng.
+- `product_name`: Tên sản phẩm/dịch vụ.
+- `branch_id`: Branch của hóa đơn gốc nếu có; thẻ tạo thủ công có thể là `null`. Đây không phải branch giới hạn quyền xem treatment.
+- `histories`: Danh sách các lần thực hiện dịch vụ, sắp xếp `execution_date` mới nhất trước.
+
+Mỗi phần tử trong `histories[]` gồm các field của `treatment_history`:
+
+- `id`, `treatment_id`, `branch_id`.
+- `execution_date`: Thời điểm thực hiện dịch vụ.
+- `created_at`, `updated_at`, `deleted_at`, `created_by`, `updated_by`, `deleted_by`.
+- `staffs`: Danh sách nhân viên được gán cho lần thực hiện đó.
+
+Mỗi phần tử trong `histories[].staffs[]` gồm các field của `treatment_history_staffs` và:
+
+- `id`, `treatment_history_id`, `staff_id`.
+- `commission_amount_snapshot`: Số tiền hoa hồng đã snapshot tại thời điểm gán nhân viên.
+- `staff_name`: Tên nhân viên.
+- `created_at`, `updated_at`, `deleted_at`, `created_by`, `updated_by`, `deleted_by`.
+
+Response thành công `200`:
+
+```json
+{
+  "message": "Lấy chi tiết liệu trình thành công",
+  "data": {
+    "id": 17,
+    "customer_id": 1,
+    "product_id": 12,
+    "invoice_id": 18,
+    "total_sessions": 5,
+    "remaining_sessions": 4,
+    "customer_name": "Phạm Khách Hàng",
+    "phone_number": "0912345678",
+    "product_name": "Peel da",
+    "branch_id": 1,
+    "histories": [
+      {
+        "id": 14,
+        "treatment_id": 17,
+        "branch_id": 1,
+        "execution_date": "2026-10-05T02:00:00.000Z",
+        "staffs": [
+          {
+            "id": 15,
+            "treatment_history_id": 14,
+            "staff_id": 7,
+            "staff_name": "Trần Kỹ Thuật",
+            "commission_amount_snapshot": "200000.00"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+Nếu `id` không tồn tại hoặc treatment đã bị soft delete, API trả `404`:
+
+```json
+{
+  "message": "Không tìm thấy thẻ liệu trình hoặc thẻ đã bị xóa"
+}
+```
+
+### `POST /api/treatments` — chỉ `MANAGER`
+
+Tạo thẻ thủ công.
+
+```json
+{
+  "customer_id": 1,
+  "product_id": 5,
+  "invoice_id": null,
+  "total_sessions": 10,
+  "remaining_sessions": 10,
+  "note": "Tặng thêm liệu trình"
+}
+```
+
+- `customer_id`, `product_id`, `total_sessions` bắt buộc; số buổi là số nguyên và `total_sessions > 0`.
+- `remaining_sessions` tùy chọn, mặc định bằng `total_sessions`, không được lớn hơn tổng số buổi.
+- Thành công `201`: `{ "message": "Tạo thẻ liệu trình thủ công thành công", "treatmentId": 1 }`.
+
+### `POST /api/treatments/execute`
+
+Trừ một buổi tại cơ sở thực tế khách đến làm.
+
+```json
+{
+  "treatment_id": 1,
+  "branch_id": 1,
+  "execution_date": "2026-10-05T09:00:00",
+  "staffs": [
+    { "staff_id": 2 }
+  ]
+}
+```
+- `treatment_id` bắt buộc. Với STAFF, `branch_id` có thể bỏ qua và backend tự lấy `branch_id` trong token; nếu truyền lên thì phải trùng token. Với MANAGER, `branch_id` bắt buộc.
+- `execution_date` tùy chọn (mặc định hiện tại). `staffs` tùy chọn; backend lấy role của mỗi staff, tra `product_commissions`, và tự snapshot hoa hồng. Không có cấu hình commission thì hoa hồng bằng `0`.
+- Bị chặn nếu thẻ hết buổi. Nếu product có `next_appointment_days` và còn buổi, backend tạo lịch hẹn tiếp theo tại `branch_id` thực hiện.
+- Thành công `201`: `{ "message": "Trừ buổi liệu trình thành công", "treatmentHistoryId": 1 }`.
+
+### `PUT /api/treatments/execute/:historyId/staffs`
+
+Gán lại toàn bộ nhân viên cho một history đã trừ buổi.
+
+```json
+{ "staffs": [{ "staff_id": 2 }, { "staff_id": 3 }] }
+```
+
+`staffs` bắt buộc là mảng và có thể rỗng. Mỗi request luôn xóa mềm các assignment/hoa hồng cũ của history trước khi xử lý danh sách mới:
+
+- Gửi `staffs: [{ "staff_id": 2 }]`: gán lại nhân viên và snapshot lại hoa hồng theo product commission/role hiện tại.
+- Gửi `staffs: []`: không gán nhân viên mới; toàn bộ `treatment_history_staffs` hiện có của history bị xóa mềm. Dùng khi không có người thực hiện hoặc cần hủy công/hoa hồng, ví dụ sau khi có khiếu nại.
+
+STAFF chỉ được chỉnh history cùng branch token và chỉ gán staff thuộc branch token; MANAGER không bị giới hạn branch. Khi `staffs: []`, STAFF vẫn phải có quyền trên branch của history.
+
+### `DELETE /api/treatments/execute/:historyId`
+
+Hoàn tác một lần thực hiện: cộng lại một buổi, xóa mềm history và toàn bộ staff/hoa hồng snapshot của history. STAFF chỉ được hoàn tác history tại branch trong token; MANAGER không bị giới hạn branch.
+
+### `GET /api/treatments/commissions`
+
+Báo cáo dòng hoa hồng đã snapshot. Query tùy chọn: `branchId`, `staffName`, `roleName`, `productId`, `startDate`, `endDate`.
+
+- STAFF luôn chỉ xem history và staff thuộc branch trong token; `branchId` gửi lên bị bỏ qua đối với STAFF. MANAGER có thể lọc bằng `branchId`.
+- Kết quả sắp xếp theo `branchId`, `staffName`, `staffId`, rồi `commission_amount_snapshot` tăng dần.
+- Thành công `200`: `{ "message": "Lấy danh sách hoa hồng nhân viên thành công", "total": 1, "data": [ ... ] }`.
+
+---
+
+## 20. MiniApp (Chưa sử dụng)
+Các endpoint `/api/miniapp/*` được định nghĩa nhưng chưa mount trong `src/server.js`.
+
+---
+
+## 21. Database và Lưu ý tích hợp
+Xem cấu trúc bảng trong tài liệu đính kèm. Hầu hết API danh mục không trả bản ghi bị `deleted_at IS NOT NULL`.

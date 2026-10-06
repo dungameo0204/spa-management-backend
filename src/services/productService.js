@@ -109,7 +109,7 @@ const createProduct = async (tenantId, productData, executorName) => {
         const {
             name, images, description, benefits, price, unit, is_product,
             is_treatment_combo = false, default_sessions = 1, session_unit = 'buổi',
-            next_appointment_days = 0, is_active = true, commissions, inventory
+            next_appointment_days = 0, commissions, inventory
         } = productData;
 
         if (!name || !String(name).trim()) throw new Error('Tên sản phẩm/dịch vụ không được để trống.');
@@ -145,13 +145,13 @@ const createProduct = async (tenantId, productData, executorName) => {
         const [result] = await connection.query(
             `INSERT INTO \`${dbName}\`.products
                 (name, images, description, benefits, price, unit, is_product, is_treatment_combo,
-                 default_sessions, session_unit, next_appointment_days, is_active, created_by)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                 default_sessions, session_unit, next_appointment_days, created_by)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
                 String(name).trim(), images === undefined || images === null ? null : JSON.stringify(images),
                 description || null, benefits || null, Number(price), unit || null,
                 toBooleanNumber(is_product, 'is_product'), toBooleanNumber(is_treatment_combo, 'is_treatment_combo'), Number(default_sessions),
-                session_unit || 'buổi', Number(next_appointment_days), toBooleanNumber(is_active, 'is_active'), executorName
+                session_unit || 'buổi', Number(next_appointment_days), executorName
             ]
         );
         const productId = result.insertId;
@@ -304,7 +304,7 @@ const updateProduct = async (tenantId, productId, updateData, executorName) => {
         const params = [];
         const allowedFields = [
             'description', 'benefits', 'unit', 'is_product', 'is_treatment_combo',
-            'default_sessions', 'session_unit', 'next_appointment_days', 'is_active', 'price'
+            'default_sessions', 'session_unit', 'next_appointment_days', 'price'
         ];
 
         if (updateData.name !== undefined) {
@@ -330,7 +330,7 @@ const updateProduct = async (tenantId, productId, updateData, executorName) => {
             if (['default_sessions', 'next_appointment_days'].includes(field)) {
                 toNumber(updateData[field], field, { min: 0, integer: true });
             }
-            if (['is_product', 'is_treatment_combo', 'is_active'].includes(field)) {
+            if (['is_product', 'is_treatment_combo'].includes(field)) {
                 updateFields.push(`${field} = ?`);
                 params.push(toBooleanNumber(updateData[field], field));
             } else {

@@ -61,6 +61,12 @@ docs/CONTEXT.md                File này
 | `/api/customers` | reset password public, còn lại token | Khách hàng |
 | `/api/products` | MANAGER | Product, commission, tồn đầu kỳ |
 | `/api/inventory-imports` | MANAGER | Phiếu nhập kho |
+| `/api/invoices` | Token | Tạo/xem/sửa/xóa hóa đơn; STAFF bị giới hạn cơ sở và ngày thao tác |
+| `/api/appointments` | Token | CRUD lịch hẹn; STAFF bị giới hạn branch token, MANAGER thao tác mọi branch |
+| `/api/customer-bookings` | Token | Chỉ đọc/tìm kiếm booking từ MiniApp; STAFF bị giới hạn branch token |
+| `/api/customer-wallet-logs` | Token | CRUD nạp ví; STAFF bị giới hạn branch token |
+| `/api/debt-payments` | Token | CRUD thu nợ; điều chỉnh `customers.total_debt`, STAFF bị giới hạn branch token |
+| `/api/treatments` | Token; POST thẻ thủ công chỉ MANAGER | Thẻ liệu trình, lịch sử thực hiện, hoa hồng |
 
 `miniappRoutes.js` là demo và chưa mount trong `server.js`; không ưu tiên cho tới khi chức năng quản trị hoàn thành. File không thể mount nguyên trạng vì router tham chiếu `getMyProfile` và `bookAppointment` chưa export từ controller.
 
@@ -82,16 +88,16 @@ docs/CONTEXT.md                File này
 | `roles` | Chức vụ | CRUD roles |
 | `staffs` | FK branches, roles | CRUD staffs |
 | `customers` | Customer, password, wallet/debt | CRUD customers |
-| `products` | Product/service, price, session, active | CRUD products |
+| `products` | Product/service, price, session; `is_active` legacy | CRUD products |
 | `product_commissions` | unique `(product_id, role_id)` | Nested products |
 | `inventory` | branch/product/quantity; unique `(branch_id, product_id)` | Tồn đầu kỳ/increase import, read nested product |
 | `inventory_imports` | Header nhập, code unique, FK branch | Create/list/detail import |
 | `inventory_import_items` | Snapshot product name/price/discount, FK import/product | Import detail |
-| `appointments`, `customer_bookings` | Lịch/booking | Chưa API |
-| `customer_wallet_logs`, `debt_payments` | Ví/thu nợ | Chưa API |
+| `appointments`, `customer_bookings` | Lịch/booking | Appointment CRUD; customer booking chỉ read/search |
+| `customer_wallet_logs`, `debt_payments` | Ví/thu nợ | CRUD wallet log và debt payment; debt payment có `branch_id` để phân quyền |
 | `expense_vouchers`, `bank_transactions` | Chi phí/giao dịch bank | Chưa API |
-| `invoices`, `invoice_items`, `invoice_item_consultants` | Bán hàng/hóa đơn | Chưa API |
-| `treatments`, `treatment_history`, `treatment_history_staffs` | Liệu trình | Chưa API |
+| `invoices`, `invoice_items`, `invoice_item_consultants` | Bán hàng/hóa đơn | CRUD invoice |
+| `treatments`, `treatment_history`, `treatment_history_staffs` | Liệu trình | Create/list/detail, execute/undo, staff commission |
 | `orders`, `order_items` | Online order | Chưa API |
 | `promotions`, `app_contents` | Khuyến mãi/nội dung app | Chưa API |
 
@@ -101,12 +107,13 @@ docs/CONTEXT.md                File này
 
 ### Product (`/api/products`)
 
-- Tất cả endpoint MANAGER-only.
+- POST/PUT/DELETE/restore chỉ MANAGER; GET list/detail dùng được bởi người có token.
 - Create bắt buộc `name`, `price`, `is_product`. `commissions` và `inventory` đều tùy chọn.
 - Create transaction: insert product -> commissions (nếu có) -> tồn ban đầu (nếu có).
 - Commission tùy chọn: có thể bỏ qua/gửi `null`/`[]`. Nếu có `{ role_id, commission_percent?, commission_fixed_amount? }`: role không lặp; percent 0–100.
 - Initial inventory tùy chọn: có thể bỏ qua/gửi `null`/`[]` (dịch vụ hoặc hàng hóa nhập sau). Nếu có dòng `{ branch_id, quantity }`: branch không lặp, quantity nguyên >= 0.
-- GET trả product + `commissions` kèm `role_name` + `inventory` kèm `branch_name`.
+- `is_active` còn trong schema cũ nhưng Product API cố ý bỏ qua khi create/update và không trả về response; khả dụng product dựa trên soft delete.
+- GET list tìm theo chuỗi con không phân biệt hoa/thường. GET detail trả product + `commissions` kèm `role_name` + `inventory` kèm `branch_name`.
 - PUT cho partial metadata và optional full-sync commissions; gửi `commissions: []` xóa mềm toàn bộ commission.
 - PUT không chỉnh inventory; tăng tồn phải tạo phiếu nhập.
 
@@ -118,6 +125,44 @@ docs/CONTEXT.md                File này
 - Không trust total từ frontend. Backend snapshot `product_name`, tính `total_price = qty*unit_price - qty*unit_price*discount_percent/100 - discount_amount`, không cho âm, cộng `total_amount`.
 - Cùng transaction: insert header -> items -> upsert inventory `quantity = quantity + imported quantity`.
 - Upsert phụ thuộc unique index `inventory(branch_id, product_id)`.
+
+## Invoice và treatment: quy tắc quan trọng
+
+### Invoice (`/api/invoices`)
+
+- Create/update nhận `items[].unit_price` (hoặc alias `items[].price`) là giá bán thực tế; chỉ khi không gửi hai field này mới dùng `products.price`.
+- Giá sử dụng được snapshot vào `invoice_items.snapshot_price`; tổng dòng/tổng hóa đơn được server tính lại sau chiết khấu.
+- Transaction đồng thời cập nhật ví, công nợ, tồn kho, invoice items và thẻ liệu trình tạo từ combo.
+- Bán hàng hóa dùng UPSERT theo unique `(branch_id, product_id)`: cho phép tồn âm; nếu branch chưa có dòng inventory của product thì tự tạo với quantity âm. Hoàn tồn khi update/delete cũng dùng cùng cơ chế để không bị bỏ qua khi thiếu dòng kho.
+- Khi xóa invoice, mỗi `invoice_item` hàng hóa chỉ được hoàn tồn kho đúng một lần trong cùng transaction.
+- STAFF chỉ xem/tạo/sửa/xóa invoice thuộc branch token; sửa/xóa chỉ invoice tạo trong ngày.
+- `items[].consultants` được kiểm tra theo branch: STAFF chỉ được chọn staff thuộc branch trong token; MANAGER có thể chọn staff ở branch khác. `revenue_amount` mỗi consultant phải `>= 0` và tổng chia sale của từng item không được vượt `final_price` sau chiết khấu. `paid_amount` bỏ qua sẽ mặc định bằng `0`.
+- Backend tự tính tiền invoice và bắt buộc `wallet_used <= total_amount`, `paid_amount + wallet_used <= total_amount`; không thể trừ ví hoặc ghi nhận tổng thanh toán vượt giá trị hóa đơn. Nếu tổng thanh toán nhỏ hơn tổng hóa đơn, phần chênh lệch là công nợ: `debt_amount = total_amount - paid_amount - wallet_used`.
+- `invoices.wallet_used` là cột DECIMAL riêng để lưu số tiền ví đã dùng; không lưu số tiền ví vào `payment_method`. Migration backfill dữ liệu legacy từng dùng marker `[WALLET:<amount>]`.
+- `GET /api/invoices?hasDebt=true` lọc hóa đơn có `invoices.debt_amount > 0`; `hasDebt=false` lọc hóa đơn có `debt_amount = 0`.
+- Không được sửa hoặc xóa invoice nếu tồn tại `debt_payments` active cùng `invoice_id`, nhằm tránh lệch `customers.total_debt` với sổ phiếu thu nợ.
+
+### Appointment (`/api/appointments`)
+
+- Có CRUD soft-delete: POST, GET list/detail, PUT partial và DELETE. List hỗ trợ `search`, `branchId`, `status`, `startDate`, `endDate`; trả thêm tên/số điện thoại khách và tên branch.
+- MANAGER phải truyền `branch_id` khi tạo và có thể tạo/sửa/chuyển/xóa lịch hẹn ở mọi branch active trong tenant.
+- STAFF tạo lịch hẹn luôn dùng branch token (bỏ qua `branch_id` body), chỉ xem/sửa/xóa lịch hẹn thuộc branch token và không thể chuyển lịch hẹn sang branch khác.
+- `customer_id` phải active, `appointment_date` hợp lệ; `status` mặc định `Chờ xử lý`, là chuỗi không rỗng tối đa 50 ký tự.
+
+### Customer booking và wallet (`/api/customer-bookings`, `/api/customer-wallet-logs`)
+
+- Customer booking là dữ liệu MiniApp: API quản trị chỉ có `GET /api/customer-bookings` để tìm kiếm/lọc; không tạo/sửa/xóa từ backend quản trị. STAFF chỉ xem branch token, MANAGER xem/lọc mọi branch.
+- Nạp ví qua `POST /api/customer-wallet-logs`: MANAGER bắt buộc gửi `branch_id`; STAFF bị ép branch token. Có thể nhập bonus theo `bonus_percent` hoặc `bonus_amount`; backend tính field còn lại (với `paid_amount = 0` chỉ nhận bonus amount) và `total_received`, sau đó insert log rồi tăng `customers.wallet_balance` trong cùng transaction. History có GET list/detail cùng giới hạn branch cho STAFF.
+- Thu nợ qua CRUD `/api/debt-payments`: amount phải lớn hơn 0, không vượt `customers.total_debt`; create/update/delete chạy transaction và lần lượt trừ/điều chỉnh/cộng lại `total_debt`. Bảng có `branch_id`; MANAGER phải chọn branch, STAFF bị ép branch token. `invoice_id` là tùy chọn nhưng nếu có phải là invoice active cùng customer/branch và tổng debt payment active không được vượt `invoices.debt_amount`.
+
+### Treatment (`/api/treatments`)
+
+- Thẻ liệu trình dùng xuyên cơ sở trong cùng tenant: mọi tài khoản có token được list/detail; treatment được tạo history tại branch thực tế. STAFF khi execute có thể bỏ qua `branch_id` và backend tự lấy branch token; MANAGER bắt buộc truyền `branch_id`. Lịch hẹn tự tạo sau khi execute có note `Lịch hẹn tự động từ liệu trình: <tên dịch vụ>`.
+- STAFF chỉ được execute, gán staff và hoàn tác history tại branch trong token; các staff được lưu vào `treatment_history_staffs` cũng phải thuộc branch token. MANAGER không bị giới hạn branch khi sửa/xóa/gán.
+- `PUT /api/treatments/execute/:historyId/staffs` nhận `staffs` là mảng, kể cả `[]`. Gửi mảng rỗng sẽ xóa mềm toàn bộ assignment/hoa hồng snapshot hiện có của history; quyền branch của STAFF vẫn được áp dụng.
+- `GET /api/treatments/commissions` khóa STAFF theo branch token ở cả history và staff; hỗ trợ `roleName`, `productId` và sắp xếp theo branch, staff name, staff id, commission.
+- `GET /api/treatments?invoiceId=...` lọc các thẻ liệu trình được sinh từ hóa đơn, không phụ thuộc hóa đơn được tạo ở branch nào.
+- Hoa hồng history được snapshot theo `product_commissions` và role của staff; không có rule hợp lệ thì bằng `0`.
 
 ## Migration tenant cũ
 
@@ -142,3 +187,8 @@ docs/CONTEXT.md                File này
 5. Dùng transaction khi nhiều bảng hoặc thay đổi số dư/tồn kho.
 6. Cập nhật API docs và CONTEXT.
 7. Chạy `node --check` cho toàn bộ `src/**/*.js`; test HTTP với MySQL khi schema sẵn sàng.
+
+## Cập nhật gần đây
+- Hoàn thiện API Invoices (Bán hàng): giá dòng ưu tiên frontend gửi (`unit_price`/`price`), fallback product price; tự động trừ tồn kho, sinh thẻ liệu trình, chặn sửa/xóa nếu liệu trình đã sử dụng.
+- Hoàn thiện API Treatments (Thẻ liệu trình): dùng xuyên cơ sở, tìm kiếm theo khách hàng/dịch vụ/khoảng thời gian, thực hiện/hoàn tác buổi và tính hoa hồng KTV.
+- Hoàn thiện API Expenses (Phiếu chi).

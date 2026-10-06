@@ -63,6 +63,18 @@ const getCustomers = async (tenantId, searchKeyword = '') => {
     return rows;
 };
 
+const getCustomerById = async (tenantId, customerId) => {
+    const dbName = await getTenantDbName(tenantId);
+    const [rows] = await masterPool.query(
+        `SELECT id, fullname, phone_number, avatar, address, wallet_balance, total_debt, note, created_at, updated_at, created_by, updated_by
+         FROM \`${dbName}\`.customers
+         WHERE id = ? AND deleted_at IS NULL`,
+        [customerId]
+    );
+    if (rows.length === 0) throw new Error('Khách hàng không tồn tại hoặc đã bị xóa.');
+    return rows[0];
+};
+
 const updateCustomer = async (tenantId, customerId, updateData, executorName) => {
     const dbName = await getTenantDbName(tenantId);
     
@@ -155,6 +167,7 @@ const restoreCustomer = async (tenantId, customerId, executorName) => {
 module.exports = { 
     createCustomer, 
     getCustomers, 
+    getCustomerById,
     updateCustomer, 
     deleteCustomer, 
     restoreCustomer,

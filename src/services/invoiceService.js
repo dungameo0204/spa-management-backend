@@ -19,12 +19,90 @@ const checkPermission = (userRole, targetDate) => {
     }
 };
 
+const getWalletUsedFromInvoice = (invoice) => {
+    if (invoice.wallet_used !== undefined && invoice.wallet_used !== null) {
+        return Number(invoice.wallet_used);
+    }
+    const match = invoice.payment_method ? invoice.payment_method.match(/\[WALLET:([0-9]+(?:\.[0-9]+)?)\]/) : null;
+    return match ? Number(match[1]) : 0;
+};
+
+const calculateDebtAmount = (totalAmount, paidAmount, walletUsed) => {
+    const paymentTotal = paidAmount + walletUsed;
+    const epsilon = 0.000001;
+
+    if (walletUsed > totalAmount + epsilon) {
+        throw new Error('wallet_used không được lớn hơn tổng tiền hóa đơn.');
+    }
+    if (paymentTotal > totalAmount + epsilon) {
+        throw new Error('Tổng wallet_used và paid_amount không được lớn hơn tổng tiền hóa đơn.');
+    }
+
+    return Math.max(totalAmount - paymentTotal, 0);
+};
+
+const ensureInvoiceHasNoDebtPayments = async (connection, dbName, invoiceId, action) => {
+    const [debtPayments] = await connection.query(
+        `SELECT id FROM \`${dbName}\`.debt_payments WHERE invoice_id = ? AND deleted_at IS NULL LIMIT 1 FOR UPDATE`,
+        [invoiceId]
+    );
+    if (debtPayments.length > 0) {
+        throw new Error(`Không thể ${action} hóa đơn đã có phiếu thu nợ.`);
+    }
+};
+
+const validateConsultants = async (connection, dbName, consultants, itemFinalPrice, userRole, userBranchId) => {
+    if (consultants === undefined || consultants === null) return [];
+    if (!Array.isArray(consultants)) throw new Error('consultants phải là một mảng.');
+
+    const normalizedRole = String(userRole).toUpperCase();
+    const normalizedConsultants = [];
+    let totalRevenueAmount = 0;
+    for (const consultant of consultants) {
+        const staffId = toNumber(consultant.staff_id, 'consultant.staff_id', { min: 1, integer: true });
+        const revenueAmount = toNumber(consultant.revenue_amount ?? 0, 'consultant.revenue_amount', { min: 0 });
+        const [staffs] = await connection.query(
+            `SELECT id, branch_id FROM \`${dbName}\`.staffs WHERE id = ? AND deleted_at IS NULL`,
+            [staffId]
+        );
+        if (staffs.length === 0) throw new Error(`Nhân viên tư vấn ID ${staffId} không tồn tại.`);
+        if (normalizedRole === 'STAFF' && Number(staffs[0].branch_id) !== Number(userBranchId)) {
+            throw new Error(`Nhân viên tư vấn ID ${staffId} không thuộc cơ sở của tài khoản STAFF.`);
+        }
+
+        totalRevenueAmount += revenueAmount;
+        normalizedConsultants.push({
+            staff_id: staffId,
+            revenue_amount: revenueAmount,
+            role_type: consultant.role_type || null
+        });
+    }
+
+    if (totalRevenueAmount > Number(itemFinalPrice) + 0.000001) {
+        throw new Error('Tổng revenue_amount của nhân viên tư vấn không được lớn hơn thành tiền của mặt hàng.');
+    }
+
+    return normalizedConsultants;
+};
+
+const adjustInventory = async (connection, dbName, branchId, productId, quantityDelta, executorName) => {
+    await connection.query(
+        `INSERT INTO \`${dbName}\`.inventory (branch_id, product_id, quantity, created_by, updated_by)
+         VALUES (?, ?, ?, ?, ?)
+         ON DUPLICATE KEY UPDATE
+             quantity = quantity + VALUES(quantity),
+             updated_at = NOW(),
+             updated_by = VALUES(updated_by)`,
+        [branchId, productId, quantityDelta, executorName, executorName]
+    );
+};
+
 const createInvoice = async (tenantId, invoiceData, executorName, userRole, userBranchId) => {
     const dbName = await getTenantDbName(tenantId);
     const connection = await masterPool.getConnection();
 
     try {
-        let { customer_id, branch_id, discount_percent = 0, discount_amount = 0, paid_amount, wallet_used, payment_method, note, invoice_date, items } = invoiceData;
+        let { customer_id, branch_id, discount_percent = 0, discount_amount = 0, paid_amount = 0, wallet_used, payment_method, note, invoice_date, items } = invoiceData;
 
         // 1. Phân quyền chi nhánh
         if (String(userRole).toUpperCase() !== 'MANAGER') branch_id = userBranchId;
@@ -43,11 +121,6 @@ const createInvoice = async (tenantId, invoiceData, executorName, userRole, user
         const [customers] = await connection.query(`SELECT id, wallet_balance FROM \`${dbName}\`.customers WHERE id = ? AND deleted_at IS NULL FOR UPDATE`, [customerId]);
         if (customers.length === 0) throw new Error('Khách hàng không tồn tại.');
         
-        const customerWallet = Number(customers[0].wallet_balance);
-        if (walletUsed > 0 && customerWallet < walletUsed) {
-            throw new Error(`Số dư ví (${customerWallet.toLocaleString()}đ) không đủ để trích ${walletUsed.toLocaleString()}đ. Vui lòng thanh toán phần còn thiếu bằng hình thức khác.`);
-        }
-
         // 2. Tính tiền Items
         let grossAmount = 0;
         const normalizedItems = [];
@@ -61,17 +134,23 @@ const createInvoice = async (tenantId, invoiceData, executorName, userRole, user
             const [products] = await connection.query(`SELECT name, price, is_product, is_treatment_combo, default_sessions FROM \`${dbName}\`.products WHERE id = ? AND deleted_at IS NULL`, [productId]);
             if (products.length === 0) throw new Error(`Sản phẩm/Dịch vụ ID ${productId} không tồn tại.`);
             const product = products[0];
+            const unitPrice = item.unit_price !== undefined
+                ? toNumber(item.unit_price, 'unit_price')
+                : item.price !== undefined
+                    ? toNumber(item.price, 'price')
+                    : Number(product.price);
 
-            const itemGross = quantity * Number(product.price);
+            const itemGross = quantity * unitPrice;
             const itemFinalPrice = itemGross - (itemGross * itemDiscountPercent / 100) - itemDiscountAmount;
             if (itemFinalPrice < 0) throw new Error(`Chiết khấu của '${product.name}' vượt quá thành tiền.`);
+            const consultants = await validateConsultants(connection, dbName, item.consultants, itemFinalPrice, userRole, userBranchId);
 
             grossAmount += itemFinalPrice;
 
             normalizedItems.push({
-                product_id: productId, snapshot_name: product.name, snapshot_price: product.price, quantity,
+                product_id: productId, snapshot_name: product.name, snapshot_price: unitPrice, quantity,
                 is_product: product.is_product, is_treatment_combo: product.is_treatment_combo, default_sessions: product.default_sessions,
-                discount_percent: itemDiscountPercent, discount_amount: itemDiscountAmount, final_price: itemFinalPrice, consultants: item.consultants || []
+                discount_percent: itemDiscountPercent, discount_amount: itemDiscountAmount, final_price: itemFinalPrice, consultants
             });
         }
 
@@ -82,39 +161,38 @@ const createInvoice = async (tenantId, invoiceData, executorName, userRole, user
         if (totalAmount < 0) throw new Error('Chiết khấu tổng vượt quá giá trị hóa đơn.');
 
         const paid = toNumber(paid_amount, 'paid_amount', { min: 0 });
-        const debtAmount = totalAmount > paid ? totalAmount - paid : 0;
+        const debtAmount = calculateDebtAmount(totalAmount, paid, walletUsed);
+        const customerWallet = Number(customers[0].wallet_balance);
+        if (walletUsed > 0 && customerWallet < walletUsed) {
+            throw new Error(`Số dư ví (${customerWallet.toLocaleString()}đ) không đủ để trích ${walletUsed.toLocaleString()}đ. Vui lòng thanh toán phần còn thiếu bằng hình thức khác.`);
+        }
 
-        // Lưu thông tin ví vào payment_method
-        let finalPaymentMethod = payment_method || 'Tiền mặt';
-        if (walletUsed > 0) finalPaymentMethod += ` [WALLET:${walletUsed}]`;
+        const finalPaymentMethod = payment_method || 'Tiền mặt';
 
         // 3. Insert Database
         const [invResult] = await connection.query(
-            `INSERT INTO \`${dbName}\`.invoices (customer_id, branch_id, total_amount, discount_percent, discount_amount, paid_amount, debt_amount, payment_method, note, invoice_date, created_by)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, NOW()), ?)`,
-            [customerId, branchId, totalAmount, invDiscountPercent, invDiscountAmount, paid, debtAmount, finalPaymentMethod, note || null, invoice_date || null, executorName]
+            `INSERT INTO \`${dbName}\`.invoices (customer_id, branch_id, total_amount, discount_percent, discount_amount, paid_amount, wallet_used, debt_amount, payment_method, note, invoice_date, created_by)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, NOW()), ?)`,
+            [customerId, branchId, totalAmount, invDiscountPercent, invDiscountAmount, paid, walletUsed, debtAmount, finalPaymentMethod, note || null, invoice_date || null, executorName]
         );
         const invoiceId = invResult.insertId;
 
         for (const item of normalizedItems) {
             const [itemResult] = await connection.query(
-                `INSERT INTO \`${dbName}\`.invoice_items (invoice_id, product_id, snapshot_name, snapshot_price, quantity, discount_percent, discount_amount, final_price, created_by)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                `INSERT INTO \`${dbName}\`.invoice_items (invoice_id, product_id, snapshot_name, snapshot_price, quantity, discount_percent, discount_amount, final_price, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                 [invoiceId, item.product_id, item.snapshot_name, item.snapshot_price, item.quantity, item.discount_percent, item.discount_amount, item.final_price, executorName]
             );
             const invoiceItemId = itemResult.insertId;
 
-            // Thêm tư vấn viên (nếu có)
-            if (Array.isArray(item.consultants) && item.consultants.length > 0) {
+            if (item.consultants && item.consultants.length > 0) {
                 for (const consultant of item.consultants) {
                     await connection.query(
                         `INSERT INTO \`${dbName}\`.invoice_item_consultants (invoice_item_id, staff_id, revenue_amount, role_type, created_by) VALUES (?, ?, ?, ?, ?)`,
-                        [invoiceItemId, consultant.staff_id, consultant.revenue_amount || 0, consultant.role_type || null, executorName]
+                        [invoiceItemId, consultant.staff_id, consultant.revenue_amount, consultant.role_type, executorName]
                     );
                 }
             }
 
-            // Sinh liệu trình tự động
             if (item.is_product === 0 || item.is_treatment_combo === 1) {
                 const totalSessions = item.default_sessions * item.quantity;
                 if (totalSessions > 0) {
@@ -123,6 +201,10 @@ const createInvoice = async (tenantId, invoiceData, executorName, userRole, user
                         [customerId, item.product_id, invoiceId, totalSessions, totalSessions, executorName]
                     );
                 }
+            }
+
+            if (item.is_product === 1) {
+                await adjustInventory(connection, dbName, branchId, item.product_id, -item.quantity, executorName);
             }
         }
 
@@ -166,10 +248,22 @@ const getInvoices = async (tenantId, filters, userRole, userBranchId) => {
         params.push(`%${filters.searchKeyword}%`, `%${filters.searchKeyword}%`, `%${filters.searchKeyword}%`);
     }
     if (filters.startDate) { query += ' AND DATE(i.invoice_date) >= ?'; params.push(filters.startDate); }
+    if (filters.startDate) { query += ' AND DATE(i.invoice_date) >= ?'; params.push(filters.startDate); }
     if (filters.endDate) { query += ' AND DATE(i.invoice_date) <= ?'; params.push(filters.endDate); }
     
     if (filters.minAmount !== undefined) { query += ' AND i.total_amount >= ?'; params.push(toNumber(filters.minAmount, 'minAmount', { min: 0 })); }
     if (filters.maxAmount !== undefined) { query += ' AND i.total_amount <= ?'; params.push(toNumber(filters.maxAmount, 'maxAmount', { min: 0 })); }
+
+    if (filters.hasDebt !== undefined && filters.hasDebt !== '') {
+        const hasDebt = String(filters.hasDebt).trim().toLowerCase();
+        if (['true', '1'].includes(hasDebt)) {
+            query += ' AND i.debt_amount > 0';
+        } else if (['false', '0'].includes(hasDebt)) {
+            query += ' AND i.debt_amount = 0';
+        } else {
+            throw new Error('hasDebt chỉ nhận true/false hoặc 1/0.');
+        }
+    }
     
     if (filters.productName) {
         query += ` AND EXISTS (SELECT 1 FROM \`${dbName}\`.invoice_items ii WHERE ii.invoice_id = i.id AND ii.snapshot_name LIKE ? AND ii.deleted_at IS NULL)`;
@@ -179,7 +273,7 @@ const getInvoices = async (tenantId, filters, userRole, userBranchId) => {
     query += ' ORDER BY i.invoice_date DESC, i.created_at DESC';
     const [rows] = await masterPool.query(query, params);
     
-    // Format lại chuỗi payment_method để giấu thẻ [WALLET:xxx] khỏi UI Frontend
+    // Tương thích dữ liệu cũ từng lưu wallet vào payment_method.
     return rows.map(row => ({
         ...row,
         payment_method: row.payment_method ? row.payment_method.replace(/\s*\[WALLET:\d+\]/, '') : ''
@@ -231,9 +325,22 @@ const updateInvoice = async (tenantId, invoiceId, updateData, executorName, user
         const oldInvoice = headers[0];
         if (String(userRole).toUpperCase() !== 'MANAGER' && oldInvoice.branch_id !== userBranchId) throw new Error('Bạn không có quyền sửa hóa đơn của cơ sở khác.');
         checkPermission(userRole, oldInvoice.created_at);
+        await ensureInvoiceHasNoDebtPayments(connection, dbName, invoiceId, 'sửa');
+        const [guardTreatments] = await connection.query(
+            `SELECT id FROM \`${dbName}\`.treatments WHERE invoice_id = ? AND deleted_at IS NULL`,
+            [invoiceId]
+        );
+        for (const t of guardTreatments) {
+            const [histories] = await connection.query(
+                `SELECT id FROM \`${dbName}\`.treatment_history WHERE treatment_id = ? AND deleted_at IS NULL LIMIT 1`,
+                [t.id]
+            );
+            if (histories.length > 0) {
+                throw new Error('Không thể sửa/xóa hóa đơn vì thẻ liệu trình đã được khách hàng sử dụng (đã trừ buổi). Vui lòng hoàn tác lịch sử sử dụng liệu trình trước.');
+            }
+        }
 
-        const match = oldInvoice.payment_method ? oldInvoice.payment_method.match(/\[WALLET:(\d+)\]/) : null;
-        const oldWalletUsed = match ? Number(match[1]) : 0;
+        const oldWalletUsed = getWalletUsedFromInvoice(oldInvoice);
 
         // 1. Hoàn trả Công nợ & Ví cho KH cũ
         if (oldInvoice.debt_amount > 0 || oldWalletUsed > 0) {
@@ -245,8 +352,14 @@ const updateInvoice = async (tenantId, invoiceId, updateData, executorName, user
 
         // Xóa mềm Items & Treatments
         await connection.query(`UPDATE \`${dbName}\`.treatments SET deleted_at = NOW(), deleted_by = ? WHERE invoice_id = ?`, [executorName, invoiceId]);
-        const [oldItems] = await connection.query(`SELECT id FROM \`${dbName}\`.invoice_items WHERE invoice_id = ?`, [invoiceId]);
+        const [oldItems] = await connection.query(`SELECT id, product_id, quantity FROM \`${dbName}\`.invoice_items WHERE invoice_id = ? AND deleted_at IS NULL`, [invoiceId]);
         if (oldItems.length > 0) {
+            for (const item of oldItems) {
+                const [products] = await connection.query(`SELECT is_product FROM \`${dbName}\`.products WHERE id = ?`, [item.product_id]);
+                if (products.length > 0 && products[0].is_product === 1) {
+                    await adjustInventory(connection, dbName, oldInvoice.branch_id, item.product_id, item.quantity, executorName);
+                }
+            }
             await connection.query(`UPDATE \`${dbName}\`.invoice_item_consultants SET deleted_at = NOW(), deleted_by = ? WHERE invoice_item_id IN (?)`, [executorName, oldItems.map(i => i.id)]);
             await connection.query(`UPDATE \`${dbName}\`.invoice_items SET deleted_at = NOW(), deleted_by = ? WHERE invoice_id = ?`, [executorName, invoiceId]);
         }
@@ -257,9 +370,6 @@ const updateInvoice = async (tenantId, invoiceId, updateData, executorName, user
         if (newCustomers.length === 0) throw new Error('Khách hàng mới không tồn tại.');
         
         const newWalletUsed = updateData.wallet_used !== undefined ? toNumber(updateData.wallet_used, 'wallet_used', { min: 0 }) : oldWalletUsed;
-        if (newWalletUsed > 0 && Number(newCustomers[0].wallet_balance) < newWalletUsed) {
-            throw new Error(`Số dư ví không đủ để trích ${newWalletUsed.toLocaleString()}đ.`);
-        }
 
         let grossAmount = 0;
         const normalizedItems = [];
@@ -267,29 +377,43 @@ const updateInvoice = async (tenantId, invoiceId, updateData, executorName, user
             const productId = toNumber(item.product_id, 'product_id', { min: 1, integer: true });
             const quantity = toNumber(item.quantity, 'quantity', { min: 1, integer: true });
             const [products] = await connection.query(`SELECT name, price, is_product, is_treatment_combo, default_sessions FROM \`${dbName}\`.products WHERE id = ?`, [productId]);
-            const itemFinalPrice = (quantity * Number(products[0].price)) - (quantity * Number(products[0].price) * toNumber(item.discount_percent ?? 0) / 100) - toNumber(item.discount_amount ?? 0);
+            if (products.length === 0) throw new Error(`Sản phẩm/Dịch vụ ID ${productId} không tồn tại.`);
+            const unitPrice = item.unit_price !== undefined
+                ? toNumber(item.unit_price, 'unit_price')
+                : item.price !== undefined
+                    ? toNumber(item.price, 'price')
+                    : Number(products[0].price);
+            const itemDiscountPercent = toNumber(item.discount_percent ?? 0, 'discount_percent');
+            const itemDiscountAmount = toNumber(item.discount_amount ?? 0, 'discount_amount');
+            const itemGross = quantity * unitPrice;
+            const itemFinalPrice = itemGross - (itemGross * itemDiscountPercent / 100) - itemDiscountAmount;
+            if (itemFinalPrice < 0) throw new Error(`Chiết khấu của '${products[0].name}' vượt quá thành tiền.`);
+            const consultants = await validateConsultants(connection, dbName, item.consultants, itemFinalPrice, userRole, userBranchId);
             grossAmount += itemFinalPrice;
 
             normalizedItems.push({
-                product_id: productId, snapshot_name: products[0].name, snapshot_price: products[0].price, quantity,
+                product_id: productId, snapshot_name: products[0].name, snapshot_price: unitPrice, quantity,
                 is_product: products[0].is_product, is_treatment_combo: products[0].is_treatment_combo, default_sessions: products[0].default_sessions,
-                discount_percent: item.discount_percent ?? 0, discount_amount: item.discount_amount ?? 0, final_price: itemFinalPrice, consultants: item.consultants || []
+                discount_percent: itemDiscountPercent, discount_amount: itemDiscountAmount, final_price: itemFinalPrice, consultants
             });
         }
 
         const invDiscountPercent = updateData.discount_percent !== undefined ? toNumber(updateData.discount_percent, 'discount_percent') : oldInvoice.discount_percent;
         const invDiscountAmount = updateData.discount_amount !== undefined ? toNumber(updateData.discount_amount, 'discount_amount') : oldInvoice.discount_amount;
         const totalAmount = grossAmount - (grossAmount * invDiscountPercent / 100) - invDiscountAmount;
+        if (totalAmount < 0) throw new Error('Chiết khấu tổng vượt quá giá trị hóa đơn.');
         const paid = updateData.paid_amount !== undefined ? toNumber(updateData.paid_amount, 'paid_amount', { min: 0 }) : oldInvoice.paid_amount;
-        const debtAmount = totalAmount > paid ? totalAmount - paid : 0;
+        const debtAmount = calculateDebtAmount(totalAmount, paid, newWalletUsed);
+        if (newWalletUsed > 0 && Number(newCustomers[0].wallet_balance) < newWalletUsed) {
+            throw new Error(`Số dư ví không đủ để trích ${newWalletUsed.toLocaleString()}đ.`);
+        }
 
-        let basePaymentMethod = updateData.payment_method ? updateData.payment_method : (oldInvoice.payment_method ? oldInvoice.payment_method.replace(/\s*\[WALLET:\d+\]/, '') : 'Tiền mặt');
-        if (newWalletUsed > 0) basePaymentMethod += ` [WALLET:${newWalletUsed}]`;
+        const basePaymentMethod = updateData.payment_method ? updateData.payment_method : (oldInvoice.payment_method ? oldInvoice.payment_method.replace(/\s*\[WALLET:[0-9]+(?:\.[0-9]+)?\]/, '') : 'Tiền mặt');
 
         // 3. Insert & Update Database
         await connection.query(
-            `UPDATE \`${dbName}\`.invoices SET customer_id = ?, total_amount = ?, discount_percent = ?, discount_amount = ?, paid_amount = ?, debt_amount = ?, payment_method = ?, note = ?, invoice_date = COALESCE(?, invoice_date), updated_by = ? WHERE id = ?`,
-            [newCustomerId, totalAmount, invDiscountPercent, invDiscountAmount, paid, debtAmount, basePaymentMethod, updateData.note || oldInvoice.note, updateData.invoice_date || null, executorName, invoiceId]
+            `UPDATE \`${dbName}\`.invoices SET customer_id = ?, total_amount = ?, discount_percent = ?, discount_amount = ?, paid_amount = ?, wallet_used = ?, debt_amount = ?, payment_method = ?, note = ?, invoice_date = COALESCE(?, invoice_date), updated_by = ? WHERE id = ?`,
+            [newCustomerId, totalAmount, invDiscountPercent, invDiscountAmount, paid, newWalletUsed, debtAmount, basePaymentMethod, updateData.note || oldInvoice.note, updateData.invoice_date || null, executorName, invoiceId]
         );
 
         for (const item of normalizedItems) {
@@ -298,11 +422,14 @@ const updateInvoice = async (tenantId, invoiceId, updateData, executorName, user
                 [invoiceId, item.product_id, item.snapshot_name, item.snapshot_price, item.quantity, item.discount_percent, item.discount_amount, item.final_price, executorName]
             );
             if (item.consultants.length > 0) {
-                for (const c of item.consultants) await connection.query(`INSERT INTO \`${dbName}\`.invoice_item_consultants (invoice_item_id, staff_id, revenue_amount, role_type, created_by) VALUES (?, ?, ?, ?, ?)`, [itemResult.insertId, c.staff_id, c.revenue_amount || 0, c.role_type || null, executorName]);
+                for (const c of item.consultants) await connection.query(`INSERT INTO \`${dbName}\`.invoice_item_consultants (invoice_item_id, staff_id, revenue_amount, role_type, created_by) VALUES (?, ?, ?, ?, ?)`, [itemResult.insertId, c.staff_id, c.revenue_amount, c.role_type, executorName]);
             }
             if (item.is_product === 0 || item.is_treatment_combo === 1) {
                 const ts = item.default_sessions * item.quantity;
                 if (ts > 0) await connection.query(`INSERT INTO \`${dbName}\`.treatments (customer_id, product_id, invoice_id, total_sessions, remaining_sessions, created_by) VALUES (?, ?, ?, ?, ?, ?)`, [newCustomerId, item.product_id, invoiceId, ts, ts, executorName]);
+            }
+            if (item.is_product === 1) {
+                await adjustInventory(connection, dbName, oldInvoice.branch_id, item.product_id, -item.quantity, executorName);
             }
         }
 
@@ -333,9 +460,22 @@ const deleteInvoice = async (tenantId, invoiceId, executorName, userRole, userBr
         const oldInvoice = headers[0];
         if (String(userRole).toUpperCase() !== 'MANAGER' && oldInvoice.branch_id !== userBranchId) throw new Error('Bạn không có quyền xóa hóa đơn của cơ sở khác.');
         checkPermission(userRole, oldInvoice.created_at);
+        await ensureInvoiceHasNoDebtPayments(connection, dbName, invoiceId, 'xóa');
+        const [guardTreatments] = await connection.query(
+            `SELECT id FROM \`${dbName}\`.treatments WHERE invoice_id = ? AND deleted_at IS NULL`,
+            [invoiceId]
+        );
+        for (const t of guardTreatments) {
+            const [histories] = await connection.query(
+                `SELECT id FROM \`${dbName}\`.treatment_history WHERE treatment_id = ? AND deleted_at IS NULL LIMIT 1`,
+                [t.id]
+            );
+            if (histories.length > 0) {
+                throw new Error('Không thể sửa/xóa hóa đơn vì thẻ liệu trình đã được khách hàng sử dụng (đã trừ buổi). Vui lòng hoàn tác lịch sử sử dụng liệu trình trước.');
+            }
+        }
 
-        const match = oldInvoice.payment_method ? oldInvoice.payment_method.match(/\[WALLET:(\d+)\]/) : null;
-        const oldWalletUsed = match ? Number(match[1]) : 0;
+        const oldWalletUsed = getWalletUsedFromInvoice(oldInvoice);
 
         if (oldInvoice.debt_amount > 0 || oldWalletUsed > 0) {
             await connection.query(
@@ -347,8 +487,14 @@ const deleteInvoice = async (tenantId, invoiceId, executorName, userRole, userBr
         await connection.query(`UPDATE \`${dbName}\`.invoices SET deleted_at = NOW(), deleted_by = ? WHERE id = ?`, [executorName, invoiceId]);
         await connection.query(`UPDATE \`${dbName}\`.treatments SET deleted_at = NOW(), deleted_by = ? WHERE invoice_id = ?`, [executorName, invoiceId]);
         
-        const [oldItems] = await connection.query(`SELECT id FROM \`${dbName}\`.invoice_items WHERE invoice_id = ?`, [invoiceId]);
+        const [oldItems] = await connection.query(`SELECT id, product_id, quantity FROM \`${dbName}\`.invoice_items WHERE invoice_id = ? AND deleted_at IS NULL`, [invoiceId]);
         if (oldItems.length > 0) {
+            for (const item of oldItems) {
+                const [products] = await connection.query(`SELECT is_product FROM \`${dbName}\`.products WHERE id = ?`, [item.product_id]);
+                if (products.length > 0 && products[0].is_product === 1) {
+                    await adjustInventory(connection, dbName, oldInvoice.branch_id, item.product_id, item.quantity, executorName);
+                }
+            }
             await connection.query(`UPDATE \`${dbName}\`.invoice_item_consultants SET deleted_at = NOW(), deleted_by = ? WHERE invoice_item_id IN (?)`, [executorName, oldItems.map(i => i.id)]);
             await connection.query(`UPDATE \`${dbName}\`.invoice_items SET deleted_at = NOW(), deleted_by = ? WHERE invoice_id = ?`, [executorName, invoiceId]);
         }

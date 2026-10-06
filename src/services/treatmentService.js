@@ -44,19 +44,26 @@ const executeTreatmentSession = async (tenantId, historyData, executorName, user
     const connection = await masterPool.getConnection();
 
     try {
-        let { treatment_id, branch_id, execution_date, staffs } = historyData;
-
-        if (String(userRole).toUpperCase() !== 'MANAGER') branch_id = userBranchId;
-        else if (!branch_id) throw new Error('Quản lý bắt buộc phải truyền branch_id.');
+        const { treatment_id, branch_id, execution_date, staffs } = historyData;
 
         const treatmentId = toNumber(treatment_id, 'treatment_id', { min: 1, integer: true });
-        const branchId = toNumber(branch_id, 'branch_id', { min: 1, integer: true });
+        const normalizedRole = String(userRole).toUpperCase();
+        const branchId = normalizedRole === 'STAFF'
+            ? toNumber(userBranchId, 'branch_id', { min: 1, integer: true })
+            : toNumber(branch_id, 'branch_id', { min: 1, integer: true });
+
+        if (normalizedRole === 'MANAGER' && branch_id === undefined) {
+            throw new Error('Tài khoản MANAGER bắt buộc phải truyền branch_id.');
+        }
+        if (normalizedRole === 'STAFF' && branch_id !== undefined && Number(branch_id) !== branchId) {
+            throw new Error('Tài khoản STAFF chỉ được thực hiện liệu trình tại cơ sở trong token.');
+        }
 
         await connection.beginTransaction();
 
         // 1. Kiểm tra thẻ liệu trình & Lấy thông tin Dịch vụ (Để tính hoa hồng + Lịch hẹn)
         const [treatments] = await connection.query(
-            `SELECT t.customer_id, t.remaining_sessions, t.product_id, p.price, p.next_appointment_days 
+            `SELECT t.customer_id, t.remaining_sessions, t.product_id, p.name AS product_name, p.price, p.next_appointment_days 
              FROM \`${dbName}\`.treatments t
              INNER JOIN \`${dbName}\`.products p ON t.product_id = p.id
              WHERE t.id = ? AND t.deleted_at IS NULL FOR UPDATE`, 
@@ -91,7 +98,7 @@ const executeTreatmentSession = async (tenantId, historyData, executorName, user
                 `INSERT INTO \`${dbName}\`.appointments 
                     (customer_id, branch_id, appointment_date, note, status, created_by) 
                  VALUES (?, ?, ?, ?, ?, ?)`,
-                [treatment.customer_id, branchId, baseDate, 'Lịch hẹn tự động từ liệu trình', 'Chờ xử lý', executorName]
+                [treatment.customer_id, branchId, baseDate, `Lịch hẹn tự động từ liệu trình: ${treatment.product_name}`, 'Chờ xử lý', executorName]
             );
         }
 
@@ -101,8 +108,11 @@ const executeTreatmentSession = async (tenantId, historyData, executorName, user
                 const staffId = toNumber(staff.staff_id, 'staff_id', { min: 1, integer: true });
                 
                 // Lấy role_id của nhân viên đó
-                const [staffInfo] = await connection.query(`SELECT role_id FROM \`${dbName}\`.staffs WHERE id = ? AND deleted_at IS NULL`, [staffId]);
+                const [staffInfo] = await connection.query(`SELECT role_id, branch_id FROM \`${dbName}\`.staffs WHERE id = ? AND deleted_at IS NULL`, [staffId]);
                 if (staffInfo.length === 0) throw new Error(`Nhân viên ID ${staffId} không tồn tại.`);
+                if (normalizedRole === 'STAFF' && Number(staffInfo[0].branch_id) !== branchId) {
+                    throw new Error(`Nhân viên ID ${staffId} không thuộc cơ sở của tài khoản STAFF.`);
+                }
                 const roleId = staffInfo[0].role_id;
 
                 // Tra cứu bảng product_commissions
@@ -146,7 +156,7 @@ const assignStaffToHistory = async (tenantId, historyId, staffData, executorName
     
     // Kiểm tra lịch sử tồn tại & Lấy thông tin để tính hoa hồng
     const [histories] = await masterPool.query(
-        `SELECT th.branch_id, t.product_id, p.price 
+        `SELECT th.branch_id, t.product_id, p.price
          FROM \`${dbName}\`.treatment_history th
          INNER JOIN \`${dbName}\`.treatments t ON th.treatment_id = t.id
          INNER JOIN \`${dbName}\`.products p ON t.product_id = p.id
@@ -156,12 +166,13 @@ const assignStaffToHistory = async (tenantId, historyId, staffData, executorName
     if (histories.length === 0) throw new Error('Lịch sử thực hiện không tồn tại.');
     
     const history = histories[0];
-    if (String(userRole).toUpperCase() !== 'MANAGER' && history.branch_id !== userBranchId) {
+    const normalizedRole = String(userRole).toUpperCase();
+    if (normalizedRole === 'STAFF' && Number(history.branch_id) !== Number(userBranchId)) {
         throw new Error('Bạn không có quyền thao tác trên lịch sử của cơ sở khác.');
     }
 
     const { staffs } = staffData;
-    if (!Array.isArray(staffs) || staffs.length === 0) throw new Error('Danh sách nhân viên không được để trống.');
+    if (!Array.isArray(staffs)) throw new Error('staffs phải là một mảng.');
 
     const connection = await masterPool.getConnection();
     try {
@@ -173,13 +184,17 @@ const assignStaffToHistory = async (tenantId, historyId, staffData, executorName
             [executorName, historyId]
         );
 
-        // TỰ ĐỘNG TÍNH HOA HỒNG & Lưu mới
+        // staffs: [] hợp lệ để xóa toàn bộ assignment/hoa hồng của history.
+        // TỰ ĐỘNG TÍNH HOA HỒNG & Lưu mới nếu frontend gửi nhân viên.
         for (const staff of staffs) {
             const staffId = toNumber(staff.staff_id, 'staff_id', { min: 1, integer: true });
             
             // Lấy role_id của nhân viên
-            const [staffInfo] = await connection.query(`SELECT role_id FROM \`${dbName}\`.staffs WHERE id = ? AND deleted_at IS NULL`, [staffId]);
+            const [staffInfo] = await connection.query(`SELECT role_id, branch_id FROM \`${dbName}\`.staffs WHERE id = ? AND deleted_at IS NULL`, [staffId]);
             if (staffInfo.length === 0) throw new Error(`Nhân viên ID ${staffId} không tồn tại.`);
+            if (normalizedRole === 'STAFF' && Number(staffInfo[0].branch_id) !== Number(userBranchId)) {
+                throw new Error(`Nhân viên ID ${staffId} không thuộc cơ sở của tài khoản STAFF.`);
+            }
             const roleId = staffInfo[0].role_id;
 
             // Tra cứu bảng product_commissions
@@ -222,7 +237,7 @@ const getStaffCommissions = async (tenantId, filters, userRole, userBranchId) =>
     let query = `
         SELECT ths.id, ths.treatment_history_id, ths.commission_amount_snapshot, ths.created_at,
                th.execution_date, th.branch_id, b.name AS branch_name,
-               s.fullname AS staff_name, r.name AS role_name,
+               s.id AS staff_id, s.fullname AS staff_name, r.name AS role_name,
                t.product_id, p.name AS product_name, c.fullname AS customer_name
         FROM \`${dbName}\`.treatment_history_staffs ths
         INNER JOIN \`${dbName}\`.treatment_history th ON ths.treatment_history_id = th.id
@@ -235,9 +250,11 @@ const getStaffCommissions = async (tenantId, filters, userRole, userBranchId) =>
         WHERE ths.deleted_at IS NULL AND th.deleted_at IS NULL
     `;
     const params = [];
+    const normalizedRole = String(userRole).toUpperCase();
 
-    if (String(userRole).toUpperCase() !== 'MANAGER' && userBranchId) {
-        query += ' AND th.branch_id = ?'; params.push(userBranchId);
+    if (normalizedRole === 'STAFF') {
+        query += ' AND th.branch_id = ? AND s.branch_id = ?';
+        params.push(toNumber(userBranchId, 'branch_id', { min: 1, integer: true }), toNumber(userBranchId, 'branch_id', { min: 1, integer: true }));
     } else if (filters.branchId !== undefined) {
         query += ' AND th.branch_id = ?'; params.push(toNumber(filters.branchId, 'branchId', { min: 1, integer: true }));
     }
@@ -245,9 +262,11 @@ const getStaffCommissions = async (tenantId, filters, userRole, userBranchId) =>
     if (filters.staffName) {
         query += ' AND s.fullname LIKE ?'; params.push(`%${filters.staffName}%`);
     }
-    const roleFilter = filters.roleName || filters.systemRole;
-    if (roleFilter) {
-        query += ' AND r.name = ?'; params.push(roleFilter);
+    if (filters.roleName) {
+        query += ' AND r.name = ?'; params.push(filters.roleName);
+    }
+    if (filters.productId !== undefined) {
+        query += ' AND t.product_id = ?'; params.push(toNumber(filters.productId, 'productId', { min: 1, integer: true }));
     }
     if (filters.startDate) { 
         query += ' AND DATE(th.execution_date) >= ?'; params.push(filters.startDate); 
@@ -256,7 +275,7 @@ const getStaffCommissions = async (tenantId, filters, userRole, userBranchId) =>
         query += ' AND DATE(th.execution_date) <= ?'; params.push(filters.endDate); 
     }
 
-    query += ' ORDER BY s.fullname ASC, ths.commission_amount_snapshot ASC, th.execution_date DESC';
+    query += ' ORDER BY th.branch_id ASC, s.fullname ASC, s.id ASC, ths.commission_amount_snapshot ASC';
 
     const [rows] = await masterPool.query(query, params);
     return rows;
@@ -277,7 +296,9 @@ const deleteTreatmentHistory = async (tenantId, historyId, executorName, userRol
         if (histories.length === 0) throw new Error('Lịch sử không tồn tại hoặc đã bị xóa.');
         
         const history = histories[0];
-        if (String(userRole).toUpperCase() !== 'MANAGER' && history.branch_id !== userBranchId) throw new Error('Bạn không có quyền xóa lịch sử của cơ sở khác.');
+        if (String(userRole).toUpperCase() === 'STAFF' && Number(history.branch_id) !== Number(userBranchId)) {
+            throw new Error('Bạn không có quyền thao tác trên lịch sử của cơ sở khác.');
+        }
 
         // Hoàn lại 1 buổi cho thẻ liệu trình
         await connection.query(
@@ -299,7 +320,103 @@ const deleteTreatmentHistory = async (tenantId, historyId, executorName, userRol
     }
 };
 
-module.exports = { 
+
+const getTreatments = async (tenantId, filters) => {
+    const dbName = await getTenantDbName(tenantId);
+    let query = `
+        SELECT t.*, c.fullname as customer_name, c.phone_number, p.name as product_name, i.branch_id
+        FROM \`${dbName}\`.treatments t
+        JOIN \`${dbName}\`.customers c ON t.customer_id = c.id
+        JOIN \`${dbName}\`.products p ON t.product_id = p.id
+        LEFT JOIN \`${dbName}\`.invoices i ON t.invoice_id = i.id
+        WHERE t.deleted_at IS NULL
+    `;
+    const params = [];
+
+    if (filters.customerId) {
+        query += ' AND t.customer_id = ?';
+        params.push(filters.customerId);
+    }
+    if (filters.invoiceId) {
+        query += ' AND t.invoice_id = ?';
+        params.push(toNumber(filters.invoiceId, 'invoiceId', { min: 1, integer: true }));
+    }
+    if (filters.customerSearch) {
+        query += ' AND (c.fullname LIKE ? OR c.phone_number LIKE ?)';
+        params.push(`%${filters.customerSearch}%`, `%${filters.customerSearch}%`);
+    }
+    if (filters.productSearch) {
+        query += ' AND p.name LIKE ?';
+        params.push(`%${filters.productSearch}%`);
+    }
+    if (filters.status === 'active') {
+        query += ' AND t.remaining_sessions > 0';
+    } else if (filters.status === 'completed') {
+        query += ' AND t.remaining_sessions = 0';
+    }
+    
+    if (filters.startDate) {
+        query += ' AND DATE(t.created_at) >= ?';
+        params.push(filters.startDate);
+    }
+    if (filters.endDate) {
+        query += ' AND DATE(t.created_at) <= ?';
+        params.push(filters.endDate);
+    }
+
+    if (filters.branchId) {
+        query += ' AND (i.branch_id = ? OR t.invoice_id IS NULL)';
+        params.push(filters.branchId);
+    }
+
+    query += ' ORDER BY t.created_at DESC';
+
+    const [rows] = await masterPool.query(query, params);
+    return { data: rows };
+};
+
+const getTreatmentDetail = async (tenantId, treatmentId) => {
+    const dbName = await getTenantDbName(tenantId);
+    
+    let query = `
+        SELECT t.*, c.fullname as customer_name, c.phone_number, p.name as product_name, i.branch_id
+        FROM \`${dbName}\`.treatments t
+        JOIN \`${dbName}\`.customers c ON t.customer_id = c.id
+        JOIN \`${dbName}\`.products p ON t.product_id = p.id
+        LEFT JOIN \`${dbName}\`.invoices i ON t.invoice_id = i.id
+        WHERE t.id = ? AND t.deleted_at IS NULL
+    `;
+    const params = [treatmentId];
+
+    const [treatments] = await masterPool.query(query, params);
+    if (treatments.length === 0) {
+        throw new Error('Không tìm thấy thẻ liệu trình hoặc thẻ đã bị xóa');
+    }
+    
+    const treatment = treatments[0];
+
+    const [histories] = await masterPool.query(
+        `SELECT * FROM \`${dbName}\`.treatment_history WHERE treatment_id = ? AND deleted_at IS NULL ORDER BY execution_date DESC`,
+        [treatmentId]
+    );
+
+    for (let history of histories) {
+        const [staffs] = await masterPool.query(
+            `SELECT ths.*, s.fullname as staff_name FROM \`${dbName}\`.treatment_history_staffs ths 
+            JOIN \`${dbName}\`.staffs s ON ths.staff_id = s.id
+            WHERE ths.treatment_history_id = ? AND ths.deleted_at IS NULL`,
+            [history.id]
+        );
+        history.staffs = staffs;
+    }
+    
+    treatment.histories = histories;
+    return treatment;
+};
+
+module.exports = {
+    getTreatments,
+    getTreatmentDetail, 
     createTreatment, 
     executeTreatmentSession, 
     assignStaffToHistory, 

@@ -13,6 +13,7 @@ router.use(verifyToken);
 
 router.post('/', customerController.create);
 router.get('/', customerController.getList);
+router.get('/:id', customerController.getDetail);
 router.put('/:id', customerController.update);
 router.delete('/:id', customerController.remove);
 router.patch('/:id/restore', customerController.restore);
