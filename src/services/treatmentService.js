@@ -98,7 +98,7 @@ const executeTreatmentSession = async (tenantId, historyData, executorName, user
                 `INSERT INTO \`${dbName}\`.appointments 
                     (customer_id, branch_id, appointment_date, note, status, created_by) 
                  VALUES (?, ?, ?, ?, ?, ?)`,
-                [treatment.customer_id, branchId, baseDate, `Lịch hẹn tự động từ liệu trình: ${treatment.product_name}`, 'Chờ xử lý', executorName]
+                [treatment.customer_id, branchId, baseDate, `Lịch hẹn tự động từ liệu trình: ${treatment.product_name}`, 'Khách chưa đến', executorName]
             );
         }
 

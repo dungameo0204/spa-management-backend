@@ -54,7 +54,7 @@ CREATE TABLE `appointments` (
   `branch_id` int NOT NULL,
   `appointment_date` datetime NOT NULL,
   `note` text COLLATE utf8mb4_unicode_ci,
-  `status` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT 'PENDING',
+  `status` varchar(50) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'Khách chưa đến',
   `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   `created_by` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
@@ -170,7 +170,7 @@ CREATE TABLE `customer_wallet_logs` (
   `customer_id` int NOT NULL,
   `branch_id` int DEFAULT NULL,
   `paid_amount` decimal(15,2) NOT NULL,
-  `bonus_percent` decimal(7,2) NOT NULL DEFAULT '0.00',
+  `bonus_percent` decimal(7,2) DEFAULT NULL,
   `bonus_amount` decimal(15,2) NOT NULL DEFAULT '0.00',
   `total_received` decimal(15,2) NOT NULL,
   `payment_method` enum('CASH','TRANSFER','CARD') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'CASH',
@@ -227,7 +227,8 @@ CREATE TABLE `debt_payments` (
   `id` int NOT NULL AUTO_INCREMENT,
   `customer_id` int NOT NULL,
   `branch_id` int NOT NULL,
-  `invoice_id` int DEFAULT NULL,
+  `collection_branch_id` int NOT NULL,
+  `invoice_id` int NOT NULL,
   `amount` decimal(15,2) NOT NULL DEFAULT '0.00',
   `payment_method` enum('CASH','TRANSFER','CARD') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'CASH',
   `payment_date` datetime NOT NULL,
@@ -241,9 +242,11 @@ CREATE TABLE `debt_payments` (
   PRIMARY KEY (`id`),
   KEY `fk_dp_customer` (`customer_id`),
   KEY `fk_dp_branch` (`branch_id`),
+  KEY `fk_dp_collection_branch` (`collection_branch_id`),
   KEY `fk_dp_invoice` (`invoice_id`),
-  CONSTRAINT `fk_dp_customer` FOREIGN KEY (`customer_id`) REFERENCES `customers` (`id`),
   CONSTRAINT `fk_dp_branch` FOREIGN KEY (`branch_id`) REFERENCES `branches` (`id`),
+  CONSTRAINT `fk_dp_collection_branch` FOREIGN KEY (`collection_branch_id`) REFERENCES `branches` (`id`),
+  CONSTRAINT `fk_dp_customer` FOREIGN KEY (`customer_id`) REFERENCES `customers` (`id`),
   CONSTRAINT `fk_dp_invoice` FOREIGN KEY (`invoice_id`) REFERENCES `invoices` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
@@ -747,4 +750,4 @@ CREATE TABLE `treatments` (
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
--- Dump completed on 2026-10-05 15:01:32
+-- Dump completed on 2026-10-06 15:45:46

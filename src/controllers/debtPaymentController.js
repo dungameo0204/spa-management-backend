@@ -28,6 +28,15 @@ const getDetail = async (req, res) => {
     }
 };
 
+const getInvoiceRemainingDebt = async (req, res) => {
+    try {
+        const data = await debtPaymentService.getInvoiceRemainingDebt(req.user.tenant_id, req.params.invoiceId);
+        res.status(200).json({ message: 'Lấy công nợ còn lại của hóa đơn thành công', data });
+    } catch (error) {
+        res.status(404).json({ message: error.message });
+    }
+};
+
 const update = async (req, res) => {
     try {
         const executorName = req.user.fullname || req.user.username;
@@ -48,4 +57,4 @@ const remove = async (req, res) => {
     }
 };
 
-module.exports = { create, getList, getDetail, update, remove };
+module.exports = { create, getList, getDetail, getInvoiceRemainingDebt, update, remove };

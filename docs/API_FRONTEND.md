@@ -1,6 +1,6 @@
 # Tài liệu API cho Frontend — Spa Management Backend
 
-> Tài liệu được tổng hợp trực tiếp từ mã nguồn trong `src/` và hai schema `db_system_master.sql`, `db_spa_template.sql` vào ngày **03/10/2026**. Đây là mô tả của hành vi backend hiện có, không phải đặc tả dự kiến.
+> Tài liệu được tổng hợp từ mã nguồn trong `src/` và hai schema `db_system_master.sql`, `db_spa_template.sql`; mục thu nợ cập nhật **06/10/2026**. Schema tenant cũ phải được migration trước khi dùng API thu nợ mới.
 
 ## 1. Tổng quan
 
@@ -77,10 +77,10 @@ Tại thời điểm hiện tại, `src/server.js` mount các endpoint hoạt đ
 | Inventory import | `POST/GET /api/inventory-imports`, `PUT/DELETE /api/inventory-imports/:id` |
 | Expense | `POST/GET /api/expenses`, `GET /api/expenses/:id`, `PUT/DELETE /api/expenses/:id` |
 | Invoice | `POST/GET /api/invoices`, `GET /api/invoices/:id`, `PUT/DELETE /api/invoices/:id` |
-| Appointment | `POST/GET /api/appointments`, `GET /api/appointments/:id`, `PUT/DELETE /api/appointments/:id` |
+| Appointment | `POST/GET /api/appointments`, `GET /api/appointments/tomorrow`, `GET /api/appointments/not-arrived`, `GET /api/appointments/:id`, `PUT/DELETE /api/appointments/:id` |
 | Customer booking | `GET /api/customer-bookings` |
 | Customer wallet log | `POST/GET /api/customer-wallet-logs`, `GET/PUT/DELETE /api/customer-wallet-logs/:id` |
-| Debt payment | `POST/GET /api/debt-payments`, `GET/PUT/DELETE /api/debt-payments/:id` |
+| Debt payment | `POST/GET /api/debt-payments`, `GET/PUT/DELETE /api/debt-payments/:id`, `GET /api/debt-payments/invoices/:invoiceId/remaining-debt` |
 | Treatment | `POST /api/treatments`, `POST /api/treatments/execute`, `DELETE /api/treatments/execute/:historyId`, `PUT /api/treatments/execute/:historyId/staffs`, `GET /api/treatments/commissions` |
 
 ---
@@ -725,13 +725,12 @@ Tất cả tài khoản đã đăng nhập được thao tác lịch hẹn. MANA
   "customer_id": 1,
   "branch_id": 1,
   "appointment_date": "2026-10-10T09:30:00",
-  "note": "Khách tái khám da",
-  "status": "Chờ xử lý"
+  "note": "Khách tái khám da"
 }
 ```
 
 - `customer_id`, `appointment_date` bắt buộc. Khách hàng phải còn hoạt động; `appointment_date` phải là ngày giờ hợp lệ.
-- `status` tùy chọn, mặc định `Chờ xử lý`; là chuỗi không rỗng, tối đa 50 ký tự.
+- Không gửi `status` khi tạo/sửa: backend từ chối trường này. Lịch mới được lưu `Khách chưa đến`.
 - Với MANAGER, `branch_id` bắt buộc và phải là branch active. Với STAFF, backend luôn dùng branch trong token và bỏ qua `branch_id` gửi lên.
 - Thành công `201`: `{ "message": "Tạo lịch hẹn thành công", "appointmentId": 1 }`.
 
@@ -741,9 +740,18 @@ Query tùy chọn: `search`, `branchId`, `status`, `startDate`, `endDate`.
 
 - `search`: tìm gần đúng theo tên/số điện thoại khách hàng hoặc ghi chú.
 - `branchId`: MANAGER có thể lọc branch; STAFF luôn bị khóa ở branch token và query này bị bỏ qua.
-- `status`: lọc khớp chính xác trạng thái lịch hẹn.
+- `status`: chỉ nhận `Khách chưa đến` hoặc `Khách đã đến`, lọc theo trạng thái **tính lúc đọc**, không theo giá trị lưu trong bảng.
 - `startDate`, `endDate`: lọc theo ngày hẹn `appointment_date` dạng `YYYY-MM-DD`.
 - Dữ liệu trả thêm `customer_name`, `phone_number`, `branch_name`; sắp xếp theo ngày hẹn tăng dần.
+- `status` trả về được tính tự động: `Khách đã đến` nếu khách có hóa đơn hoặc lịch sử thực hiện liệu trình còn hiệu lực tại **cùng cơ sở**, được ghi nhận sau khi tạo lịch, từ đầu ngày hẹn đến hiện tại và trước lịch hẹn tiếp theo của cùng khách/cơ sở; còn lại `Khách chưa đến`. Không cần sửa luồng hóa đơn/liệu trình, nhưng đây là trạng thái suy ra khi GET, không ghi ngược vào cột `appointments.status`. `created_at` được dùng thay ngày nghiệp vụ có thể nhập lùi; chỉ ghi nhận hoạt động đã lưu và không thể phân biệt chắc chắn hai lần hẹn cùng ngày.
+
+### `GET /api/appointments/tomorrow`
+
+Lấy các **lịch hẹn** vào ngày mai theo ngày giờ DB (`CURDATE()`), không phụ thuộc trạng thái. Trả `{ "message": "...", "total": 1, "data": [{ "id": 1, "customer_id": 1, "status": "Khách chưa đến", "customer_name": "...", "phone_number": "...", "branch_name": "..." }] }`. Nhận thêm `branchId`, `search`, `status`, `startDate`, `endDate` như API danh sách. STAFF chỉ thấy branch token.
+
+### `GET /api/appointments/not-arrived`
+
+Lấy các lịch hẹn **hôm nay hoặc trước đó** mà trạng thái tính lúc đọc vẫn là `Khách chưa đến`. Cùng format, bộ lọc và quyền truy cập như API danh sách. Một khách có nhiều lịch hẹn có thể xuất hiện nhiều dòng.
 
 ### `GET /api/appointments/:id`
 
@@ -751,7 +759,7 @@ Lấy chi tiết một lịch hẹn. STAFF nhận `404` khi id thuộc cơ sở 
 
 ### `PUT /api/appointments/:id`
 
-Partial update các field: `customer_id`, `branch_id`, `appointment_date`, `note`, `status`.
+Partial update các field: `customer_id`, `branch_id`, `appointment_date`, `note`. Gửi `status` sẽ bị từ chối.
 
 - MANAGER được thay đổi `branch_id` sang mọi branch active.
 - STAFF chỉ sửa appointment thuộc branch token; `branch_id` trong body bị bỏ qua nên không thể chuyển lịch hẹn sang branch khác.
@@ -854,15 +862,34 @@ Soft-delete giao dịch nạp ví và trừ lại `total_received` khỏi ví kh
 
 ## 19. Thu nợ khách hàng `/api/debt-payments`
 
-Ghi nhận tiền khách thanh toán công nợ. Trong cùng transaction, backend tạo/cập nhật/xóa mềm `debt_payments` và điều chỉnh tương ứng `customers.total_debt`.
+Ghi nhận tiền khách thanh toán công nợ theo hóa đơn. `branch_id` của phiếu luôn là chi nhánh của hóa đơn (hạch toán doanh thu thu nợ); `collection_branch_id` là nơi thực thu (có thể khác), dùng phân quyền STAFF. Trong cùng transaction backend điều chỉnh `customers.total_debt`.
+
+### `GET /api/debt-payments/invoices/:invoiceId/remaining-debt`
+
+Lấy công nợ còn lại **của một hóa đơn** trong tenant, trước khi ghi nhận phiếu thu. Cần JWT; STAFF có thể tra hóa đơn thuộc chi nhánh khác để thu nợ liên chi nhánh. Hóa đơn đã xóa/không tồn tại hoặc ID không hợp lệ trả `404`.
+
+`remainingDebtAmount = max(0, invoices.debt_amount - SUM(debt_payments.amount))`, chỉ cộng phiếu thu nợ cùng `invoice_id` có `deleted_at IS NULL`. `invoices.debt_amount` là nợ gốc của riêng hóa đơn, khác với `customers.total_debt` của cả khách hàng. Dữ liệu được tính lại mỗi lần gọi, không lưu thêm cột.
+
+```json
+{
+  "message": "Lấy công nợ còn lại của hóa đơn thành công",
+  "data": {
+    "invoiceId": 30,
+    "customerId": 1,
+    "branchId": 1,
+    "invoiceDebtAmount": 6000000,
+    "paidDebtAmount": 500000,
+    "remainingDebtAmount": 5500000
+  }
+}
+```
 
 ### `POST /api/debt-payments`
 
 ```json
 {
-  "customer_id": 1,
-  "branch_id": 1,
   "invoice_id": 30,
+  "collection_branch_id": 2,
   "amount": 500000,
   "payment_method": "TRANSFER",
   "payment_date": "2026-10-06 10:30:00",
@@ -870,37 +897,38 @@ Ghi nhận tiền khách thanh toán công nợ. Trong cùng transaction, backen
 }
 ```
 
-- Bắt buộc: `customer_id`, `amount`; `amount` phải lớn hơn `0` và không được vượt `customers.total_debt` hiện tại.
-- `branch_id`: MANAGER bắt buộc gửi; STAFF luôn dùng branch trong token và bỏ qua `branch_id` từ body.
-- `invoice_id` tùy chọn. Nếu gửi, hóa đơn phải active, thuộc đúng `customer_id` và đúng branch; tổng các debt payment active của hóa đơn không được vượt `invoices.debt_amount`.
+- Bắt buộc: `invoice_id`, `amount`; invoice phải active. Backend lấy `customer_id` và `branch_id` hạch toán từ invoice; nếu body gửi hai field này thì phải khớp invoice, không dùng để chọn nơi thu.
+- `collection_branch_id`: MANAGER bắt buộc gửi branch đang hoạt động; STAFF luôn dùng branch trong token, bỏ qua field body. STAFF ở A có thể thu invoice của B.
+- `amount` phải lớn hơn 0, không vượt `customers.total_debt` hiện tại. Backend cộng `amount` của **tất cả phiếu chưa xóa mềm cùng `invoice_id`** với phiếu đang tạo/sửa và chặn nếu vượt `invoices.debt_amount` (nợ gốc của riêng hóa đơn). Khi sửa, phiếu hiện tại không bị tính hai lần; chỉ chấp nhận tối đa 2 chữ số thập phân.
 - `payment_method` mặc định `CASH`; chỉ nhận `CASH`, `TRANSFER`, `CARD`.
 - `payment_date` tùy chọn, mặc định thời điểm hiện tại.
-- Thành công `201`: trả `debtPaymentId`, `amount`, `totalDebt` còn lại của khách.
+- Thành công `201`: trả `debtPaymentId`, `customerId`, `branchId` (hạch toán), `collectionBranchId`, `invoiceId`, `amount`, `totalDebt` còn lại của khách.
 
 ### `GET /api/debt-payments`
 
-Query tùy chọn: `search`, `branchId`, `customerId`, `invoiceId`, `paymentMethod`, `startDate`, `endDate`.
+Query tùy chọn: `search`, `branchId`, `collectionBranchId`, `customerId`, `invoiceId`, `paymentMethod`, `startDate`, `endDate`.
 
 - `search`: tên/số điện thoại khách hoặc ghi chú.
-- `branchId`: MANAGER có thể lọc; STAFF luôn bị khóa branch token.
+- `branchId`: lọc theo branch hạch toán (MANAGER); `collectionBranchId`: lọc nơi thực thu. STAFF luôn chỉ xem được phiếu có `collection_branch_id` bằng branch token.
+- Danh sách trả `branch_name` và `collection_branch_name` cùng hai ID tương ứng.
 - `startDate`, `endDate`: lọc theo `payment_date` dạng `YYYY-MM-DD`.
 
 ### `GET /api/debt-payments/:id`
 
-Xem chi tiết một phiếu thu nợ, gồm thông tin khách/branch và tổng nợ của hóa đơn nếu phiếu có `invoice_id`. STAFF không xem được phiếu thuộc branch khác.
+Xem chi tiết phiếu, gồm hai chi nhánh và tổng nợ hóa đơn. STAFF chỉ xem phiếu thu tại branch token (không phụ thuộc branch hóa đơn).
 
 ### `PUT /api/debt-payments/:id`
 
-Partial update các field: `customer_id`, `branch_id`, `invoice_id`, `amount`, `payment_method`, `payment_date`, `note`.
+Partial update các field: `invoice_id`, `collection_branch_id`, `amount`, `payment_method`, `payment_date`, `note`. `invoice_id` không được đặt `null`; khi bỏ qua sẽ giữ invoice cũ. Nếu truyền `customer_id`/`branch_id`, chúng phải khớp invoice.
 
-- Backend khóa phiếu thu nợ và customer bằng `FOR UPDATE`.
+- Backend khóa phiếu, hóa đơn và customer bằng `FOR UPDATE`; khi đổi invoice, tự cập nhật customer và `branch_id` hạch toán.
 - Cùng khách: `total_debt` được điều chỉnh bằng chênh lệch giữa amount cũ và amount mới.
 - Đổi khách: backend cộng lại amount cũ vào công nợ khách cũ và trừ amount mới ở công nợ khách mới trong cùng transaction.
-- Tất cả quy tắc không vượt tổng công nợ/tổng debt của invoice vẫn được kiểm tra. STAFF không thể chuyển phiếu sang branch khác.
+- Tất cả quy tắc không vượt tổng công nợ/tổng debt của invoice vẫn được kiểm tra. STAFF không thể chuyển nơi thực thu sang branch khác, nhưng có thể chọn invoice thuộc branch hạch toán khác.
 
 ### `DELETE /api/debt-payments/:id`
 
-Soft-delete phiếu thu nợ và cộng lại `amount` vào `customers.total_debt` trong cùng transaction. STAFF chỉ xóa được phiếu của branch token.
+Soft-delete phiếu và cộng lại `amount` vào `customers.total_debt` trong cùng transaction. STAFF chỉ xóa phiếu có `collection_branch_id` là branch token.
 
 ---
 

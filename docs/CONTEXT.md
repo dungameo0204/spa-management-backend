@@ -1,6 +1,6 @@
 # CONTEXT — Spa Management Backend
 
-> File bàn giao cho developer/AI. Đọc file này trước khi sửa code; cập nhật nó cùng lúc khi thêm route, schema, migration hoặc quy tắc nghiệp vụ. Trạng thái: **03/10/2026**.
+> File bàn giao cho developer/AI. Đọc file này trước khi sửa code; cập nhật nó cùng lúc khi thêm route, schema, migration hoặc quy tắc nghiệp vụ. Trạng thái: **06/10/2026**.
 
 ## Công nghệ và lệnh chạy
 
@@ -94,7 +94,7 @@ docs/CONTEXT.md                File này
 | `inventory_imports` | Header nhập, code unique, FK branch | Create/list/detail import |
 | `inventory_import_items` | Snapshot product name/price/discount, FK import/product | Import detail |
 | `appointments`, `customer_bookings` | Lịch/booking | Appointment CRUD; customer booking chỉ read/search |
-| `customer_wallet_logs`, `debt_payments` | Ví/thu nợ | CRUD wallet log và debt payment; debt payment có `branch_id` để phân quyền |
+| `customer_wallet_logs`, `debt_payments` | Ví/thu nợ | Debt payment bắt buộc invoice; `branch_id` hạch toán theo invoice, `collection_branch_id` là nơi thực thu và giới hạn STAFF |
 | `expense_vouchers`, `bank_transactions` | Chi phí/giao dịch bank | Chưa API |
 | `invoices`, `invoice_items`, `invoice_item_consultants` | Bán hàng/hóa đơn | CRUD invoice |
 | `treatments`, `treatment_history`, `treatment_history_staffs` | Liệu trình | Create/list/detail, execute/undo, staff commission |
@@ -147,13 +147,15 @@ docs/CONTEXT.md                File này
 - Có CRUD soft-delete: POST, GET list/detail, PUT partial và DELETE. List hỗ trợ `search`, `branchId`, `status`, `startDate`, `endDate`; trả thêm tên/số điện thoại khách và tên branch.
 - MANAGER phải truyền `branch_id` khi tạo và có thể tạo/sửa/chuyển/xóa lịch hẹn ở mọi branch active trong tenant.
 - STAFF tạo lịch hẹn luôn dùng branch token (bỏ qua `branch_id` body), chỉ xem/sửa/xóa lịch hẹn thuộc branch token và không thể chuyển lịch hẹn sang branch khác.
-- `customer_id` phải active, `appointment_date` hợp lệ; `status` mặc định `Chờ xử lý`, là chuỗi không rỗng tối đa 50 ký tự.
+- `customer_id` phải active, `appointment_date` hợp lệ; không cho POST/PUT `status`. Lịch mới lưu `Khách chưa đến` (cả lịch tự tạo từ liệu trình). GET list/detail trả `status` động: `Khách đã đến` khi có invoice hoặc treatment_history active cùng khách/cơ sở được tạo sau khi đặt lịch, từ đầu ngày hẹn đến hiện tại và trước lần hẹn kế tiếp; không sửa code invoices/treatment_history, không ghi status động vào DB. Migration `docs/migrations/2026-10-06_appointment_status.sql` đổi default trên từng tenant hiện hữu.
+- GET `/api/appointments/tomorrow` lấy lịch ngày mai; GET `/api/appointments/not-arrived` lấy lịch hôm nay/trước đó chưa đến. Cùng filter và phân quyền như GET list; dùng múi giờ ngày của DB.
 
 ### Customer booking và wallet (`/api/customer-bookings`, `/api/customer-wallet-logs`)
 
 - Customer booking là dữ liệu MiniApp: API quản trị chỉ có `GET /api/customer-bookings` để tìm kiếm/lọc; không tạo/sửa/xóa từ backend quản trị. STAFF chỉ xem branch token, MANAGER xem/lọc mọi branch.
 - Nạp ví qua `POST /api/customer-wallet-logs`: MANAGER bắt buộc gửi `branch_id`; STAFF bị ép branch token. Có thể nhập bonus theo `bonus_percent` hoặc `bonus_amount`; backend tính field còn lại (với `paid_amount = 0` chỉ nhận bonus amount) và `total_received`, sau đó insert log rồi tăng `customers.wallet_balance` trong cùng transaction. History có GET list/detail cùng giới hạn branch cho STAFF.
-- Thu nợ qua CRUD `/api/debt-payments`: amount phải lớn hơn 0, không vượt `customers.total_debt`; create/update/delete chạy transaction và lần lượt trừ/điều chỉnh/cộng lại `total_debt`. Bảng có `branch_id`; MANAGER phải chọn branch, STAFF bị ép branch token. `invoice_id` là tùy chọn nhưng nếu có phải là invoice active cùng customer/branch và tổng debt payment active không được vượt `invoices.debt_amount`.
+- Thu nợ qua CRUD `/api/debt-payments`: bắt buộc `invoice_id` active; `customer_id` và `branch_id` hạch toán lấy từ invoice (nếu body cung cấp phải khớp). MANAGER chọn `collection_branch_id` đang hoạt động; STAFF bị ép nơi thực thu bằng branch token, kể cả khi invoice thuộc branch khác. Quyền list/detail/update/delete của STAFF theo `collection_branch_id`. Amount > 0, không vượt `customers.total_debt`; tổng phiếu active không vượt `invoices.debt_amount`. Create/update/delete chạy transaction và trừ/điều chỉnh/cộng lại `total_debt`.
+- `GET /api/debt-payments/invoices/:invoiceId/remaining-debt` trả nợ gốc hóa đơn, tổng phiếu thu active và nợ còn lại = max(0, nợ gốc - tổng đã thu); STAFF có thể tra invoice khác branch để thu liên chi nhánh. Không thay đổi schema.
 
 ### Treatment (`/api/treatments`)
 
@@ -168,6 +170,7 @@ docs/CONTEXT.md                File này
 
 - `docs/migrations/2026-10-03_add_inventory_imports.sql` thêm unique inventory và table nhập kho.
 - Chạy **một lần trên từng tenant database cũ**, không chạy `db_system_master`.
+- `docs/migrations/2026-10-06_create_or_alter_debt_payments.sql`: chọn nhánh tạo bảng nếu chưa có, hoặc kiểm tra và đối soát tất cả phiếu cũ trước khi ALTER. Không gán invoice tùy tiện; bảo toàn nơi thực thu trước khi đồng bộ branch hạch toán.
 - Nếu inventory cũ có duplicate `(branch_id, product_id)`, gộp/xử lý trước khi thêm unique key.
 
 ## Hạn chế/rủi ro đã biết

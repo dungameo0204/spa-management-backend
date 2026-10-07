@@ -7,6 +7,8 @@ router.use(verifyToken);
 
 router.post('/', appointmentController.create);
 router.get('/', appointmentController.getList);
+router.get('/tomorrow', appointmentController.getTomorrow);
+router.get('/not-arrived', appointmentController.getNotArrived);
 router.get('/:id', appointmentController.getDetail);
 router.put('/:id', appointmentController.update);
 router.delete('/:id', appointmentController.remove);

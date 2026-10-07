@@ -6,6 +6,7 @@ const { verifyToken } = require('../middlewares/auth');
 router.use(verifyToken);
 router.post('/', debtPaymentController.create);
 router.get('/', debtPaymentController.getList);
+router.get('/invoices/:invoiceId/remaining-debt', debtPaymentController.getInvoiceRemainingDebt);
 router.get('/:id', debtPaymentController.getDetail);
 router.put('/:id', debtPaymentController.update);
 router.delete('/:id', debtPaymentController.remove);

@@ -75,12 +75,70 @@ const run = async () => {
             throw new Error(`Debt invoice should have debtAmount 500000: ${JSON.stringify(invoice.body)}`);
         }
 
+        const debtSummaryPath = `/debt-payments/invoices/${created.invoiceId}/remaining-debt`;
+        const assertRemainingDebt = async (paid, remaining) => {
+            const result = await request(debtSummaryPath, { headers });
+            assertStatus(result, 200, 'Get remaining invoice debt');
+            const data = result.body.data;
+            if (Number(data.invoiceId) !== Number(created.invoiceId) || Number(data.invoiceDebtAmount) !== 500000 ||
+                Number(data.paidDebtAmount) !== paid || Number(data.remainingDebtAmount) !== remaining) {
+                throw new Error(`Unexpected remaining invoice debt: ${JSON.stringify(result.body)}`);
+            }
+        };
+        await assertRemainingDebt(0, 500000);
+
+        const missingInvoice = await request('/debt-payments', {
+            method: 'POST', headers,
+            body: JSON.stringify({ collection_branch_id: 1, amount: 500000 })
+        });
+        assertStatus(missingInvoice, 400, 'Require invoice_id');
+        if (missingInvoice.body.message !== 'invoice_id là bắt buộc khi thu nợ.') throw new Error(JSON.stringify(missingInvoice.body));
+
+        const mismatchedBranch = await request('/debt-payments', {
+            method: 'POST', headers,
+            body: JSON.stringify({ invoice_id: created.invoiceId, branch_id: 999, collection_branch_id: 1, amount: 500000 })
+        });
+        assertStatus(mismatchedBranch, 400, 'Reject accounting branch mismatch');
+
+        const firstDebtPayment = await request('/debt-payments', {
+            method: 'POST', headers,
+            body: JSON.stringify({ collection_branch_id: 1, invoice_id: created.invoiceId, amount: 200000, payment_method: 'CASH' })
+        });
+        assertStatus(firstDebtPayment, 201, 'Create first debt payment');
+        created.debtPaymentId = firstDebtPayment.body.debtPaymentId;
+        await assertRemainingDebt(200000, 300000);
         const debtPayment = await request('/debt-payments', {
             method: 'POST', headers,
-            body: JSON.stringify({ customer_id: created.customerId, branch_id: 1, invoice_id: created.invoiceId, amount: 500000, payment_method: 'CASH' })
+            body: JSON.stringify({ collection_branch_id: 1, invoice_id: created.invoiceId, amount: 300000, payment_method: 'CASH' })
         });
-        assertStatus(debtPayment, 201, 'Create debt payment');
-        created.debtPaymentId = debtPayment.body.debtPaymentId;
+        assertStatus(debtPayment, 201, 'Pay remaining invoice debt');
+        created.secondDebtPaymentId = debtPayment.body.debtPaymentId;
+        await assertRemainingDebt(500000, 0);
+        if (Number(debtPayment.body.branchId) !== 1 || Number(debtPayment.body.customerId) !== Number(created.customerId) || Number(debtPayment.body.collectionBranchId) !== 1) {
+            throw new Error(`Unexpected branch/customer attribution: ${JSON.stringify(debtPayment.body)}`);
+        }
+
+        const overpaidInvoice = await request('/debt-payments', {
+            method: 'POST', headers,
+            body: JSON.stringify({ collection_branch_id: 1, invoice_id: created.invoiceId, amount: 1 })
+        });
+        assertStatus(overpaidInvoice, 400, 'Reject total payments exceeding invoice debt');
+        if (overpaidInvoice.body.message !== 'Tổng tiền thu nợ của hóa đơn không được vượt debt_amount của hóa đơn.') {
+            throw new Error(`Unexpected invoice overpayment error: ${JSON.stringify(overpaidInvoice.body)}`);
+        }
+        const overpaidUpdate = await request(`/debt-payments/${created.secondDebtPaymentId}`, {
+            method: 'PUT', headers, body: JSON.stringify({ amount: 300001 })
+        });
+        assertStatus(overpaidUpdate, 400, 'Reject update exceeding invoice debt');
+        if (overpaidUpdate.body.message !== 'Tổng tiền thu nợ của hóa đơn không được vượt debt_amount của hóa đơn.') {
+            throw new Error(`Unexpected invoice update overpayment error: ${JSON.stringify(overpaidUpdate.body)}`);
+        }
+        await assertRemainingDebt(500000, 0);
+
+        const clearInvoice = await request(`/debt-payments/${created.debtPaymentId}`, {
+            method: 'PUT', headers, body: JSON.stringify({ invoice_id: null })
+        });
+        assertStatus(clearInvoice, 400, 'Reject clearing invoice_id');
 
         const update = await request(`/invoices/${created.invoiceId}`, {
             method: 'PUT', headers, body: JSON.stringify(invoicePayload(0, 0))
@@ -96,8 +154,14 @@ const run = async () => {
             throw new Error(`Unexpected invoice delete guard error: ${JSON.stringify(deletion.body)}`);
         }
 
+        const deleteSecondPayment = await request(`/debt-payments/${created.secondDebtPaymentId}`, { method: 'DELETE', headers });
+        assertStatus(deleteSecondPayment, 200, 'Soft-delete second debt payment');
+        created.secondDebtPaymentId = null;
+        await assertRemainingDebt(200000, 300000);
+
         console.log('PASS: invoice payment validation and debt-payment invoice guards are working.');
     } finally {
+        if (created.secondDebtPaymentId) await request(`/debt-payments/${created.secondDebtPaymentId}`, { method: 'DELETE', headers });
         if (created.debtPaymentId) await request(`/debt-payments/${created.debtPaymentId}`, { method: 'DELETE', headers });
         if (created.invoiceId) await request(`/invoices/${created.invoiceId}`, { method: 'DELETE', headers });
         if (created.productId) await request(`/products/${created.productId}`, { method: 'DELETE', headers });
