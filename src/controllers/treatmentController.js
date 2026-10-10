@@ -1,4 +1,5 @@
 const treatmentService = require('../services/treatmentService');
+const { respondListError } = require('../utils/pagination');
 
 const createManualTreatment = async (req, res) => {
     try {
@@ -18,7 +19,7 @@ const getList = async (req, res) => {
         const result = await treatmentService.getTreatments(tenantId, req.query);
         res.status(200).json({ message: 'Lấy danh sách liệu trình thành công', ...result });
     } catch (error) {
-        res.status(500).json({ message: error.message });
+        respondListError(res, error);
     }
 };
 
@@ -64,13 +65,15 @@ const getCommissions = async (req, res) => {
             roleName: req.query.roleName,
             productId: req.query.productId,
             startDate: req.query.startDate,
-            endDate: req.query.endDate
+            endDate: req.query.endDate,
+            page: req.query.page,
+            pageSize: req.query.pageSize
         };
 
         const commissions = await treatmentService.getStaffCommissions(tenantId, filters, req.user.system_role, req.user.branch_id);
-        res.status(200).json({ message: 'Lấy danh sách hoa hồng nhân viên thành công', total: commissions.length, data: commissions });
+        res.status(200).json({ message: 'Lấy danh sách hoa hồng nhân viên thành công', ...commissions });
     } catch (error) {
-        res.status(500).json({ message: error.message });
+        respondListError(res, error);
     }
 };
 

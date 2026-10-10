@@ -1,4 +1,5 @@
 const { masterPool, getTenantDbName } = require('../config/database');
+const { paginateQuery } = require('../utils/pagination');
 
 const toNumber = (value, fieldName, { min = 0, integer = false } = {}) => {
     const numberValue = Number(value);
@@ -180,7 +181,7 @@ const createProduct = async (tenantId, productData, executorName) => {
     }
 };
 
-const getProducts = async (tenantId, searchKeyword = '', isProduct, userRole, userBranchId) => {
+const getProducts = async (tenantId, searchKeyword = '', isProduct, userRole, userBranchId, pagination) => {
     const dbName = await getTenantDbName(tenantId);
     
     // Tuyệt đối không query cột is_active nữa
@@ -196,10 +197,9 @@ const getProducts = async (tenantId, searchKeyword = '', isProduct, userRole, us
         query += ' AND is_product = ?';
         params.push(Number(isProduct));
     }
-    query += ' ORDER BY created_at DESC';
-
-    const [products] = await masterPool.query(query, params);
-    if (products.length === 0) return products;
+    const result = await paginateQuery(masterPool, query, params, 'created_at DESC, id DESC', pagination);
+    const products = result.data;
+    if (products.length === 0) return result;
 
     const productIds = products.map(product => product.id);
 
@@ -232,7 +232,7 @@ const getProducts = async (tenantId, searchKeyword = '', isProduct, userRole, us
 
     const [inventories] = await masterPool.query(inventoryQuery, inventoryParams);
 
-    return products.map(product => {
+    result.data = products.map(product => {
         // Bóc tách để loại bỏ hoàn toàn is_active khỏi response trả về Frontend
         const { is_active, ...cleanProduct } = product; 
         
@@ -242,6 +242,7 @@ const getProducts = async (tenantId, searchKeyword = '', isProduct, userRole, us
             inventory: inventories.filter(item => item.product_id === product.id)
         };
     });
+    return result;
 };
 
 const getProductById = async (tenantId, productId, userRole, userBranchId) => {

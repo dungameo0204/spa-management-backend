@@ -1,4 +1,5 @@
 const branchService = require('../services/branchService');
+const { respondListError } = require('../utils/pagination');
 
 const create = async (req, res) => {
     try {
@@ -20,10 +21,19 @@ const getList = async (req, res) => {
         const tenantId = req.user.tenant_id;
         const { search } = req.query;
 
-        const branches = await branchService.getBranches(tenantId, search);
-        res.status(200).json({ message: 'Lấy danh sách thành công', total: branches.length, data: branches });
+        const branches = await branchService.getBranches(tenantId, search, req.query);
+        res.status(200).json({ message: 'Lấy danh sách thành công', ...branches });
     } catch (error) {
-        res.status(500).json({ message: error.message });
+        respondListError(res, error);
+    }
+};
+
+const getDetail = async (req, res) => {
+    try {
+        const data = await branchService.getBranchDetail(req.user.tenant_id, req.params.id);
+        res.status(200).json({ message: 'Lấy chi tiết chi nhánh thành công', data });
+    } catch (error) {
+        res.status(404).json({ message: error.message });
     }
 };
 
@@ -68,4 +78,4 @@ const restore = async (req, res) => {
     }
 };
 
-module.exports = { create, getList, update, remove, restore };
+module.exports = { create, getList, getDetail, update, remove, restore };

@@ -1,4 +1,5 @@
 const { masterPool, getTenantDbName } = require('../config/database');
+const { paginateQuery } = require('../utils/pagination');
 
 // TẠO MỚI
 const createStaff = async (tenantId, staffData, executorName, userRole, userBranchId) => {
@@ -39,7 +40,7 @@ const createStaff = async (tenantId, staffData, executorName, userRole, userBran
 
 // ... trong staffService.js
 
-const getStaffs = async (tenantId, searchKeyword = '', userRole, userBranchId, filterBranchId, filterRoleId) => {
+const getStaffs = async (tenantId, searchKeyword = '', userRole, userBranchId, filterBranchId, filterRoleId, pagination) => {
     const dbName = await getTenantDbName(tenantId);
     
     let query = `
@@ -72,10 +73,24 @@ const getStaffs = async (tenantId, searchKeyword = '', userRole, userBranchId, f
         params.push(`%${searchKeyword}%`, `%${searchKeyword}%`);
     }
     
-    query += ` ORDER BY s.created_at DESC`;
-    
-    const [rows] = await masterPool.query(query, params);
-    return rows;
+    return paginateQuery(masterPool, query, params, 's.created_at DESC, s.id DESC', pagination);
+};
+
+const getStaffDetail = async (tenantId, staffId, userRole, userBranchId) => {
+    const dbName = await getTenantDbName(tenantId);
+    let query = `SELECT s.*, r.name AS role_name, b.name AS branch_name
+        FROM \`${dbName}\`.staffs s
+        LEFT JOIN \`${dbName}\`.roles r ON s.role_id = r.id
+        LEFT JOIN \`${dbName}\`.branches b ON s.branch_id = b.id
+        WHERE s.id = ? AND s.deleted_at IS NULL`;
+    const params = [staffId];
+    if (userRole === 'STAFF') {
+        query += ' AND s.branch_id = ?';
+        params.push(userBranchId);
+    }
+    const [staffs] = await masterPool.query(query, params);
+    if (staffs.length === 0) throw new Error('Hồ sơ không tồn tại, đã bị xóa hoặc bạn không có quyền xem.');
+    return staffs[0];
 };
 
 // KIỂM TRA QUYỀN TRUY CẬP (Hàm dùng chung cho Update/Delete/Restore)
@@ -169,4 +184,4 @@ const restoreStaff = async (tenantId, staffId, executorName, userRole, userBranc
     );
 };
 
-module.exports = { createStaff, getStaffs, updateStaff, deleteStaff, restoreStaff };
+module.exports = { createStaff, getStaffs, getStaffDetail, updateStaff, deleteStaff, restoreStaff };

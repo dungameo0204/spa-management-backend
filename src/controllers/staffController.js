@@ -1,4 +1,5 @@
 const staffService = require('../services/staffService');
+const { respondListError } = require('../utils/pagination');
 
 const create = async (req, res) => {
     try {
@@ -41,11 +42,19 @@ const getList = async (req, res) => {
         const { search, branchId, roleId } = req.query;
 
         // Truyền thêm roleId xuống hàm getStaffs
-        const staffs = await staffService.getStaffs(tenantId, search, userRole, userBranchId, branchId, roleId);
+        const staffs = await staffService.getStaffs(tenantId, search, userRole, userBranchId, branchId, roleId, req.query);
         
-        res.status(200).json({ message: 'Lấy danh sách thành công', total: staffs.length, data: staffs });
+        res.status(200).json({ message: 'Lấy danh sách thành công', ...staffs });
     } catch (error) {
-        res.status(500).json({ message: error.message });
+        respondListError(res, error);
+    }
+};
+const getDetail = async (req, res) => {
+    try {
+        const data = await staffService.getStaffDetail(req.user.tenant_id, req.params.id, req.user.system_role, req.user.branch_id);
+        res.status(200).json({ message: 'Lấy chi tiết hồ sơ nhân viên thành công', data });
+    } catch (error) {
+        res.status(404).json({ message: error.message });
     }
 };
 // Tìm hàm update trong staffController.js và thay bằng đoạn này:
@@ -103,4 +112,4 @@ const restore = async (req, res) => {
     }
 };
 
-module.exports = { create, getList, update, remove, restore };
+module.exports = { create, getList, getDetail, update, remove, restore };

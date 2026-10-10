@@ -8,6 +8,7 @@ router.use(verifyToken);
 
 // Lấy danh sách & Chi tiết (Có hỗ trợ filter startDate, endDate)
 router.get('/', inventoryImportController.getList);
+router.get('/:id', inventoryImportController.getDetail);
 
 // Tạo mới phiếu nhập
 router.post('/', inventoryImportController.create);

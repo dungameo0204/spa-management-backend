@@ -1,4 +1,5 @@
 const { masterPool, getTenantDbName } = require('../config/database');
+const { paginateQuery } = require('../utils/pagination');
 
 const toNumber = (value, fieldName, { min = 0, integer = false } = {}) => {
     const numberValue = Number(value);
@@ -201,9 +202,7 @@ const getDebtPayments = async (tenantId, filters, userRole, userBranchId) => {
     }
     if (filters.startDate) { query += ' AND DATE(dp.payment_date) >= ?'; params.push(filters.startDate); }
     if (filters.endDate) { query += ' AND DATE(dp.payment_date) <= ?'; params.push(filters.endDate); }
-    query += ' ORDER BY dp.payment_date DESC, dp.id DESC';
-    const [rows] = await masterPool.query(query, params);
-    return rows;
+    return paginateQuery(masterPool, query, params, 'dp.payment_date DESC, dp.id DESC', filters);
 };
 
 const getDebtPaymentDetail = async (tenantId, paymentId, userRole, userBranchId) => {

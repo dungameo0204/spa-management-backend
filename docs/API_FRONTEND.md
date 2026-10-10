@@ -1,5 +1,14 @@
 # Tài liệu API cho Frontend — Spa Management Backend
 
+## Phân trang cho API danh sách (cập nhật 2026-10-09)
+
+Tất cả API GET trả **danh sách** (`/api/tenants`, `/api/users`, `/api/branches`, `/api/roles`, `/api/staffs`, `/api/customers`, `/api/products`, `/api/invoices`, `/api/expenses`, `/api/inventory-imports`, `/api/treatments`, `/api/treatments/commissions`, `/api/appointments`, `/api/appointments/tomorrow`, `/api/appointments/not-arrived`, `/api/customer-bookings`, `/api/customer-wallet-logs`, `/api/debt-payments`) nhận `page` (mặc định `1`) và `pageSize` (mặc định `20`, tối đa `100`). Query tìm kiếm và bộ lọc trước đây vẫn dùng như cũ. Tham số phân trang không hợp lệ trả HTTP `400`.
+
+Ví dụ: `GET /api/customers?search=An&page=2&pageSize=10` trả `{ "message": "Lấy danh sách thành công", "total": 42, "page": 2, "pageSize": 10, "totalPages": 5, "data": [ /* tối đa 10 khách hàng */ ] }`. `total` là số bản ghi **sau lọc trên tất cả trang**, không phải `data.length`; trang vượt quá `totalPages` trả `data: []`. Không truyền tham số chỉ tải trang đầu (không còn trả toàn bộ danh sách). Khi đổi bộ lọc, frontend cần đặt lại `page=1`.
+
+`GET /api/reports/details/:type` giữ nguyên phân trang như phần báo cáo bên dưới. `GET /api/reports/commissions` và `/api/reports/consultants` nay cũng hỗ trợ `page/pageSize`, trả thêm `total`, `page`, `pageSize`, `totalPages` cho mảng `staffTotals`; `totalAmount` vẫn là tổng của **toàn bộ nhóm sau lọc**, không chỉ trang đang xem. API tổng quan `/api/reports/revenue`, chi tiết theo ID và API trả một đối tượng đơn lẻ không phân trang.
+
+
 > Tài liệu được tổng hợp từ mã nguồn trong `src/` và hai schema `db_system_master.sql`, `db_spa_template.sql`; mục thu nợ cập nhật **06/10/2026**. Schema tenant cũ phải được migration trước khi dùng API thu nợ mới.
 
 ## 1. Tổng quan
@@ -9,7 +18,7 @@
 - CORS đang mở cho mọi origin (`cors()`).
 - URL gốc cục bộ: `http://localhost:<PORT>`, trong đó `PORT` lấy từ biến môi trường, mặc định là `5000`.
 - Ví dụ dưới đây dùng: `http://localhost:5000`.
-- API không triển khai phân trang. Tất cả API danh sách trả toàn bộ kết quả phù hợp.
+- Các API GET trả danh sách có phân trang bằng `page`/`pageSize`; xem phần **Phân trang cho API danh sách** ở đầu tài liệu. API tổng quan `/api/reports/revenue` không phân trang.
 
 ## 2. Xác thực và quyền
 
@@ -29,7 +38,7 @@ Token hệ thống có hiệu lực **15 giờ**. Token customer MiniApp (nếu 
 |---|---|
 | `SUPER_ADMIN` | Quản lý tenant/Spa trên database master. |
 | `MANAGER` | Quản lý Spa của mình; quản lý chi nhánh, chức vụ và tài khoản. |
-| `STAFF` | Có thể gọi API staff/customer do route hiện chỉ kiểm tra token; nghiệp vụ staff bị giới hạn theo `branch_id` ở một số thao tác. |
+| `STAFF` | Có thể gọi API staff/customer và **xem** danh sách/chi tiết sản phẩm (`GET /api/products`, `GET /api/products/:id`) do các route này chỉ kiểm tra token; không được tạo/sửa/xóa/khôi phục sản phẩm. Nghiệp vụ staff bị giới hạn theo `branch_id` ở một số thao tác. |
 
 > Lưu ý: Route `/api/staffs` chỉ dùng `verifyToken`, **không** dùng `verifyManager`. Vì vậy STAFF có thể gọi các API này; service tự giới hạn dữ liệu/thao tác theo chi nhánh trong một số trường hợp.
 
@@ -56,7 +65,10 @@ Mẫu response danh sách:
 {
   "message": "Lấy danh sách thành công",
   "total": 1,
-  "data": []
+  "page": 1,
+  "pageSize": 20,
+  "totalPages": 1,
+  "data": [{ "id": 1 }]
 }
 ```
 
@@ -67,21 +79,22 @@ Tại thời điểm hiện tại, `src/server.js` mount các endpoint hoạt đ
 | Nhóm | Endpoint |
 |---|---|
 | Auth | `POST /api/auth/login` |
-| Tenant | `POST /api/tenants/create`, `GET /api/tenants`, `PUT /api/tenants/:id`, `DELETE /api/tenants/:id`, `PATCH /api/tenants/:id/restore` |
-| User | `POST /api/users/create`, `GET /api/users`, `PUT /api/users/:id`, `DELETE /api/users/:id`, `PATCH /api/users/:id/restore` |
-| Role | `POST/GET /api/roles`, `PUT/DELETE /api/roles/:id`, `PATCH /api/roles/:id/restore` |
-| Staff | `POST/GET /api/staffs`, `PUT/DELETE /api/staffs/:id`, `PATCH /api/staffs/:id/restore` |
-| Branch | `POST/GET /api/branches`, `PUT/DELETE /api/branches/:id`, `PATCH /api/branches/:id/restore` |
+| Tenant | `POST /api/tenants/create`, `GET /api/tenants`, `GET/PUT/DELETE /api/tenants/:id`, `PATCH /api/tenants/:id/restore`, `POST /api/tenants/:id/renew`, `GET /api/tenants/:id/managers`, `PATCH /api/tenants/:id/managers/:userId/password` |
+| User | `POST /api/users/create`, `GET /api/users`, `GET/PUT/DELETE /api/users/:id`, `PATCH /api/users/:id/restore` |
+| Role | `POST/GET /api/roles`, `GET/PUT/DELETE /api/roles/:id`, `PATCH /api/roles/:id/restore` |
+| Staff | `POST/GET /api/staffs`, `GET/PUT/DELETE /api/staffs/:id`, `PATCH /api/staffs/:id/restore` |
+| Branch | `POST/GET /api/branches`, `GET/PUT/DELETE /api/branches/:id`, `PATCH /api/branches/:id/restore` |
 | Customer | `POST /api/customers/reset-password`, `POST/GET /api/customers`, `GET/PUT/DELETE /api/customers/:id`, `PATCH /api/customers/:id/restore` |
-| Product | `POST/GET /api/products`, `GET /api/products/:id`, `PUT/DELETE /api/products/:id`, `PATCH /api/products/:id/restore` |
-| Inventory import | `POST/GET /api/inventory-imports`, `PUT/DELETE /api/inventory-imports/:id` |
+| Product | `GET /api/products`, `GET /api/products/:id` (MANAGER và STAFF); `POST /api/products`, `PUT/DELETE /api/products/:id`, `PATCH /api/products/:id/restore` (chỉ MANAGER) |
+| Inventory import | `POST/GET /api/inventory-imports`, `GET/PUT/DELETE /api/inventory-imports/:id` |
 | Expense | `POST/GET /api/expenses`, `GET /api/expenses/:id`, `PUT/DELETE /api/expenses/:id` |
 | Invoice | `POST/GET /api/invoices`, `GET /api/invoices/:id`, `PUT/DELETE /api/invoices/:id` |
 | Appointment | `POST/GET /api/appointments`, `GET /api/appointments/tomorrow`, `GET /api/appointments/not-arrived`, `GET /api/appointments/:id`, `PUT/DELETE /api/appointments/:id` |
-| Customer booking | `GET /api/customer-bookings` |
+| Customer booking | `GET /api/customer-bookings`, `GET /api/customer-bookings/:id` |
 | Customer wallet log | `POST/GET /api/customer-wallet-logs`, `GET/PUT/DELETE /api/customer-wallet-logs/:id` |
 | Debt payment | `POST/GET /api/debt-payments`, `GET/PUT/DELETE /api/debt-payments/:id`, `GET /api/debt-payments/invoices/:invoiceId/remaining-debt` |
 | Treatment | `POST /api/treatments`, `POST /api/treatments/execute`, `DELETE /api/treatments/execute/:historyId`, `PUT /api/treatments/execute/:historyId/staffs`, `GET /api/treatments/commissions` |
+| Report (MANAGER; STAFF chỉ xem báo cáo nhân sự của cơ sở mình) | `GET /api/reports/revenue`, `GET /api/reports/commissions`, `GET /api/reports/consultants`, `GET /api/reports/details/:type`, `GET /api/reports/products`, `GET /api/reports/products/:productId/invoices` |
 
 ---
 
@@ -143,11 +156,11 @@ Body:
 
 | Field | Bắt buộc | Ghi chú |
 |---|---:|---|
-| `spaName` | Có | Tên Spa. |
-| `managerUsername` | Có | Unique toàn bảng `db_system_master.users`. |
-| `managerPassword` | Có | Backend băm bcrypt trước khi lưu. |
-| `managerFullname` | Có | Họ tên tài khoản MANAGER đầu tiên. |
-| `years` | Không | Chuỗi `'lifetime'` thì không hết hạn; giá trị khác được `parseInt`, mặc định 1 năm nếu không parse được. |
+| `spaName` | Có | String trim 1–100 ký tự. |
+| `managerUsername` | Có | String trim 1–100 ký tự, unique toàn bảng `db_system_master.users`. |
+| `managerPassword` | Có | String trim 6–255 ký tự; backend băm bcrypt trước khi lưu. |
+| `managerFullname` | Có | String trim 1–255 ký tự, họ tên tài khoản MANAGER đầu tiên. |
+| `years` | Không | `'lifetime'`, rỗng/null thì không hết hạn; còn lại là số nguyên 1–100. |
 
 Thành công `201`:
 
@@ -167,11 +180,16 @@ Thành công `201`:
 
 Backend tạo tenant, tài khoản MANAGER và clone mọi table từ `db_spa_template` trong transaction.
 
-### `GET /api/tenants?search=<keyword>` — Danh sách Spa
+### `GET /api/tenants?search=<keyword>&status=all&page=1&pageSize=20` — Danh sách Spa
 
-- `search` không bắt buộc; tìm theo `spa_name`, `manager_username`, `manager_fullname`.
-- Chỉ trả tenant chưa xóa; join user quản lý chưa xóa.
-- Thành công `200`, mỗi phần tử `data` có: `tenant_id`, `spa_name`, `database_name`, `expire_at`, `created_at`, `manager_username`, `manager_fullname`.
+- `search` không bắt buộc, tối đa 100 ký tự; tìm theo `spa_name`, `manager_username`, `manager_fullname`.
+- `status` không bắt buộc: `all` (mặc định), `active`, `expired`, `disabled`. `disabled` là tenant xóa mềm; `expired` là tenant chưa xóa nhưng `expire_at` đã đến/quá thời điểm hiện tại.
+- Phân trang theo `page`/`pageSize` như quy ước đầu tài liệu.
+- Thành công `200`, mỗi phần tử `data` có: `tenant_id`, `spa_name`, `database_name`, `expire_at`, `created_at`, `updated_at`, `deleted_at`, `created_by`, `updated_by`, `deleted_by`, `manager_user_id`, `manager_username`, `manager_fullname`, `status` (`ACTIVE`/`EXPIRED`/`DISABLED`).
+
+### `GET /api/tenants/:id` — Chi tiết Spa
+
+Chỉ SUPER_ADMIN. Thành công `200`: `{ "message": "Lấy chi tiết Spa thành công", "data": Tenant }`, trong đó `Tenant` có cùng các field đầy đủ như item danh sách. Endpoint đọc được cả tenant đã vô hiệu hóa để phục vụ màn khôi phục; không tồn tại trả `404`, ID sai trả `400`.
 
 ### `PUT /api/tenants/:id` — Cập nhật Spa
 
@@ -181,8 +199,9 @@ Body (gửi một hoặc cả hai field):
 { "spaName": "Spa Ngọc Lan - Quận 1", "expireAt": "2027-12-31 23:59:59" }
 ```
 
-- `spaName`: string.
-- `expireAt`: date-time hoặc `null` để chuyển sang không thời hạn.
+- Cần gửi ít nhất một field.
+- `spaName`: string trim 1–100 ký tự.
+- `expireAt`: date-time hợp lệ hoặc `null` để chuyển sang không thời hạn.
 - Thành công `200`: `{ "message": "Cập nhật thông tin Spa thành công!", "data": { "id": "7", "spa_name": "...", "expire_at": "..." } }`.
 
 ### `DELETE /api/tenants/:id` — Vô hiệu hóa Spa
@@ -194,6 +213,14 @@ Body (gửi một hoặc cả hai field):
 
 - Gỡ xóa mềm tenant và toàn bộ user thuộc tenant.
 - Thành công `200`: `{ "message": "Đã khôi phục Spa thành công! Các tài khoản đã có thể đăng nhập lại." }`.
+
+### Quản trị MANAGER và gia hạn (chỉ SUPER_ADMIN)
+
+- `GET /api/tenants/:id/managers`: trả `{ message, total, data: [{ id, tenant_id, username, fullname, system_role, created_at, updated_at, deleted_at }] }`; gồm cả tài khoản MANAGER đã xóa mềm để hiển thị, không bao giờ trả password.
+- `PATCH /api/tenants/:id/managers/:userId/password` body `{ "newPassword": "matkhau123" }`: cấp lại mật khẩu cho **MANAGER đang hoạt động thuộc đúng Spa đang hoạt động**; 6–255 ký tự sau trim, lưu bcrypt, không trả mật khẩu. Thành công `200 { "message": "Đã cấp lại mật khẩu MANAGER thành công." }`; user/Spa sai hoặc bị vô hiệu hóa `404`.
+- `POST /api/tenants/:id/renew` body `{ "years": 1 }`: cộng 1–100 năm vào `max(expire_at, NOW())` trên giờ DB; tenant hết hạn cộng từ hiện tại, tenant còn hạn cộng từ hạn cũ. Trả `200 { "message": "Gia hạn Spa thành công.", "data": { "id": 7, "expire_at": "..." } }`. Tenant không thời hạn (`expire_at=null`) trả `400`: dùng `PUT /api/tenants/:id` với `expireAt` để đặt hạn trước. Tenant vô hiệu hóa/không tồn tại trả `404`.
+
+Chi tiết hướng dẫn AI frontend xây giao diện Superadmin tại `docs/SUPERADMIN_FRONTEND.md`. Các API này không tạo đơn hàng, lịch sử thanh toán hoặc thay đổi bảng `subscription_packages`.
 
 ---
 
@@ -226,6 +253,10 @@ Thành công `201`: `{ "message": "Tạo tài khoản đăng nhập thành công
 - Trả **cả user đã xóa mềm** (`deleted_at`) để dùng cho màn khôi phục.
 - Mỗi item: `id`, `branch_id`, `username`, `fullname`, `system_role`, `created_at`, `deleted_at`, `branch_name` (`'Tổng công ty'` khi không có branch).
 
+### `GET /api/users/:id`
+
+Chỉ MANAGER; `200`: `{ "message": "Lấy chi tiết tài khoản thành công", "data": { ... } }`. `data` có cùng field như item danh sách, **không có password**, kể cả khi tài khoản đã bị khóa (`deleted_at` khác null). `branch_name` có thể vắng mặt nếu branch đã xóa. ID không thuộc tenant/không tồn tại trả `404`.
+
 ### `PUT /api/users/:id`
 
 Body hỗ trợ:
@@ -240,8 +271,9 @@ Body hỗ trợ:
 }
 ```
 
-- Không được tự đổi `systemRole` của chính tài khoản đang đăng nhập.
-- **Quan trọng:** service hiện luôn kiểm tra `branchId` bằng database trước khi update. Vì vậy frontend nên luôn gửi `branchId` hợp lệ, kể cả khi chỉ đổi username/password/fullname. Gửi `branchId: null` hoặc bỏ field có thể bị lỗi `Cơ sở/Chi nhánh không tồn tại hoặc đã bị đóng cửa!`.
+- Không được tự **đổi** `systemRole` của chính tài khoản đang đăng nhập; gửi lại cùng quyền hiện có (ví dụ `"MANAGER"`) vẫn được. `systemRole` có thể bỏ qua nếu không đổi.
+- Với tài khoản MANAGER (kể cả khi chuyển từ STAFF sang MANAGER), mỗi lần PUT backend ghi `branch_id = null` dù frontend gửi `branchId` cũ; frontend có thể bỏ `branchId` hoặc gửi `null`, không cần chọn chi nhánh. GET danh sách/chi tiết sau khi lưu trả `branch_id: null`, `branch_name: "Tổng công ty"`. Nếu chuyển MANAGER sang STAFF thì phải gửi `branchId` của chi nhánh đang hoạt động.
+- Với STAFF, `branchId` phải là chi nhánh hợp lệ khi tạo/chuyển quyền/đổi chi nhánh. Nếu chỉ sửa username, họ tên hoặc mật khẩu, có thể **bỏ** `branchId` để giữ chi nhánh đang lưu; gửi `null` hoặc giá trị sai sẽ bị từ chối. MANAGER tự sửa tên/mật khẩu có thể gửi body như `{ "fullname": "Tên mới", "password": "mật khẩu mới" }`.
 - Thành công `200`: `{ "message": "Cập nhật tài khoản thành công!" }`.
 
 ### `DELETE /api/users/:id`
@@ -270,6 +302,10 @@ Body hỗ trợ:
 ### `GET /api/roles?search=<keyword>`
 
 - `search` tìm theo `name`; chỉ trả role chưa xóa, sắp xếp mới nhất trước.
+
+### `GET /api/roles/:id`
+
+Cần token (như GET danh sách); `200`: `{ "message": "Lấy chi tiết chức vụ thành công", "data": { ... } }`, `data` cùng cấu trúc bản ghi role trong danh sách. Không tồn tại/đã xóa trả `404`.
 
 ### `PUT /api/roles/:id`
 
@@ -317,6 +353,10 @@ Thành công `201`: `{ "message": "Thêm mới chi nhánh thành công", "branch
 - `search` tìm theo `name` hoặc `address`.
 - Trả `SELECT *` từ `branches` (gồm cấu hình thanh toán); frontend cần bảo vệ dữ liệu nhạy cảm như `payment_api_key` khi hiển thị.
 
+### `GET /api/branches/:id`
+
+Chỉ MANAGER; `200`: `{ "message": "Lấy chi tiết chi nhánh thành công", "data": { ... } }`. `data` cùng cấu trúc item danh sách, bao gồm cả `payment_api_key` nếu có; không tồn tại/đã xóa trả `404`.
+
 ### `PUT /api/branches/:id`
 
 - Partial update với các field tạo mới bên trên.
@@ -358,6 +398,10 @@ Thành công `201`: `{ "message": "Thêm mới chi nhánh thành công", "branch
 | `roleId` | Lọc theo `role_id`. |
 
 Mỗi item gồm toàn bộ `staffs` (`s.*`) và `role_name`, `branch_name` từ LEFT JOIN.
+
+### `GET /api/staffs/:id`
+
+Cần token; `200`: `{ "message": "Lấy chi tiết hồ sơ nhân viên thành công", "data": { ... } }`, `data` cùng cấu trúc item danh sách. STAFF chỉ xem được hồ sơ thuộc branch trong token; không tồn tại/đã xóa/khác branch trả `404`.
 
 ### `PUT /api/staffs/:id`
 
@@ -443,11 +487,11 @@ Body hỗ trợ: `fullname`, `phone_number`, `password`, `avatar`, `address`, `n
 
 ---
 
-## 12. Sản phẩm/Dịch vụ `/api/products` (chỉ `MANAGER`)
+## 12. Sản phẩm/Dịch vụ `/api/products` (MANAGER quản lý; STAFF chỉ xem)
 
-Mọi endpoint trong mục này yêu cầu Bearer token của MANAGER. Product được tạo trong **một transaction** cùng cấu hình hoa hồng/tồn kho ban đầu (nếu có); nếu một bước lỗi thì toàn bộ thao tác bị rollback.
+Mọi endpoint trong mục này yêu cầu Bearer token. `GET /api/products` và `GET /api/products/:id` cho phép cả MANAGER lẫn STAFF; `POST /api/products`, `PUT /api/products/:id`, `DELETE /api/products/:id` và `PATCH /api/products/:id/restore` chỉ cho phép MANAGER (STAFF nhận HTTP `403`). STAFF không có quyền quản lý sản phẩm. Product được tạo trong **một transaction** cùng cấu hình hoa hồng/tồn kho ban đầu (nếu có); nếu một bước lỗi thì toàn bộ thao tác bị rollback.
 
-### `POST /api/products`
+### `POST /api/products` (chỉ MANAGER)
 
 ```json
 {
@@ -486,6 +530,7 @@ Thành công `201`: `{ "message": "Tạo sản phẩm/dịch vụ thành công",
 ### 1. Lấy danh sách Sản phẩm / Dịch vụ
 **`GET /api/products?search=&is_product=`**
 
+- **Quyền truy cập:** MANAGER và STAFF có token hợp lệ; không yêu cầu quyền quản lý sản phẩm.
 - `search`: Tìm kiếm theo tên sản phẩm (chuỗi con, không phân biệt hoa/thường).
 - `is_product`: Gửi `0` (Dịch vụ) hoặc `1` (Sản phẩm vật lý) để lọc.
 - **Lưu ý:** Đã loại bỏ hoàn toàn tham số `is_active` khỏi request và response (trạng thái dựa vào xóa mềm `deleted_at`).
@@ -494,7 +539,7 @@ Thành công `201`: `{ "message": "Tạo sản phẩm/dịch vụ thành công",
   - `inventory`: Số lượng tồn kho (kèm `branch_name`).
 - **Phân quyền hiển thị:**
   - **Manager (Quản lý):** Xem được tồn kho (`inventory`) ở TẤT CẢ chi nhánh.
-  - **Staff (Nhân viên):** Chỉ xem được tồn kho (`inventory`) tại cơ sở mà nhân viên đó đang làm việc.
+  - **Staff (Nhân viên):** Nếu token có `branch_id`, mảng tồn kho (`inventory`) chỉ gồm chi nhánh đó; danh sách sản phẩm và mảng `commissions` không lọc theo chi nhánh. Không dùng tồn kho trả về để suy ra quyền chỉnh sửa sản phẩm.
 
 ---
 
@@ -502,10 +547,10 @@ Thành công `201`: `{ "message": "Tạo sản phẩm/dịch vụ thành công",
 **`GET /api/products/:id`**
 
 - **URL Params:** `id` - ID của sản phẩm cần lấy chi tiết.
-- **Quyền truy cập:** Dành cho cả Manager và Staff.
+- **Quyền truy cập:** Dành cho cả MANAGER và STAFF có token hợp lệ; không có quyền chỉnh sửa sản phẩm.
 - **Response:** Trả về Object thông tin chi tiết của 1 sản phẩm (không chứa `is_active`), kèm mảng `commissions` và mảng `inventory`. (Logic phân quyền hiển thị tồn kho chi nhánh áp dụng tương tự như API Lấy danh sách).
 
-### `PUT /api/products/:id`
+### `PUT /api/products/:id` (chỉ MANAGER)
 
 - Partial update: `name`, `images`, `description`, `benefits`, `price`, `unit`, `is_product`, `is_treatment_combo`, `default_sessions`, `session_unit`, `next_appointment_days`.
 - `is_active` là cột legacy trong schema và bị API Product bỏ qua khi create/update; trạng thái sử dụng product được quản lý bằng xóa mềm (`deleted_at`).
@@ -513,7 +558,7 @@ Thành công `201`: `{ "message": "Tạo sản phẩm/dịch vụ thành công",
 - API này không nhận `inventory`, để không điều chỉnh tồn kho không có chứng từ. Dùng `POST /api/inventory-imports` để tăng tồn.
 - Thành công `200`: `{ "message": "Cập nhật sản phẩm/dịch vụ thành công" }`.
 
-### `DELETE /api/products/:id` / `PATCH /api/products/:id/restore`
+### `DELETE /api/products/:id` / `PATCH /api/products/:id/restore` (chỉ MANAGER)
 
 - Xóa mềm/khôi phục product.
 - Thành công: `Xóa sản phẩm/dịch vụ thành công` hoặc `Khôi phục sản phẩm/dịch vụ thành công`.
@@ -571,7 +616,8 @@ Thành công `201`:
 Lọc nâng cao theo: `search` (Mã/NCC), `branchId`, `startDate`, `endDate` (YYYY-MM-DD). Trả về danh sách phiếu nhập.
 
 ### `GET /api/inventory-imports/:id`
-Trả header (kèm `branch_name`) và `items` snapshot.
+
+Cần token; MANAGER xem mọi cơ sở, STAFF chỉ xem phiếu tại cơ sở trong token (thiếu branch hợp lệ trả `400`). Thành công `200`: `{ "message": "Lấy chi tiết phiếu nhập kho thành công", "data": { ... } }`. `data` có header (`id`, `branch_id`, `branch_name`, `import_code`, `import_date`, `supplier_name`, `total_amount`, `note`, audit) và `items[]`: `{ id, inventory_import_id, product_id, product_name, quantity, unit_price, discount_percent, discount_amount, total_price }` (snapshot, sắp theo ID tăng). ID không hợp lệ trả `400`; không tồn tại/đã xóa/khác branch trả `404`. Không phân trang.
 
 ### `PUT /api/inventory-imports/:id`
 Ghi đè phiếu nhập (Cấu trúc giống POST). Sử dụng Transaction để hoàn trả tồn kho cũ, và tính toán lại tồn kho mới an toàn.
@@ -667,7 +713,7 @@ Xử lý giao dịch thanh toán, tự động trừ ví, tính công nợ, chia
 | `items[].discount_percent`, `items[].discount_amount` | Không | Mặc định `0`; backend chặn thành tiền dòng âm. |
 | `items[].consultants` | Không | Mảng nhân viên tư vấn/chăm sóc. Mỗi dòng có `staff_id`, `revenue_amount?`, `role_type?`; `revenue_amount` mặc định `0`, phải `>= 0`, và tổng `revenue_amount` của tất cả consultant trong **một item** không được vượt `final_price` của item sau chiết khấu. STAFF chỉ được chọn nhân viên thuộc branch trong token, MANAGER có thể chọn nhân viên branch khác. |
 
-> **Backend tự động:** Tính công nợ, giảm trừ ví, sinh thẻ liệu trình (nếu sp có `is_treatment_combo = 1`).
+> **Backend tự động:** Tính công nợ, giảm trừ ví, sinh thẻ liệu trình cho dịch vụ (`is_product = 0`) và combo (`is_treatment_combo = 1`). Combo có `total_sessions = remaining_sessions = quantity × default_sessions` (nếu kết quả > 0), `note = null`; dịch vụ không phải combo luôn sinh một thẻ **1 buổi** dù `quantity > 1` hoặc `default_sessions = 0`. Thẻ dịch vụ thường ghi `note = "<quantity> <unit>"` lấy từ `products.unit`: ví dụ mua 5 lần dịch vụ tẩy nốt ruồi, `unit = "nốt"` ⇒ 1 buổi, `note = "5 nốt"`. Nếu `unit` trống/null, ghi riêng số lượng (ví dụ `"5"`). Hàng hóa không phải combo không sinh thẻ.
 
 Backend tự tính `totalAmount`, không tin tổng tiền do frontend tự tính. Điều kiện thanh toán là `0 <= wallet_used <= totalAmount`, `paid_amount >= 0`, và `paid_amount + wallet_used <= totalAmount`; request vượt tổng hóa đơn bị từ chối trước khi trừ ví. Nếu thanh toán đủ thì `paid_amount + wallet_used = totalAmount`; nếu nhỏ hơn, phần thiếu là công nợ. `debtAmount` luôn được tính bằng `totalAmount - paid_amount - wallet_used`; ví dụ `totalAmount: 6.000.000`, `paid_amount: 0`, `wallet_used: 6.000.000` sẽ có `debtAmount: 0`.
 
@@ -696,7 +742,7 @@ Query tùy chọn: `search`, `branchId`, `startDate`, `endDate`, `productName`, 
 - `productName`: tìm theo `invoice_items.snapshot_name`.
 - `minAmount`, `maxAmount`: lọc `total_amount`, phải `>= 0`.
 - `hasDebt`: `true`/`1` chỉ lấy hóa đơn còn công nợ (`debt_amount > 0`); `false`/`0` chỉ lấy hóa đơn không còn công nợ (`debt_amount = 0`). Ví dụ: `GET /api/invoices?hasDebt=true`.
-- Thành công `200`: `{ "message": "Lấy danh sách thành công", "total": 1, "data": [ ... ] }`. Mỗi invoice trả `wallet_used` riêng; `payment_method` không chứa số tiền ví.
+- Thành công `200`: `{ "message": "Lấy danh sách thành công", "total": 1, "page": 1, "pageSize": 20, "totalPages": 1, "data": [ ... ] }`. Mỗi invoice trả `wallet_used` riêng; `payment_method` không chứa số tiền ví.
 
 ### `GET /api/invoices/:id`
 
@@ -706,7 +752,7 @@ Lấy header hóa đơn, gồm `paid_amount`, `wallet_used`, `debt_amount`, `bra
 
 Ghi đè **toàn bộ** `items`; body phải gửi `items` theo cấu trúc của POST, trong đó từng item cũng ưu tiên `unit_price` (hoặc `price`) và chỉ fallback `products.price` khi không gửi giá. Các field header có thể gửi: `customer_id`, `discount_percent`, `discount_amount`, `paid_amount`, `wallet_used`, `payment_method`, `note`, `invoice_date`.
 
-Trong một transaction, backend hoàn trả ví/công nợ/tồn kho cũ, xóa mềm item và thẻ liệu trình cũ, sau đó áp dụng hóa đơn mới. Hàng hóa mới cũng dùng cơ chế tồn âm nếu chưa có dòng inventory. Áp dụng cùng các điều kiện thanh toán của POST: `wallet_used` không vượt `totalAmount` và `paid_amount + wallet_used` không được vượt `totalAmount`. Bị chặn nếu thẻ liệu trình từ hóa đơn đã có lịch sử sử dụng **hoặc hóa đơn đã có phiếu thu nợ active**; khi có phiếu thu nợ, API trả lỗi `Không thể sửa hóa đơn đã có phiếu thu nợ.` STAFF chỉ sửa hóa đơn của cơ sở mình được tạo trong ngày hiện tại.
+Trong một transaction, backend hoàn trả ví/công nợ/tồn kho cũ, xóa mềm item và thẻ liệu trình cũ, sau đó áp dụng hóa đơn mới; các thẻ được tạo lại theo **cùng quy tắc combo/dịch vụ và note như POST** (không sửa hồi tố thẻ của hóa đơn khác). Hàng hóa mới cũng dùng cơ chế tồn âm nếu chưa có dòng inventory. Áp dụng cùng các điều kiện thanh toán của POST: `wallet_used` không vượt `totalAmount` và `paid_amount + wallet_used` không được vượt `totalAmount`. Bị chặn nếu thẻ liệu trình từ hóa đơn đã có lịch sử sử dụng **hoặc hóa đơn đã có phiếu thu nợ active**; khi có phiếu thu nợ, API trả lỗi `Không thể sửa hóa đơn đã có phiếu thu nợ.` STAFF chỉ sửa hóa đơn của cơ sở mình được tạo trong ngày hiện tại.
 
 ### `DELETE /api/invoices/:id`
 
@@ -747,7 +793,7 @@ Query tùy chọn: `search`, `branchId`, `status`, `startDate`, `endDate`.
 
 ### `GET /api/appointments/tomorrow`
 
-Lấy các **lịch hẹn** vào ngày mai theo ngày giờ DB (`CURDATE()`), không phụ thuộc trạng thái. Trả `{ "message": "...", "total": 1, "data": [{ "id": 1, "customer_id": 1, "status": "Khách chưa đến", "customer_name": "...", "phone_number": "...", "branch_name": "..." }] }`. Nhận thêm `branchId`, `search`, `status`, `startDate`, `endDate` như API danh sách. STAFF chỉ thấy branch token.
+Lấy các **lịch hẹn** vào ngày mai theo ngày giờ DB (`CURDATE()`), không phụ thuộc trạng thái. Trả `{ "message": "Lấy danh sách khách hẹn ngày mai thành công", "total": 1, "page": 1, "pageSize": 20, "totalPages": 1, "data": [{ "id": 1, "customer_id": 1, "status": "Khách chưa đến", "customer_name": "...", "phone_number": "...", "branch_name": "..." }] }`. Nhận thêm `branchId`, `search`, `status`, `startDate`, `endDate` như API danh sách. STAFF chỉ thấy branch token.
 
 ### `GET /api/appointments/not-arrived`
 
@@ -784,7 +830,11 @@ Query tùy chọn: `search`, `branchId`, `customerId`, `productId`, `status`, `s
 - `customerId`, `productId`, `status`: lọc khớp chính xác.
 - `startDate`, `endDate`: lọc theo `booking_time` dạng `YYYY-MM-DD`.
 - Kết quả trả thêm `branch_name`, `product_name`; nếu booking liên kết customer hệ thống thì có thêm `registered_customer_name`, `registered_customer_phone`.
-- Thành công `200`: `{ "message": "Lấy danh sách booking khách hàng thành công", "total": 1, "data": [ ... ] }`.
+- Thành công `200`: `{ "message": "Lấy danh sách booking khách hàng thành công", "total": 1, "page": 1, "pageSize": 20, "totalPages": 1, "data": [ ... ] }`.
+
+### `GET /api/customer-bookings/:id`
+
+Cần token; `200`: `{ "message": "Lấy chi tiết booking khách hàng thành công", "data": { ... } }`, cùng các field `customer_bookings` và thông tin join (`branch_name`, `product_name`, `registered_customer_name`, `registered_customer_phone`) như item danh sách; LEFT JOIN có thể trả `null`. STAFF chỉ xem branch token. ID không hợp lệ trả `400`; không tồn tại/đã xóa/khác branch trả `404`.
 
 ---
 
@@ -934,7 +984,7 @@ Soft-delete phiếu và cộng lại `amount` vào `customers.total_debt` trong 
 
 ## 20. Thẻ Liệu trình `/api/treatments`
 
-Hệ thống tự động sinh thẻ khi item có `is_treatment_combo = 1`; MANAGER cũng có thể tạo thẻ thủ công. Tất cả người dùng đã đăng nhập đều xem được thẻ liệu trình của **mọi cơ sở trong cùng tenant**. STAFF chỉ được tạo/sửa/xóa history tại cơ sở trong token; `branch_id` trong history là cơ sở khách đến làm.
+Hệ thống tự động sinh thẻ khi item là dịch vụ (`is_product = 0`) hoặc combo (`is_treatment_combo = 1`); dịch vụ không phải combo chỉ 1 buổi và `note` ghi số lượng + `products.unit`, combo tính `quantity × default_sessions`. MANAGER cũng có thể tạo thẻ thủ công. Tất cả người dùng đã đăng nhập đều xem được thẻ liệu trình của **mọi cơ sở trong cùng tenant**. STAFF chỉ được tạo/sửa/xóa history tại cơ sở trong token; `branch_id` trong history là cơ sở khách đến làm.
 
 ### `GET /api/treatments`
 
@@ -954,7 +1004,7 @@ API này hỗ trợ query filter để tìm danh sách thẻ liệu trình. Tấ
 - `customerSearch` tìm theo tên/số điện thoại; `productSearch` tìm tên dịch vụ.
 - `status=active` lọc thẻ còn buổi; `status=completed` lọc thẻ hết buổi.
 - `startDate`, `endDate`: lọc ngày tạo thẻ; `invoiceId` lọc toàn bộ thẻ liệu trình được sinh từ một hóa đơn, không phụ thuộc branch của hóa đơn; `branchId` lọc thẻ tạo từ hóa đơn của một cơ sở (thẻ thủ công không có invoice vẫn được bao gồm theo nghiệp vụ hiện tại).
-- Thành công `200`: `{ "message": "Lấy danh sách liệu trình thành công", "data": [ ... ] }`.
+- Thành công `200`: `{ "message": "Lấy danh sách liệu trình thành công", "total": 1, "page": 1, "pageSize": 20, "totalPages": 1, "data": [ ... ] }`.
 
 Ví dụ tìm các thẻ liệu trình có tên dịch vụ chứa `lông`:
 
@@ -1126,7 +1176,7 @@ Trừ một buổi tại cơ sở thực tế khách đến làm.
 - `treatment_id` bắt buộc. Với STAFF, `branch_id` có thể bỏ qua và backend tự lấy `branch_id` trong token; nếu truyền lên thì phải trùng token. Với MANAGER, `branch_id` bắt buộc.
 - `execution_date` tùy chọn (mặc định hiện tại). `staffs` tùy chọn; backend lấy role của mỗi staff, tra `product_commissions`, và tự snapshot hoa hồng. Không có cấu hình commission thì hoa hồng bằng `0`.
 - Bị chặn nếu thẻ hết buổi. Nếu product có `next_appointment_days` và còn buổi, backend tạo lịch hẹn tiếp theo tại `branch_id` thực hiện.
-- Thành công `201`: `{ "message": "Trừ buổi liệu trình thành công", "treatmentHistoryId": 1 }`.
+- Thành công `201`: `{ "message": "Đã trừ 1 buổi liệu trình và tính hoa hồng thành công", "treatmentHistoryId": 1 }`.
 
 ### `PUT /api/treatments/execute/:historyId/staffs`
 
@@ -1153,7 +1203,194 @@ Báo cáo dòng hoa hồng đã snapshot. Query tùy chọn: `branchId`, `staffN
 
 - STAFF luôn chỉ xem history và staff thuộc branch trong token; `branchId` gửi lên bị bỏ qua đối với STAFF. MANAGER có thể lọc bằng `branchId`.
 - Kết quả sắp xếp theo `branchId`, `staffName`, `staffId`, rồi `commission_amount_snapshot` tăng dần.
-- Thành công `200`: `{ "message": "Lấy danh sách hoa hồng nhân viên thành công", "total": 1, "data": [ ... ] }`.
+- Thành công `200` (mỗi phần tử `data` là một lần phân công, `total` là số dòng, **không phải tổng tiền**):
+
+```json
+{
+  "message": "Lấy danh sách hoa hồng nhân viên thành công",
+  "total": 1,
+  "page": 1,
+  "pageSize": 20,
+  "totalPages": 1,
+  "data": [{
+    "id": 15, "treatment_history_id": 9, "commission_amount_snapshot": "80000.00",
+    "created_at": "2026-10-09T10:00:00.000Z", "execution_date": "2026-10-09T09:00:00.000Z",
+    "branch_id": 1, "branch_name": "Cơ sở 1", "staff_id": 3, "staff_name": "Nguyễn A",
+    "role_name": "Kỹ thuật viên", "product_id": 4, "product_name": "Chăm sóc da",
+    "customer_name": "Trần B"
+  }]
+}
+```
+
+`commission_amount_snapshot` là DECIMAL từ MySQL (chuỗi số tiền); thời gian là datetime do driver serialize. Muốn **tổng hoa hồng theo nhân viên + phân trang** thì dùng API báo cáo `/api/reports/commissions` và `/api/reports/details/commissions` bên dưới.
+
+---
+
+## Báo cáo `/api/reports` — MANAGER; STAFF xem báo cáo nhân sự theo cơ sở
+
+Tất cả request là `GET`, yêu cầu `Authorization: Bearer <JWT>`. MANAGER xem các báo cáo và có thể chọn `branchId` số nguyên dương; không gửi = toàn tenant. STAFF **chỉ** xem `/commissions`, `/consultants`, `/details/commissions`, `/details/consultants` trong cơ sở `branch_id` của JWT; backend bỏ qua `branchId` trong query (kể cả khác cơ sở), `period.branchId` trả cơ sở thực tế. STAFF không có `branch_id` hợp lệ hoặc quyền khác (SUPER_ADMIN) bị `403`; thiếu token `401`. STAFF vẫn bị `403` với các báo cáo còn lại. Tất cả endpoint nhận **bắt buộc** `startDate=YYYY-MM-DD&endDate=YYYY-MM-DD` (gồm cả hai ngày). `branchId` dùng theo **chi nhánh thực hiện** công ca hoặc **chi nhánh hóa đơn** của tư vấn. Khoảng ngày căn theo giờ DB; ngày giờ MySQL được driver trả dưới dạng JSON datetime, không giả định múi giờ browser. Ngày không hợp lệ, đảo thứ tự, branchId/page/pageSize sai (với MANAGER) hoặc type không hợp lệ trả `400 {"message":"..."}`. Sự cố DB trả `500`.
+
+Ví dụ báo cáo tuần `GET /api/reports/revenue?startDate=2026-10-05&endDate=2026-10-11&branchId=1`; báo cáo tháng `startDate=2026-10-01&endDate=2026-10-31`. Không cần tham số `week`/`month`.
+
+**Quy tắc tiền:** `productRevenue` và `serviceRevenue` là giá trị bán sau chiết khấu, **không phải tiền thực thu**. Mỗi hóa đơn: tổng trước chiết khấu cấp hóa đơn = tổng `invoice_items.final_price` sau chiết khấu từng dòng; lấy phần chênh giữa số đó và `invoices.total_amount` để trừ **dịch vụ trước**, phần dư trừ **sản phẩm**. Ví dụ dịch vụ 500.000 + sản phẩm 3.000.000, giảm tổng hóa đơn 1.000.000 ⇒ `serviceRevenue=0`, `productRevenue=2500000`. Combo được phân loại theo `products.is_product` (`0` dịch vụ, `1` sản phẩm). Hóa đơn/chi tiết đã xóa mềm không tính. `totalRevenue = serviceRevenue + productRevenue`; số tiền ví đã dùng (`wallet_used`) nằm trong giá trị doanh thu hóa đơn nhưng không được cộng vào **tổng thu tiền mặt** lần nữa.
+
+`receipts.total = invoices.paid_amount` theo `invoice_date` + `debt_payments.amount` theo `payment_date` + `customer_wallet_logs.paid_amount` theo `created_at`. Nạp ví thưởng (`bonus_amount`) không phải tiền thu; tiền thu nợ chỉ cộng ở ngày thực thu, không cộng lại vào doanh thu hóa đơn. Tiền thu nợ phân theo `debt_payments.branch_id` (chi nhánh của hóa đơn); response chi tiết còn có `collection_branch_id` (nơi thực thu). `expenses.total = expense_vouchers.amount` theo `expense_date` + `inventory_imports.total_amount` theo `import_date`; theo quy trình này tiền nhập kho **không** ghi thêm phiếu chi. `netCashFlow = receipts.total - expenses.total`, không phải lợi nhuận sau giá vốn. Hoa hồng/tư vấn là báo cáo riêng, **không trừ thêm** vào chi nếu chưa ghi phiếu chi.
+
+### 1. `GET /api/reports/revenue` — các thẻ tổng quan
+
+Thành công `200` (mọi số tiền ở endpoint này là `number` tính theo đơn vị tiền của hệ thống):
+
+```json
+{
+  "message": "Lấy báo cáo thành công",
+  "period": { "startDate": "2026-10-05", "endDate": "2026-10-11", "branchId": 1 },
+  "serviceRevenue": 0,
+  "productRevenue": 2500000,
+  "totalRevenue": 2500000,
+  "receipts": {
+    "invoiceCash": 1000000,
+    "debtPayments": 200000,
+    "walletTopups": 500000,
+    "total": 1700000,
+    "walletUsedExcluded": 300000
+  },
+  "expenses": { "expenseVouchers": 100000, "inventoryImports": 600000, "total": 700000 },
+  "netCashFlow": 1000000
+}
+```
+
+`walletUsedExcluded` chỉ là chỉ tiêu tham khảo (tổng ví đã sử dụng trên hóa đơn **trong khoảng lọc**), **không trừ** khỏi `receipts.total` lần nữa; không phải doanh thu nạp ví. Nếu không lọc chi nhánh thì `period.branchId=null`. Kỳ không có chứng từ trả các tổng bằng `0`.
+
+### 2. `GET /api/reports/details/:type` — các bảng chứng từ có phân trang
+
+Có thể thêm `search` (tối đa 100 ký tự) để tìm trên toàn bộ kỳ, trước khi phân trang. Tìm không phân biệt hoa/thường theo mã dòng, tên cơ sở, khách hàng, nhân viên, sản phẩm/dịch vụ và các trường có ý nghĩa của từng loại (ví dụ mã hóa đơn, số điện thoại, ghi chú, loại chi, nhà cung cấp, số tiền). `total`, `totalAmount` và `totalPages` là kết quả sau lọc; không gửi `search` thì giữ kết quả cũ. Tham số `query` không được hỗ trợ.
+
+`type` chỉ nhận: `invoices`, `debt_payments`, `wallet_logs`, `expenses`, `inventory_imports`, `commissions`, `consultants`. Chỉ MANAGER xem cả bảy type; STAFF chỉ xem hai type `commissions`/`consultants` của cơ sở mình. Query giống API revenue, thêm `page` (mặc định `1`) và `pageSize` (mặc định `20`, tối đa `100`). Với hai type `commissions`/`consultants` có thể thêm `staffId` để xem đúng toàn bộ giao dịch của một nhân viên qua các trang; các type còn lại không nhận `staffId`. Nếu có lọc này, response `period` thêm `staffId`. Các dòng thuộc **trang hiện tại**, nhưng `total` là số dòng và `totalAmount` (number) là tổng tiền của **toàn khoảng lọc**, không phụ thuộc `page`/`pageSize`; `totalPages=ceil(total/pageSize)`. Không có dòng thì `totalAmount=0`, trang vượt giới hạn vẫn có tổng toàn kỳ. Sắp xếp mới nhất trước cho chứng từ thu/chi; công ca và tư vấn theo `branch_id`, tên nhân viên, `staff_id`, tiền tăng dần, `id` tăng dần. Khi đổi bộ lọc, frontend đặt lại `page=1`. Gọi riêng từng type khi người dùng mở tab, thay vì tải 7 bảng một lúc.
+
+`totalAmount` theo type: `invoices` = tổng `total_amount` hóa đơn (giá trị bán sau giảm giá, **không phải** tiền đã thanh toán); `debt_payments` = tổng `amount` thu nợ; `wallet_logs` = tổng `paid_amount` nạp ví (không gồm thưởng); `expenses` = tổng `amount` phiếu chi; `inventory_imports` = tổng `total_amount` nhập hàng; `commissions` = tổng `commission_amount_snapshot` công ca; `consultants` = tổng `revenue_amount` phân bổ tư vấn. Dùng cùng bộ lọc ngày, chi nhánh, nhân viên (nếu áp dụng) và xóa mềm như danh sách chi tiết. Không cộng các loại tổng này với nhau thành doanh thu.
+
+Ví dụ `GET /api/reports/details/invoices?startDate=2026-10-05&endDate=2026-10-11&branchId=1&page=1&pageSize=20`:
+
+```json
+{
+  "message": "Lấy báo cáo thành công",
+  "type": "invoices",
+  "period": { "startDate": "2026-10-05", "endDate": "2026-10-11", "branchId": 1 },
+  "page": 1, "pageSize": 20, "total": 1, "totalAmount": 2500000, "totalPages": 1,
+  "data": [{
+    "id": 42, "branch_id": 1, "branch_name": "Cơ sở 1",
+    "customer_id": 8, "customer_name": "Trần B", "phone_number": "0900000000",
+    "invoice_date": "2026-10-09T10:00:00.000Z", "total_amount": "2500000.00",
+    "paid_amount": "1000000.00", "wallet_used": "300000.00", "debt_amount": "1200000.00",
+    "payment_method": "TRANSFER", "service_before_invoice_discount": "500000.00",
+    "product_before_invoice_discount": "3000000.00", "invoice_discount_total": "1000000.00",
+    "service_revenue": "0.00", "product_revenue": "2500000.00"
+  }]
+}
+```
+
+Các khoản tiền ở bảng chi tiết là MySQL `DECIMAL` (thường serialize dưới dạng **chuỗi**) chứ không giống thẻ summary dạng number; frontend format tiền sau khi chuyển đổi một cách an toàn. Bảng `invoices` trả tổng tiền và phân bổ doanh thu **theo hóa đơn**, không nhúng toàn bộ items để giữ response gọn; nút xem item/chi tiết dùng `GET /api/invoices/:id`.
+
+Các `type` còn lại **dùng đúng envelope** (`message`, `type`, `period`, `page`, `pageSize`, `total`, `totalAmount`, `totalPages`, `data`) ở trên; một phần tử `data` có các field sau (số tiền DECIMAL thể hiện dạng chuỗi trong ví dụ):
+
+```jsonc
+// type=debt_payments — nút xem chi tiết: GET /api/debt-payments/:id
+{ "id": 5, "invoice_id": 42, "customer_id": 8, "customer_name": "Trần B", "phone_number": "0900000000", "branch_id": 1, "branch_name": "Cơ sở 1", "collection_branch_id": 2, "collection_branch_name": "Cơ sở 2", "payment_date": "2026-10-10T10:00:00.000Z", "amount": "200000.00", "payment_method": "CASH", "note": "Thanh toán nợ" }
+
+// type=wallet_logs — nút xem chi tiết: GET /api/customer-wallet-logs/:id
+{ "id": 6, "customer_id": 8, "customer_name": "Trần B", "phone_number": "0900000000", "branch_id": 1, "branch_name": "Cơ sở 1", "created_at": "2026-10-09T10:00:00.000Z", "paid_amount": "500000.00", "bonus_amount": "50000.00", "total_received": "550000.00", "payment_method": "CASH", "note": "Nạp ví" }
+
+// type=expenses — nút xem chi tiết: GET /api/expenses/:id
+{ "id": 7, "branch_id": 1, "branch_name": "Cơ sở 1", "expense_date": "2026-10-09T10:00:00.000Z", "amount": "100000.00", "expense_type": "Điện", "note": "Tiền điện" }
+
+// type=inventory_imports — nút xem chi tiết: GET /api/inventory-imports/:id (có items[])
+{ "id": 9, "branch_id": 1, "branch_name": "Cơ sở 1", "import_code": "PN20261009001", "import_date": "2026-10-09T10:00:00.000Z", "supplier_name": "Nhà cung cấp A", "total_amount": "600000.00", "note": "Nhập hàng" }
+
+// type=commissions — một dòng công ca của nhân viên
+{ "id": 15, "treatment_history_id": 9, "execution_date": "2026-10-09T09:00:00.000Z", "branch_id": 1, "branch_name": "Cơ sở 1", "staff_id": 3, "staff_name": "Nguyễn A", "role_name": "Kỹ thuật viên", "product_id": 4, "product_name": "Chăm sóc da", "customer_id": 8, "customer_name": "Trần B", "commission_amount_snapshot": "80000.00" }
+
+// type=consultants — một lần nhân viên được phân tiền tư vấn cho một mặt hàng hóa đơn
+{ "id": 22, "invoice_item_id": 30, "invoice_id": 42, "invoice_date": "2026-10-09T10:00:00.000Z", "branch_id": 1, "branch_name": "Cơ sở 1", "staff_id": 3, "staff_name": "Nguyễn A", "customer_id": 8, "customer_name": "Trần B", "product_id": 4, "product_name": "Chăm sóc da", "item_final_price": "500000.00", "role_type": "CONSULTANT", "revenue_amount": "100000.00" }
+```
+
+`GET /api/reports/details/consultants` lấy theo `invoice_date`, không theo thời gian gán consultant; loại các consultant, item, invoice xóa mềm. `revenue_amount` là **tiền tư vấn phân bổ**, không phải % hoa hồng phải trả. Một hóa đơn có thể có nhiều dòng consultant và cùng xuất hiện nhiều lần; key bảng chi tiết dùng `id` (ID phân bổ), nút xem hóa đơn dùng `invoice_id`.
+
+### 3. `GET /api/reports/commissions` — tổng công ca theo nhân viên
+
+```json
+{
+  "message": "Lấy báo cáo thành công",
+  "period": { "startDate": "2026-10-05", "endDate": "2026-10-11", "branchId": null },
+  "totalAmount": 80000,
+  "total": 1, "page": 1, "pageSize": 20, "totalPages": 1,
+  "staffTotals": [
+    { "branch_id": 1, "branch_name": "Cơ sở 1", "staff_id": 3, "staff_name": "Nguyễn A", "total_amount": 80000, "record_count": 1 }
+  ]
+}
+```
+
+Gọi `GET /api/reports/commissions?startDate=2026-10-05&endDate=2026-10-11&branchId=1&page=1&pageSize=20` để lấy tổng công ca từng nhân viên. `totalAmount` = tổng `commission_amount_snapshot` của tất cả nhân viên trong phạm vi lọc; `staffTotals` nhóm theo **chi nhánh thực hiện + staff_id** (cùng nhân viên ở hai chi nhánh là hai dòng), xếp theo chi nhánh, tên và ID nhân viên. `record_count` là số lần phân công. Danh sách chi tiết kèm khách, ngày làm, dịch vụ lấy qua `GET /api/reports/details/commissions?startDate=2026-10-05&endDate=2026-10-11&branchId=1&staffId=3&page=1&pageSize=20`, không tải hết cùng lúc. Có thể dùng `staffId=3` ở endpoint tổng để chỉ lấy tổng của nhân viên đó. Cả hai API cho MANAGER và STAFF; với STAFF `branchId` gửi lên bị bỏ qua, chỉ thấy công ca của cơ sở trong JWT (có thể xem tất cả nhân viên của cơ sở, không chỉ chính mình). `totalAmount` không phụ thuộc trang.
+
+### 4. `GET /api/reports/consultants` — tổng tiền tư vấn theo nhân viên
+
+```json
+{
+  "message": "Lấy báo cáo thành công",
+  "period": { "startDate": "2026-10-05", "endDate": "2026-10-11", "branchId": 1 },
+  "totalAmount": 100000,
+  "total": 1, "page": 1, "pageSize": 20, "totalPages": 1,
+  "staffTotals": [
+    { "branch_id": 1, "branch_name": "Cơ sở 1", "staff_id": 3, "staff_name": "Nguyễn A", "total_amount": 100000, "record_count": 1 }
+  ]
+}
+```
+
+`totalAmount` = tổng `invoice_item_consultants.revenue_amount` của hóa đơn hợp lệ trong kỳ; `staffTotals` nhóm theo chi nhánh **của hóa đơn** + nhân viên. Đây là phần phân bổ sale, không tự cộng vào `receipts.total` và không mặc định là hoa hồng thực trả. Muốn liệt kê hóa đơn tư vấn của nhân viên, dùng `details/consultants?startDate=...&endDate=...&staffId=3&branchId=1` (có `invoice_id`), phân trang trên DB; **không** dùng lọc trên frontend để tính lại tổng tất cả các trang.
+
+### 5. `GET /api/reports/products` — doanh thu từng sản phẩm/dịch vụ
+
+Chỉ MANAGER. Query bắt buộc `startDate`, `endDate` (YYYY-MM-DD, gồm cả hai ngày), tùy chọn `branchId`, `page` (mặc định 1), `pageSize` (mặc định 20, tối đa 100), `search` (tối đa 100 ký tự, tìm tên sản phẩm/dịch vụ hoặc mã sản phẩm trên toàn kỳ trước phân trang). Ví dụ tháng: `GET /api/reports/products?startDate=2026-10-01&endDate=2026-10-31&branchId=1`. Sắp theo doanh thu giảm dần rồi product ID; chỉ liệt kê loại có dòng bán trong kỳ (dù doanh thu sau giảm giá bằng 0). `totalRevenue` và `total` là tổng trên **toàn bộ phạm vi lọc**, không chỉ trang hiện tại.
+
+```json
+{
+  "message": "Lấy báo cáo thành công",
+  "period": { "startDate": "2026-10-01", "endDate": "2026-10-31", "branchId": 1 },
+  "totalRevenue": 900000,
+  "total": 1, "page": 1, "pageSize": 20, "totalPages": 1,
+  "data": [{
+    "product_id": 4, "product_name": "Trị tàn nhang", "is_product": 0,
+    "invoice_count": 2, "item_count": 2, "quantity": 2,
+    "item_total": 1000000, "revenue": 900000
+  }]
+}
+```
+
+`is_product=0` là dịch vụ, `1` là hàng hóa. `item_total` là tổng tiền các dòng sau chiết khấu **cấp dòng**, trước chiết khấu cấp hóa đơn; `revenue` là doanh thu sau **cả** chiết khấu cấp hóa đơn (không phải tiền đã thu). Mỗi hóa đơn trừ phần giảm giá cấp hóa đơn vào nhóm dịch vụ trước, sau đó nhóm hàng hóa; phân bổ theo tỷ lệ `final_price` của mỗi dòng trong nhóm, làm tròn từng dòng đến 2 chữ số rồi cộng. Có thể chênh với báo cáo `/revenue` do làm tròn theo từng dòng; mức chênh tích lũy phụ thuộc số dòng hóa đơn. `invoice_count` đếm hóa đơn khác nhau; `item_count` đếm dòng bán, không nhân đôi theo số nhân viên tư vấn. Loại trừ hóa đơn và dòng item đã xóa mềm. Dùng `product_id` để mở chi tiết; tên hiện tại có thể đã đổi kể từ khi bán.
+
+### 6. `GET /api/reports/products/:productId/invoices` — các hóa đơn chứa sản phẩm/dịch vụ
+
+Query ngày/chi nhánh và phân trang như mục 5. Ví dụ: `GET /api/reports/products/4/invoices?startDate=2026-10-01&endDate=2026-10-31&page=1&pageSize=20`. `productId` là ID nguyên dương; sản phẩm không tồn tại trả `404` (sản phẩm xóa mềm vẫn có thể xem lịch sử); ngày/ID/trang sai trả `400`.
+
+```json
+{
+  "message": "Lấy báo cáo thành công",
+  "period": { "startDate": "2026-10-01", "endDate": "2026-10-31", "branchId": null },
+  "product": { "id": 4, "name": "Trị tàn nhang", "is_product": 0 },
+  "invoiceCount": 2, "quantity": 2, "itemTotal": 1000000, "revenue": 900000,
+  "total": 2, "page": 1, "pageSize": 20, "totalPages": 1,
+  "data": [{
+    "invoice_item_id": 30, "invoice_id": 42, "invoice_date": "2026-10-09T10:00:00.000Z",
+    "branch_id": 1, "branch_name": "Cơ sở 1", "customer_id": 8,
+    "customer_name": "Trần B", "phone_number": "0900000000",
+    "product_id": 4, "product_name": "Trị tàn nhang", "is_product": 0,
+    "snapshot_name": "Trị tàn nhang", "snapshot_price": "500000.00", "quantity": 1,
+    "discount_percent": "0.00", "discount_amount": "0.00",
+    "final_price": "500000.00", "revenue": 450000
+  }]
+}
+```
+
+**Mỗi dòng `data[]` là một dòng hóa đơn**, không phải cả hóa đơn: nếu cùng một dịch vụ có nhiều dòng trên một hóa đơn thì `invoice_id` lặp, `invoice_item_id` khác. `snapshot_price` là **giá một đơn vị lúc bán** (có thể khác giá catalog hiện tại), `final_price` là thành tiền dòng sau chiết khấu cấp dòng, `revenue` đã được phân bổ chiết khấu cấp hóa đơn. Tiền từ MySQL (`snapshot_price`, `final_price`, các mức giảm) có thể là chuỗi số; `revenue`, `itemTotal` là number. Các tổng `invoiceCount`, `quantity`, `itemTotal`, `revenue`, `total` tính **toàn bộ kỳ**. Nút mở hóa đơn dùng `GET /api/invoices/:invoice_id`; không cộng `invoices.total_amount` để tính doanh thu riêng cho sản phẩm.
 
 ---
 
@@ -1164,3 +1401,143 @@ Các endpoint `/api/miniapp/*` được định nghĩa nhưng chưa mount trong 
 
 ## 21. Database và Lưu ý tích hợp
 Xem cấu trúc bảng trong tài liệu đính kèm. Hầu hết API danh mục không trả bản ghi bị `deleted_at IS NOT NULL`.
+
+---
+
+## Hợp đồng response cho toàn bộ API quản trị đang mount
+
+Mục này là bảng tra cứu **response thực tế**, bổ sung cho phần mô tả request/quy tắc nghiệp vụ phía trên. Các đường dẫn dưới đây đều bắt đầu bằng `/api`. MiniApp **chưa mount**, nên không có response để gọi qua server hiện tại. Ví dụ giá trị chỉ minh họa; key và kiểu/envelope mới là hợp đồng để frontend đọc. Không suy luận từ request rằng API sẽ trả lại bản ghi vừa lưu.
+
+### Quy tắc đọc response
+
+- Mọi response JSON thành công có `message: string`. Request thất bại trả `{ "message": "<mô tả lỗi>" }`, **không** kèm `data`/`total`; frontend cần kiểm tra HTTP status trước khi đọc dữ liệu. Thiếu token: `401`; token sai/hết hạn hoặc sai quyền qua middleware: `403`. Lỗi nghiệp vụ ghi dữ liệu thường `400`, GET chi tiết không tồn tại/thất bại theo controller thường `404`; riêng GET chi tiết liệu trình có thể `500` với lỗi không thuộc loại “Không tìm thấy”. Xem chi tiết ở các mục tương ứng.
+- GET danh sách thường trả `{ "message": string, "total": number, "page": number, "pageSize": number, "totalPages": number, "data": T[] }`. `data` luôn là mảng, kể cả không có bản ghi hoặc trang vượt phạm vi; khi `total=0`, `totalPages=0`. `total` là số dòng **sau lọc, trước phân trang**. Ngoại lệ: các báo cáo tổng hợp dùng `staffTotals` hoặc chỉ có số tổng, được ghi riêng dưới đây.
+- GET chi tiết trả `{ "message": string, "data": T }`, không phải mảng; không tìm thấy không trả `data: null` mà trả lỗi. API tạo/cập nhật/xóa chỉ trả các key nêu trong bảng, **không** tự động trả `data`. `id` sinh từ DB và `page`/`total` là number; cột MySQL `DECIMAL` (như `price`, `amount`, các tổng tiền lưu DB) thường serialize dạng **chuỗi số** qua mysql2, còn cột `quantity` kiểu INT và số tiền backend tính bằng JavaScript ở response ghi dữ liệu thường là number. Date/datetime do driver serialize, không nên so sánh chuỗi hiển thị.
+- Cụm “toàn bộ cột” bên dưới nghĩa là **toàn bộ cột DB của bảng tương ứng**, bao gồm audit (`created_at`, `updated_at`, `deleted_at`, `created_by`, `updated_by`, `deleted_by`) nếu có; một số cột có thể `null`. Danh sách các field quan trọng được ghi rõ để frontend không phải tra schema. Các API dùng `SELECT *` có thể bổ sung cột theo migration; không hard-code giả định chỉ có các field liệt kê. Riêng customer và user là các phép SELECT giới hạn cột để tránh trả password.
+
+### Xác thực, tenant, tài khoản, danh mục
+
+| Endpoint | HTTP | Response thành công |
+|---|---:|---|
+| `POST /auth/login` | 200 | `{ message, data: { user, token } }`; `user` là bản ghi master `users` **không có `password`**, `token` là JWT string. |
+| `POST /tenants/create` | 201 | `{ message, data: { tenantId, spaName, managerUsername, managerFullname, database, expireDate } }`; `expireDate` là ISO datetime hoặc chuỗi `"Vĩnh viễn (Lifetime)"` nếu không thời hạn. |
+| `GET /tenants` | 200 | Danh sách phân trang; `data[]`: `{ tenant_id, spa_name, database_name, expire_at, created_at, manager_username, manager_fullname }`; các field manager có thể `null` khi LEFT JOIN không có user. |
+| `GET /tenants/:id` | 200 | `{ message: "Lấy chi tiết Spa thành công", data: Tenant }`; cùng field item danh sách. Chỉ SUPER_ADMIN; không tồn tại/đã xóa `404`. |
+| `PUT /tenants/:id` | 200 | `{ message, data: { id, spa_name, expire_at } }`; `id` là tham số URL, `expire_at` có thể `null`. |
+| `DELETE /tenants/:id` | 200 | `{ message: "Đã xóa (vô hiệu hóa) Spa thành công!" }`. |
+| `PATCH /tenants/:id/restore` | 200 | `{ message: "Đã khôi phục Spa thành công! Các tài khoản đã có thể đăng nhập lại." }`. |
+| `POST /users/create` | 201 | `{ message: "Tạo tài khoản đăng nhập thành công", userId: number }`. |
+| `GET /users` | 200 | Danh sách phân trang, **bao gồm user xóa mềm**; `data[]`: `{ id, branch_id, username, fullname, system_role, created_at, deleted_at, branch_name }` (`branch_name` có thể không có nếu branch đã xóa, `'Tổng công ty'` nếu `branch_id` rỗng). Không có `password`. |
+| `GET /users/:id` | 200 | `{ message: "Lấy chi tiết tài khoản thành công", data: User }`; cùng field list, kể cả user đã khóa; **không có password**. Chỉ MANAGER; không tồn tại/khác tenant `404`. |
+| `PUT /users/:id` | 200 | `{ message: "Cập nhật tài khoản thành công!" }`. |
+| `DELETE /users/:id` | 200 | `{ message: "Khóa tài khoản thành công!" }`. |
+| `PATCH /users/:id/restore` | 200 | `{ message: "Khôi phục tài khoản thành công!" }`. |
+| `POST /roles` | 201 | `{ message: "Tạo chức vụ thành công", roleId: number }`. |
+| `GET /roles` | 200 | Danh sách phân trang; `data[]`: bản ghi `roles` (`id`, `name`, `description`, audit). |
+| `GET /roles/:id` | 200 | `{ message: "Lấy chi tiết chức vụ thành công", data: Role }`; cùng field list; đã xóa/không tồn tại `404`. |
+| `PUT /roles/:id` | 200 | `{ message: "Cập nhật chức vụ thành công" }`. |
+| `DELETE /roles/:id` | 200 | `{ message: "Xóa chức vụ thành công" }`. |
+| `PATCH /roles/:id/restore` | 200 | `{ message: "Khôi phục chức vụ thành công" }`. |
+| `POST /branches` | 201 | `{ message: "Thêm mới chi nhánh thành công", branchId: number }`. |
+| `GET /branches` | 200 | Danh sách phân trang; `data[]`: bản ghi `branches` (`id`, `name`, `address`, `bank_name`, `bank_code`, `bank_account_no`, `bank_account_name`, `payment_provider`, `payment_api_key`, `payment_client_id`, audit). **Có thể chứa khóa thanh toán nhạy cảm.** |
+| `GET /branches/:id` | 200 | `{ message: "Lấy chi tiết chi nhánh thành công", data: Branch }`; cùng field list, bao gồm khóa thanh toán nếu có. Chỉ MANAGER; đã xóa/không tồn tại `404`. |
+| `PUT /branches/:id` | 200 | `{ message: "Cập nhật chi nhánh thành công" }`. |
+| `DELETE /branches/:id` | 200 | `{ message: "Xóa chi nhánh thành công" }`. |
+| `PATCH /branches/:id/restore` | 200 | `{ message: "Khôi phục chi nhánh thành công" }`. |
+| `POST /staffs` | 201 | `{ message: "Tạo hồ sơ nhân viên thành công", staffId: number }`. |
+| `GET /staffs` | 200 | Danh sách phân trang; `data[]`: bản ghi `staffs` (`id`, `fullname`, `phone_number`, `address`, `role_id`, `branch_id`, audit) cộng `role_name`, `branch_name` (LEFT JOIN, có thể `null`). |
+| `GET /staffs/:id` | 200 | `{ message: "Lấy chi tiết hồ sơ nhân viên thành công", data: Staff }`; cùng field list; STAFF chỉ xem branch token. Đã xóa/khác branch/không tồn tại `404`. |
+| `PUT /staffs/:id` | 200 | `{ message: "Cập nhật hồ sơ thành công" }`. |
+| `DELETE /staffs/:id` | 200 | `{ message: "Xóa hồ sơ nhân viên thành công" }`. |
+| `PATCH /staffs/:id/restore` | 200 | `{ message: "Khôi phục hồ sơ thành công" }`. |
+| `POST /customers/reset-password` | 200 | `{ message: "Đổi mật khẩu thành công" }`. |
+| `POST /customers` | 201 | `{ message: "Thêm mới khách hàng thành công", customerId: number }`. |
+| `GET /customers` | 200 | Danh sách phân trang; `data[]`: `{ id, fullname, phone_number, avatar, address, wallet_balance, total_debt, note, created_at, updated_at }` (không có password). |
+| `GET /customers/:id` | 200 | `{ message: "Lấy thông tin khách hàng thành công", data: { id, fullname, phone_number, avatar, address, wallet_balance, total_debt, note, created_at, updated_at, created_by, updated_by } }`. |
+| `PUT /customers/:id` | 200 | `{ message: "Cập nhật thông tin khách hàng thành công" }`. |
+| `DELETE /customers/:id` | 200 | `{ message: "Xóa khách hàng thành công" }`. |
+| `PATCH /customers/:id/restore` | 200 | `{ message: "Khôi phục khách hàng thành công" }`. |
+
+Các GET danh sách trong bảng này sử dụng message theo controller: `/tenants`: `Lấy danh sách Spa thành công`; `/users`: `Lấy danh sách tài khoản thành công`; các danh mục còn lại: `Lấy danh sách thành công`. `POST /customers/reset-password` là public; không nhầm nó với API cần JWT.
+
+### Sản phẩm, nhập kho, phiếu chi
+
+| Endpoint | HTTP | Response thành công |
+|---|---:|---|
+| `POST /products` | 201 | `{ message: "Tạo sản phẩm/dịch vụ thành công", productId: number }`. Chỉ MANAGER. |
+| `GET /products` | 200 | Danh sách phân trang với `message: "Lấy danh sách thành công"`; `data[]`: bản ghi `products` (ngoại trừ `is_active`) cộng `commissions[]`, `inventory[]` như mô tả dưới bảng. MANAGER/STAFF. |
+| `GET /products/:id` | 200 | `{ message: "Lấy chi tiết sản phẩm thành công", data: Product }`; cùng cấu trúc item danh sách. MANAGER/STAFF. |
+| `PUT /products/:id` | 200 | `{ message: "Cập nhật sản phẩm/dịch vụ thành công" }`. Chỉ MANAGER. |
+| `DELETE /products/:id` | 200 | `{ message: "Xóa sản phẩm/dịch vụ thành công" }`. Chỉ MANAGER. |
+| `PATCH /products/:id/restore` | 200 | `{ message: "Khôi phục sản phẩm/dịch vụ thành công" }`. Chỉ MANAGER. |
+| `POST /inventory-imports` | 201 | `{ message: "Tạo phiếu nhập kho thành công", inventoryImportId: number, totalAmount: number }`. |
+| `GET /inventory-imports` | 200 | Danh sách phân trang, `message: "Lấy danh sách thành công"`; `data[]`: toàn bộ cột `inventory_imports` (`id`, `branch_id`, `import_code`, `import_date`, `supplier_name`, `total_amount`, `note`, audit), `branch_name`, **`items[]`**. Mỗi item: `{ id, inventory_import_id, product_id, product_name, quantity, unit_price, discount_percent, discount_amount, total_price }`. |
+| `GET /inventory-imports/:id` | 200 | `{ message: "Lấy chi tiết phiếu nhập kho thành công", data: InventoryImport }`; header và `items[]` như item list. STAFF có branch token chỉ xem phiếu tại branch đó; ID sai `400`, không tồn tại/đã xóa/khác branch `404`. |
+| `PUT /inventory-imports/:id` | 200 | `{ message: "Cập nhật phiếu nhập kho thành công", totalAmount: number }`; không trả ID/item. |
+| `DELETE /inventory-imports/:id` | 200 | `{ message: "Xóa phiếu nhập kho và trừ kho thành công" }`. |
+| `POST /expenses` | 201 | `{ message: "Tạo phiếu chi thành công", expenseId: number, amount: number }`. |
+| `GET /expenses` | 200 | Danh sách phân trang, `message: "Lấy danh sách thành công"`; `data[]`: toàn bộ `expense_vouchers` (`id`, `branch_id`, `amount`, `expense_type`, `note`, `expense_date`, audit) cộng `branch_name`. |
+| `GET /expenses/:id` | 200 | `{ message: "Lấy chi tiết phiếu chi thành công", data: Expense }`; `Expense` cùng cấu trúc item danh sách. |
+| `PUT /expenses/:id` | 200 | `{ message: "Cập nhật phiếu chi thành công" }` hoặc `{ message: "Không có dữ liệu nào được cập nhật." }` khi body không có field để sửa. |
+| `DELETE /expenses/:id` | 200 | `{ message: "Xóa phiếu chi thành công" }`. |
+
+`Product` có `id`, `name`, `images` (JSON từ DB, có thể `null`), `description`, `benefits`, `price`, `unit`, `is_product`, `is_treatment_combo`, `default_sessions`, `session_unit`, `next_appointment_days` và audit; **không có `is_active`**. `commissions[]`: `{ id, product_id, role_id, commission_percent, commission_fixed_amount, role_name }`. `inventory[]`: `{ id, product_id, branch_id, quantity, branch_name }`. Mảng rỗng khi không có cấu hình/bản ghi; với STAFF có `branch_id`, chỉ `inventory[]` được lọc theo branch token (không lọc `commissions[]` hay danh sách product). Dữ liệu giá/hoa hồng/tồn kho từ MySQL có thể là chuỗi số; kiểm tra theo schema và không cộng chuỗi trực tiếp.
+
+### Hóa đơn, lịch hẹn, booking
+
+| Endpoint | HTTP | Response thành công |
+|---|---:|---|
+| `POST /invoices` | 201 | `{ message: "Tạo hóa đơn thành công", invoiceId: number, totalAmount: number, debtAmount: number, walletUsed: number }`. |
+| `GET /invoices` | 200 | Danh sách phân trang, `message: "Lấy danh sách thành công"`; `data[]`: toàn bộ `invoices` (`id`, `customer_id`, `branch_id`, `total_amount`, `discount_percent`, `discount_amount`, `paid_amount`, `wallet_used`, `debt_amount`, `payment_method`, `note`, `invoice_date`, audit) cộng `branch_name`, `customer_name`, `phone_number`. **Không có `items` trong list**. |
+| `GET /invoices/:id` | 200 | `{ message: "Lấy chi tiết hóa đơn thành công", data: InvoiceDetail }`; header cùng field list, thêm `items[]` là bản ghi `invoice_items` (gồm `id`, `invoice_id`, `product_id`, `snapshot_name`, `snapshot_price`, `quantity`, `discount_percent`, `discount_amount`, `final_price`, audit). Mỗi item có `consultants[]`: toàn bộ cột `invoice_item_consultants` (gồm `id`, `invoice_item_id`, `staff_id`, `revenue_amount`, `role_type`, audit) cộng `staff_name` (có thể `null`). Nếu không có item: `items: []`. |
+| `PUT /invoices/:id` | 200 | `{ message: "Cập nhật hóa đơn thành công", totalAmount: number, debtAmount: number }`; không trả `invoiceId` hoặc `walletUsed`. |
+| `DELETE /invoices/:id` | 200 | `{ message: "Xóa hóa đơn thành công (Đã hoàn trả công nợ, ví tiền và thu hồi liệu trình)" }`. |
+| `POST /appointments` | 201 | `{ message: "Tạo lịch hẹn thành công", appointmentId: number }`. |
+| `GET /appointments` | 200 | Danh sách phân trang, `message: "Lấy danh sách lịch hẹn thành công"`; item là bản ghi `appointments` (`id`, `customer_id`, `branch_id`, `appointment_date`, `note`, audit) cộng `customer_name`, `phone_number`, `branch_name` và **`status` tính tại thời điểm đọc**. |
+| `GET /appointments/tomorrow` | 200 | Cùng envelope/item GET list, `message: "Lấy danh sách khách hẹn ngày mai thành công"`; chỉ lịch hẹn ngày mai (theo ngày DB). |
+| `GET /appointments/not-arrived` | 200 | Cùng envelope/item GET list, `message: "Lấy danh sách khách chưa đến thành công"`; lịch hẹn đến hết hôm nay, trạng thái tính được là `Khách chưa đến`. |
+| `GET /appointments/:id` | 200 | `{ message: "Lấy chi tiết lịch hẹn thành công", data: Appointment }`; cùng field item list, `status` được tính lại, không dùng trạng thái lưu ở DB. |
+| `PUT /appointments/:id` | 200 | `{ message: "Cập nhật lịch hẹn thành công" }` hoặc `{ message: "Không có dữ liệu nào được cập nhật." }` nếu không gửi field có thể sửa. |
+| `DELETE /appointments/:id` | 200 | `{ message: "Xóa lịch hẹn thành công" }`. |
+| `GET /customer-bookings` | 200 | Danh sách phân trang, `message: "Lấy danh sách booking khách hàng thành công"`; `data[]`: toàn bộ `customer_bookings` (`id`, `customer_id`, `customer_name`, `customer_phone`, `branch_id`, `product_id`, `booking_time`, `note`, `status`, audit) cộng `branch_name`, `product_name`, `registered_customer_name`, `registered_customer_phone`. Các field từ LEFT JOIN có thể `null`. |
+| `GET /customer-bookings/:id` | 200 | `{ message: "Lấy chi tiết booking khách hàng thành công", data: CustomerBooking }`; cùng field list, STAFF chỉ xem branch token. ID sai `400`, không tồn tại/đã xóa/khác branch `404`. |
+
+Ở `GET /invoices` và chi tiết, `payment_method` được bỏ hậu tố legacy `[WALLET:n]`; tiền ví đọc từ `wallet_used`. Booking quản trị chỉ có GET danh sách và GET chi tiết (không có POST/PUT/DELETE). Dữ liệu list/chi tiết không mặc nhiên cùng cấu trúc (đặc biệt `items`, `consultants` hóa đơn).
+
+### Nạp ví, thu nợ
+
+| Endpoint | HTTP | Response thành công |
+|---|---:|---|
+| `POST /customer-wallet-logs` | 201 | `{ message: "Nạp ví khách hàng thành công", walletLogId: number, paidAmount: number, bonusPercent: number, bonusAmount: number, totalReceived: number, walletBalance: number }`. Các giá trị camelCase là kết quả tính sau khi cộng ví. |
+| `GET /customer-wallet-logs` | 200 | Danh sách phân trang, `message: "Lấy lịch sử nạp ví thành công"`; `data[]`: toàn bộ `customer_wallet_logs` (`id`, `customer_id`, `branch_id`, `paid_amount`, `bonus_percent`, `bonus_amount`, `total_received`, `payment_method`, `note`, audit) cộng `customer_name`, `phone_number`, `branch_name` (LEFT JOIN, có thể `null`). |
+| `GET /customer-wallet-logs/:id` | 200 | `{ message: "Lấy chi tiết giao dịch nạp ví thành công", data: WalletLog }`; cùng cấu trúc item danh sách. |
+| `PUT /customer-wallet-logs/:id` | 200 | `{ message: "Cập nhật giao dịch nạp ví thành công", walletLogId: number, customerId: number, branchId: number, paidAmount: number, bonusPercent: number, bonusAmount: number, totalReceived: number, walletBalance: number }`. |
+| `DELETE /customer-wallet-logs/:id` | 200 | `{ message: "Xóa giao dịch nạp ví thành công", walletLogId: number, walletBalance: number }`; số dư sau hoàn tác. |
+| `GET /debt-payments/invoices/:invoiceId/remaining-debt` | 200 | `{ message: "Lấy công nợ còn lại của hóa đơn thành công", data: { invoiceId: number, customerId: number, branchId: number, invoiceDebtAmount: number, paidDebtAmount: number, remainingDebtAmount: number } }`. Đây là số dư **một hóa đơn**, không phải tổng nợ khách. |
+| `POST /debt-payments` | 201 | `{ message: "Ghi nhận thu nợ thành công", debtPaymentId: number, customerId: number, branchId: number, collectionBranchId: number, invoiceId: number, amount: number, totalDebt: number }`; `totalDebt` là tổng công nợ khách sau thu. |
+| `GET /debt-payments` | 200 | Danh sách phân trang, `message: "Lấy danh sách phiếu thu nợ thành công"`; `data[]`: toàn bộ `debt_payments` (`id`, `customer_id`, `branch_id`, `collection_branch_id`, `invoice_id`, `amount`, `payment_method`, `payment_date`, `note`, audit) cộng `customer_name`, `phone_number`, `branch_name`, `collection_branch_name`. |
+| `GET /debt-payments/:id` | 200 | `{ message: "Lấy chi tiết phiếu thu nợ thành công", data: DebtPaymentDetail }`; cùng field item list, **thêm** `invoice_total_amount`, `invoice_debt_amount` (LEFT JOIN invoice, có thể `null`). |
+| `PUT /debt-payments/:id` | 200 | `{ message: "Cập nhật phiếu thu nợ thành công", debtPaymentId: number, customerId: number, branchId: number, collectionBranchId: number, invoiceId: number, amount: number, totalDebt: number }`. |
+| `DELETE /debt-payments/:id` | 200 | `{ message: "Xóa phiếu thu nợ thành công", debtPaymentId: number, totalDebt: number }`; `totalDebt` sau khi cộng lại tiền nợ khách. |
+
+`branchId` của phiếu thu là chi nhánh hạch toán thuộc hóa đơn; `collectionBranchId` là chi nhánh thực thu. Trong GET, các key tương ứng là `branch_id` và `collection_branch_id`. Không lấy `walletBalance` từ GET nạp ví: GET chứa log, còn số dư hiện tại của khách lấy từ `/customers/:id`.
+
+### Liệu trình và báo cáo
+
+| Endpoint | HTTP | Response thành công |
+|---|---:|---|
+| `GET /treatments` | 200 | Danh sách phân trang, `message: "Lấy danh sách liệu trình thành công"`; `data[]`: toàn bộ `treatments` (`id`, `customer_id`, `product_id`, `invoice_id`, `total_sessions`, `remaining_sessions`, `note`, audit) cộng `customer_name`, `phone_number`, `product_name`, `branch_id` (từ hóa đơn gốc, `null` nếu thẻ thủ công). **Không có `histories` trong list.** |
+| `GET /treatments/:id` | 200 | `{ message: "Lấy chi tiết liệu trình thành công", data: TreatmentDetail }`; cùng field item list, thêm `histories[]`. Mỗi history là bản ghi `treatment_history` (`id`, `treatment_id`, `branch_id`, `execution_date`, audit) cộng `staffs[]`. Mỗi staff là bản ghi `treatment_history_staffs` (gồm `id`, `treatment_history_id`, `staff_id`, `commission_amount_snapshot`, audit) cộng `staff_name`. Mảng rỗng khi chưa có lịch sử/nhân viên. |
+| `POST /treatments` | 201 | `{ message: "Tạo thẻ liệu trình thủ công thành công", treatmentId: number }`. |
+| `POST /treatments/execute` | 201 | `{ message: "Đã trừ 1 buổi liệu trình và tính hoa hồng thành công", treatmentHistoryId: number }` (message từ service, không phải `Trừ buổi liệu trình thành công`). |
+| `PUT /treatments/execute/:historyId/staffs` | 200 | `{ message: "Đã cập nhật danh sách nhân viên thực hiện và tính hoa hồng thành công" }`. |
+| `DELETE /treatments/execute/:historyId` | 200 | `{ message: "Xóa lịch sử thực hiện và cộng lại 1 buổi thành công" }`. |
+| `GET /treatments/commissions` | 200 | Danh sách phân trang, `message: "Lấy danh sách hoa hồng nhân viên thành công"`; `data[]`: `{ id, treatment_history_id, commission_amount_snapshot, created_at, execution_date, branch_id, branch_name, staff_id, staff_name, role_name, product_id, product_name, customer_name }`. Mỗi dòng là một lần phân công, không phải tổng tiền. |
+| `GET /reports/revenue` | 200 | `{ message: "Lấy báo cáo thành công", period, serviceRevenue, productRevenue, totalRevenue, receipts, expenses, netCashFlow }`; **không** có `data`/phân trang. Cấu trúc `receipts` và `expenses` có ví dụ ở mục báo cáo bên trên. |
+| `GET /reports/details/:type` | 200 | `{ message: "Lấy báo cáo thành công", type, period, page, pageSize, total, totalAmount, totalPages, data: ReportRow[] }`; `totalAmount` là number tổng tiền toàn kỳ theo bộ lọc (không phụ thuộc trang); `ReportRow` thay đổi theo `type`, xem ví dụ đầy đủ 7 loại trong mục báo cáo. Không có `data` của trang sau nếu hết trang (`[]`). |
+| `GET /reports/commissions` | 200 | `{ message: "Lấy báo cáo thành công", period, totalAmount, total, page, pageSize, totalPages, staffTotals: StaffTotal[] }`; `StaffTotal`: `{ branch_id, branch_name, staff_id, staff_name, total_amount, record_count }`. `totalAmount` là tổng **toàn bộ phạm vi lọc**, không chỉ trang hiện tại. |
+| `GET /reports/consultants` | 200 | Cùng envelope và cấu trúc `StaffTotal[]` như `/reports/commissions`; tiền tư vấn thay vì hoa hồng. |
+| `GET /reports/products` | 200 | `{ message: "Lấy báo cáo thành công", period, totalRevenue, total, page, pageSize, totalPages, data: ProductRevenue[] }`; mỗi dòng có `product_id`, `product_name`, `is_product`, `invoice_count`, `item_count`, `quantity`, `item_total`, `revenue`. Tổng tiền dạng number trên toàn kỳ. |
+| `GET /reports/products/:productId/invoices` | 200 | `{ message: "Lấy báo cáo thành công", period, product, invoiceCount, quantity, itemTotal, revenue, total, page, pageSize, totalPages, data: InvoiceItemSale[] }`; `data[]` gồm `invoice_item_id`, `invoice_id`, thông tin ngày/chi nhánh/khách, `snapshot_name`, `snapshot_price`, `quantity`, chiết khấu dòng, `final_price`, `revenue`. Một dòng trên mỗi item bán ra. |
+
+Các GET reports dùng query `startDate`/`endDate` bắt buộc; chỉ bốn endpoint nhân sự `/reports/commissions`, `/reports/consultants`, `/reports/details/commissions`, `/reports/details/consultants` cho phép STAFF xem cơ sở trong JWT, còn lại chỉ MANAGER. `period` chứa `startDate`, `endDate`, `branchId` (có thể `null` đối với MANAGER); báo cáo nhân sự với filter `staffId` còn thêm `period.staffId`. `totalAmount` ở báo cáo nhân sự là number, nhưng `commission_amount_snapshot` của GET `/treatments/commissions` là DECIMAL từ DB (thường là chuỗi). Riêng `/reports/revenue` không có `page`, `pageSize` hay `totalPages`.

@@ -1,4 +1,5 @@
 const debtPaymentService = require('../services/debtPaymentService');
+const { respondListError } = require('../utils/pagination');
 
 const create = async (req, res) => {
     try {
@@ -13,9 +14,9 @@ const create = async (req, res) => {
 const getList = async (req, res) => {
     try {
         const data = await debtPaymentService.getDebtPayments(req.user.tenant_id, req.query, req.user.system_role, req.user.branch_id);
-        res.status(200).json({ message: 'Lấy danh sách phiếu thu nợ thành công', total: data.length, data });
+        res.status(200).json({ message: 'Lấy danh sách phiếu thu nợ thành công', ...data });
     } catch (error) {
-        res.status(500).json({ message: error.message });
+        respondListError(res, error);
     }
 };
 

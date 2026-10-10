@@ -1,4 +1,5 @@
 const { masterPool, getTenantDbName } = require('../config/database');
+const { paginateQuery } = require('../utils/pagination');
 
 const toNumber = (value, fieldName, { min = 0, integer = false } = {}) => {
     const numberValue = Number(value);
@@ -154,9 +155,9 @@ const getAppointments = async (tenantId, filters, userRole, userBranchId, view) 
         params.push(filters.endDate);
     }
 
-    query += ' ORDER BY a.appointment_date ASC, a.created_at ASC';
-    const [rows] = await masterPool.query(query, params);
-    return rows.map(withCalculatedStatus);
+    const result = await paginateQuery(masterPool, query, params, 'a.appointment_date ASC, a.created_at ASC, a.id ASC', filters);
+    result.data = result.data.map(withCalculatedStatus);
+    return result;
 };
 
 const getAppointmentDetail = async (tenantId, appointmentId, userRole, userBranchId) => {

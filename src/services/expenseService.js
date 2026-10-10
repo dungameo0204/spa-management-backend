@@ -1,4 +1,5 @@
 const { masterPool, getTenantDbName } = require('../config/database');
+const { paginateQuery } = require('../utils/pagination');
 
 const toNumber = (value, fieldName, { min = 0, integer = false } = {}) => {
     const numberValue = Number(value);
@@ -43,7 +44,7 @@ const createExpense = async (tenantId, expenseData, executorName, userRole, user
     return { expenseId: result.insertId, amount: expenseAmount };
 };
 
-const getExpenses = async (tenantId, searchKeyword = '', branchId, startDate, endDate, userRole, userBranchId) => {
+const getExpenses = async (tenantId, searchKeyword = '', branchId, startDate, endDate, userRole, userBranchId, pagination) => {
     const dbName = await getTenantDbName(tenantId);
     let query = `
         SELECT e.*, b.name AS branch_name 
@@ -76,10 +77,7 @@ const getExpenses = async (tenantId, searchKeyword = '', branchId, startDate, en
         params.push(endDate);
     }
 
-    query += ' ORDER BY e.expense_date DESC, e.created_at DESC';
-
-    const [rows] = await masterPool.query(query, params);
-    return rows;
+    return paginateQuery(masterPool, query, params, 'e.expense_date DESC, e.created_at DESC, e.id DESC', pagination);
 };
 
 const getExpenseDetail = async (tenantId, expenseId, userRole, userBranchId) => {

@@ -1,4 +1,5 @@
 const { masterPool, getTenantDbName } = require('../config/database');
+const { paginateQuery } = require('../utils/pagination');
 const bcrypt = require('bcryptjs');
 
 // HÀM BỔ TRỢ: Kiểm tra xem branch_id có tồn tại trong DB của Spa không
@@ -46,7 +47,7 @@ const createUser = async (tenantId, username, password, fullname, systemRole, br
 };
 
 // 2. LẤY DANH SÁCH TÀI KHOẢN
-const getUsersByTenant = async (tenantId, searchKeyword = '') => {
+const getUsersByTenant = async (tenantId, searchKeyword = '', pagination) => {
     let query = `SELECT id, branch_id, username, fullname, system_role, created_at, deleted_at FROM users WHERE tenant_id = ?`;
     const params = [tenantId];
 
@@ -55,9 +56,8 @@ const getUsersByTenant = async (tenantId, searchKeyword = '') => {
         params.push(`%${searchKeyword}%`, `%${searchKeyword}%`);
     }
 
-    query += ` ORDER BY created_at DESC`;
-
-    const [rows] = await masterPool.query(query, params);
+    const result = await paginateQuery(masterPool, query, params, 'created_at DESC, id DESC', pagination);
+    const rows = result.data;
     
     if (rows.length > 0) {
         const dbName = await getTenantDbName(tenantId);
@@ -71,21 +71,50 @@ const getUsersByTenant = async (tenantId, searchKeyword = '') => {
         });
     }
 
-    return rows;
+    return result;
+};
+
+const getUserDetail = async (tenantId, userId) => {
+    const [users] = await masterPool.query(
+        'SELECT id, branch_id, username, fullname, system_role, created_at, deleted_at FROM users WHERE id = ? AND tenant_id = ?',
+        [userId, tenantId]
+    );
+    if (users.length === 0) throw new Error('Không tìm thấy tài khoản nhân viên!');
+    const user = users[0];
+    if (!user.branch_id) {
+        user.branch_name = 'Tổng công ty';
+    } else {
+        const dbName = await getTenantDbName(tenantId);
+        const [branches] = await masterPool.query(
+            `SELECT name FROM \`${dbName}\`.branches WHERE id = ? AND deleted_at IS NULL`,
+            [user.branch_id]
+        );
+        if (branches.length > 0) user.branch_name = branches[0].name;
+    }
+    return user;
 };
 
 // 3. CẬP NHẬT THÔNG TIN TÀI KHOẢN
 const updateUser = async (tenantId, targetUserId, updateData, executorName) => {
     const [checkUser] = await masterPool.query(
-        'SELECT id, username FROM users WHERE id = ? AND tenant_id = ?',
+        'SELECT id, username, system_role, branch_id FROM users WHERE id = ? AND tenant_id = ?',
         [targetUserId, tenantId]
     );
 
     if (checkUser.length === 0) throw new Error('Không tìm thấy tài khoản nhân viên!');
 
     const { newUsername, fullname, newPassword, newRole, branchId } = updateData;
-
-    await checkBranchExists(tenantId, branchId);
+    const effectiveRole = newRole === undefined ? checkUser[0].system_role : newRole;
+    if (!['MANAGER', 'STAFF'].includes(effectiveRole)) throw new Error('Quyền hệ thống không hợp lệ.');
+    let finalBranchId = null;
+    if (effectiveRole === 'STAFF') {
+        const candidate = branchId === undefined ? checkUser[0].branch_id : branchId;
+        if (candidate === null || candidate === undefined || !/^[1-9]\d*$/.test(String(candidate)) || !Number.isSafeInteger(Number(candidate))) {
+            throw new Error('Tài khoản STAFF bắt buộc phải có branchId hợp lệ.');
+        }
+        finalBranchId = Number(candidate);
+        await checkBranchExists(tenantId, finalBranchId);
+    }
 
     let updateFields = [];
     let params = [];
@@ -98,10 +127,13 @@ const updateUser = async (tenantId, targetUserId, updateData, executorName) => {
     }
 
     if (fullname) { updateFields.push('fullname = ?'); params.push(fullname); }
-    if (newRole) { updateFields.push('system_role = ?'); params.push(newRole); }
+    if (newRole && newRole !== checkUser[0].system_role) { updateFields.push('system_role = ?'); params.push(newRole); }
     
-    updateFields.push('branch_id = ?'); 
-    params.push(branchId || null);
+    // Mọi lần sửa MANAGER đều ghi NULL, kể cả khi frontend gửi branchId cũ.
+    if (effectiveRole === 'MANAGER' || finalBranchId !== checkUser[0].branch_id) {
+        updateFields.push('branch_id = ?');
+        params.push(finalBranchId);
+    }
 
     if (newPassword) {
         const salt = await bcrypt.genSalt(10);
@@ -113,9 +145,9 @@ const updateUser = async (tenantId, targetUserId, updateData, executorName) => {
     if (updateFields.length > 0) {
         updateFields.push('updated_by = ?');
         params.push(executorName);
-        params.push(targetUserId);
+        params.push(targetUserId, tenantId);
 
-        await masterPool.query(`UPDATE users SET ${updateFields.join(', ')} WHERE id = ?`, params);
+        await masterPool.query(`UPDATE users SET ${updateFields.join(', ')} WHERE id = ? AND tenant_id = ?`, params);
     }
 };
 
@@ -142,4 +174,4 @@ const restoreUser = async (tenantId, targetUserId, executorName) => {
     );
 };
 
-module.exports = { createUser, getUsersByTenant, updateUser, deleteUser, restoreUser };
+module.exports = { createUser, getUsersByTenant, getUserDetail, updateUser, deleteUser, restoreUser };

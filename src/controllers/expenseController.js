@@ -1,4 +1,5 @@
 const expenseService = require('../services/expenseService');
+const { respondListError } = require('../utils/pagination');
 
 const create = async (req, res) => {
     try {
@@ -21,10 +22,10 @@ const getList = async (req, res) => {
         const userBranchId = req.user.branch_id;
         const { search, branchId, startDate, endDate } = req.query;
 
-        const expenses = await expenseService.getExpenses(tenantId, search, branchId, startDate, endDate, userRole, userBranchId);
-        res.status(200).json({ message: 'Lấy danh sách thành công', total: expenses.length, data: expenses });
+        const expenses = await expenseService.getExpenses(tenantId, search, branchId, startDate, endDate, userRole, userBranchId, req.query);
+        res.status(200).json({ message: 'Lấy danh sách thành công', ...expenses });
     } catch (error) {
-        res.status(500).json({ message: error.message });
+        respondListError(res, error);
     }
 };
 

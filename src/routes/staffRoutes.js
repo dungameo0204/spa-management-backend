@@ -7,6 +7,7 @@ router.use(verifyToken);
 
 router.post('/', staffController.create);
 router.get('/', staffController.getList);
+router.get('/:id', staffController.getDetail);
 router.put('/:id', staffController.update);
 router.delete('/:id', staffController.remove);
 router.patch('/:id/restore', staffController.restore);

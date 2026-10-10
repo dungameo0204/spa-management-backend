@@ -9,6 +9,7 @@ const connection = {
         if (sql.includes('.branches WHERE id')) return [[{ id: 2 }]];
         if (sql.includes('INSERT INTO `test_tenant`.appointments')) return [{ insertId: 7 }];
         if (sql.includes('SELECT branch_id FROM `test_tenant`.appointments')) return [[{ branch_id: 2 }]];
+        if (sql.includes('SELECT COUNT(*) AS total')) return [[{ total: 1 }]];
         if (sql.includes('SELECT a.*')) return [[{
             id: 7, branch_id: 2, status: 'Chờ xử lý', calculated_status: 'Khách đã đến',
             customer_name: 'Test'
@@ -37,11 +38,11 @@ const service = require('../src/services/appointmentService');
     assert.equal(insert.params[4], 'Khách chưa đến');
 
     const tomorrow = await service.getAppointments(1, {}, 'STAFF', 2, 'tomorrow');
-    assert.equal(tomorrow[0].status, 'Khách đã đến');
-    assert.equal('calculated_status' in tomorrow[0], false);
+    assert.equal(tomorrow.data[0].status, 'Khách đã đến');
+    assert.equal('calculated_status' in tomorrow.data[0], false);
     let query = calls.at(-1);
     assert.match(query.sql, /a\.branch_id = \?/);
-    assert.deepEqual(query.params, [2]);
+    assert.deepEqual(query.params, [2, 20, 0]);
     assert.match(query.sql, /CURDATE\(\) \+ INTERVAL 1 DAY/);
     assert.match(query.sql, /event\.deleted_at IS NULL AND event\.created_at >= DATE\(a\.appointment_date\)/);
     assert.match(query.sql, /event\.created_at >= a\.created_at/);
@@ -51,7 +52,7 @@ const service = require('../src/services/appointmentService');
     await service.getAppointments(1, { branchId: 2, status: 'Khách chưa đến' }, 'MANAGER', null, 'not-arrived');
     query = calls.at(-1);
     assert.match(query.sql, /a\.appointment_date < CURDATE\(\) \+ INTERVAL 1 DAY/);
-    assert.deepEqual(query.params, [2, 'Khách chưa đến', 'Khách chưa đến']);
+    assert.deepEqual(query.params, [2, 'Khách chưa đến', 'Khách chưa đến', 20, 0]);
     await assert.rejects(service.getAppointments(1, { status: 'Chờ xử lý' }, 'MANAGER'), /status không hợp lệ/);
 
     const detail = await service.getAppointmentDetail(1, 7, 'STAFF', 2);

@@ -1,4 +1,5 @@
 const { masterPool, getTenantDbName } = require('../config/database');
+const { paginateQuery } = require('../utils/pagination');
 
 const toNumber = (value, fieldName, { min = 0, integer = false } = {}) => {
     const numberValue = Number(value);
@@ -135,7 +136,7 @@ const createInventoryImport = async (tenantId, importData, executorName, userRol
     }
 };
 
-const getInventoryImports = async (tenantId, searchKeyword = '', branchId, startDate, endDate, userRole, userBranchId) => {
+const getInventoryImports = async (tenantId, searchKeyword = '', branchId, startDate, endDate, userRole, userBranchId, pagination) => {
     const dbName = await getTenantDbName(tenantId);
     
     // 1. LẤY DANH SÁCH PHIẾU NHẬP (HEADER)
@@ -148,9 +149,9 @@ const getInventoryImports = async (tenantId, searchKeyword = '', branchId, start
     const params = [];
 
     // Phân quyền Staff
-    if (String(userRole).toUpperCase() !== 'MANAGER' && userBranchId) {
+    if (String(userRole).toUpperCase() !== 'MANAGER') {
         query += ' AND ii.branch_id = ?';
-        params.push(userBranchId);
+        params.push(toNumber(userBranchId, 'branch_id', { min: 1, integer: true }));
     } else if (branchId !== undefined) {
         query += ' AND ii.branch_id = ?';
         params.push(toNumber(branchId, 'branchId', { min: 1, integer: true }));
@@ -170,12 +171,11 @@ const getInventoryImports = async (tenantId, searchKeyword = '', branchId, start
         params.push(endDate);
     }
 
-    query += ' ORDER BY ii.import_date DESC, ii.created_at DESC';
-
-    const [imports] = await masterPool.query(query, params);
+    const result = await paginateQuery(masterPool, query, params, 'ii.import_date DESC, ii.created_at DESC, ii.id DESC', pagination);
+    const imports = result.data;
 
     // Nếu không có phiếu nhập nào thì trả về mảng rỗng luôn, không cần query items
-    if (imports.length === 0) return [];
+    if (imports.length === 0) return result;
 
     // 2. LẤY TOÀN BỘ SẢN PHẨM (ITEMS) CỦA CÁC PHIẾU NHẬP Ở TRÊN
     const importIds = imports.map(imp => imp.id);
@@ -190,10 +190,36 @@ const getInventoryImports = async (tenantId, searchKeyword = '', branchId, start
     );
 
     // 3. MAPPING ĐỂ GỘP MẢNG ITEMS VÀO TỪNG PHIẾU NHẬP
-    return imports.map(imp => ({
+    result.data = imports.map(imp => ({
         ...imp,
         items: allItems.filter(item => item.inventory_import_id === imp.id)
     }));
+    return result;
+};
+
+const getInventoryImportDetail = async (tenantId, inventoryImportId, userRole, userBranchId) => {
+    const dbName = await getTenantDbName(tenantId);
+    const id = toNumber(inventoryImportId, 'inventoryImportId', { min: 1, integer: true });
+    let query = `SELECT ii.*, b.name AS branch_name
+        FROM \`${dbName}\`.inventory_imports ii
+        INNER JOIN \`${dbName}\`.branches b ON b.id = ii.branch_id
+        WHERE ii.id = ? AND ii.deleted_at IS NULL`;
+    const params = [id];
+    if (String(userRole).toUpperCase() !== 'MANAGER' && userBranchId) {
+        query += ' AND ii.branch_id = ?';
+        params.push(userBranchId);
+    }
+    const [imports] = await masterPool.query(query, params);
+    if (imports.length === 0) throw new Error('Phiếu nhập kho không tồn tại, đã bị xóa hoặc bạn không có quyền xem.');
+
+    const [items] = await masterPool.query(
+        `SELECT id, inventory_import_id, product_id, product_name, quantity, unit_price,
+                discount_percent, discount_amount, total_price
+         FROM \`${dbName}\`.inventory_import_items
+         WHERE inventory_import_id = ? AND deleted_at IS NULL ORDER BY id ASC`,
+        [id]
+    );
+    return { ...imports[0], items };
 };
 
 const updateInventoryImport = async (tenantId, inventoryImportId, updateData, executorName, userRole, userBranchId) => {
@@ -383,6 +409,7 @@ const deleteInventoryImport = async (tenantId, inventoryImportId, executorName, 
 module.exports = { 
     createInventoryImport, 
     getInventoryImports, 
+    getInventoryImportDetail,
     updateInventoryImport,
     deleteInventoryImport
 };

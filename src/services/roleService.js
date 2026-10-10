@@ -1,5 +1,6 @@
 // src/services/roleService.js
 const { masterPool, getTenantDbName } = require('../config/database'); // Import cả 2 cái
+const { paginateQuery } = require('../utils/pagination');
 
 const createRole = async (tenantId, name, description, executorName) => {
     // 1. Lấy tên DB của Spa đó
@@ -20,7 +21,7 @@ const createRole = async (tenantId, name, description, executorName) => {
     return result.insertId;
 };
 
-const getRoles = async (tenantId, searchKeyword = '') => {
+const getRoles = async (tenantId, searchKeyword = '', pagination) => {
     const dbName = await getTenantDbName(tenantId);
     
     let query = `SELECT * FROM \`${dbName}\`.roles WHERE deleted_at IS NULL`;
@@ -31,10 +32,17 @@ const getRoles = async (tenantId, searchKeyword = '') => {
         params.push(`%${searchKeyword}%`);
     }
     
-    query += ` ORDER BY created_at DESC`;
-    
-    const [rows] = await masterPool.query(query, params);
-    return rows;
+    return paginateQuery(masterPool, query, params, 'created_at DESC, id DESC', pagination);
+};
+
+const getRoleDetail = async (tenantId, roleId) => {
+    const dbName = await getTenantDbName(tenantId);
+    const [roles] = await masterPool.query(
+        `SELECT * FROM \`${dbName}\`.roles WHERE id = ? AND deleted_at IS NULL`,
+        [roleId]
+    );
+    if (roles.length === 0) throw new Error('Chức vụ không tồn tại hoặc đã bị xóa.');
+    return roles[0];
 };
 
 const updateRole = async (tenantId, roleId, updateData, executorName) => {
@@ -95,4 +103,4 @@ const restoreRole = async (tenantId, roleId, executorName) => {
     );
 };
 
-module.exports = { createRole, getRoles, updateRole, deleteRole, restoreRole };
+module.exports = { createRole, getRoles, getRoleDetail, updateRole, deleteRole, restoreRole };

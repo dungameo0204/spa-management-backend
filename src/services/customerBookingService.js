@@ -1,4 +1,5 @@
 const { masterPool, getTenantDbName } = require('../config/database');
+const { paginateQuery } = require('../utils/pagination');
 
 const toNumber = (value, fieldName, { min = 0, integer = false } = {}) => {
     const numberValue = Number(value);
@@ -55,9 +56,27 @@ const getCustomerBookings = async (tenantId, filters, userRole, userBranchId) =>
         params.push(filters.endDate);
     }
 
-    query += ' ORDER BY cb.booking_time ASC, cb.created_at ASC';
-    const [rows] = await masterPool.query(query, params);
-    return rows;
+    return paginateQuery(masterPool, query, params, 'cb.booking_time ASC, cb.created_at ASC, cb.id ASC', filters);
 };
 
-module.exports = { getCustomerBookings };
+const getCustomerBookingDetail = async (tenantId, bookingId, userRole, userBranchId) => {
+    const dbName = await getTenantDbName(tenantId);
+    const id = toNumber(bookingId, 'bookingId', { min: 1, integer: true });
+    let query = `SELECT cb.*, b.name AS branch_name, p.name AS product_name,
+                       c.fullname AS registered_customer_name, c.phone_number AS registered_customer_phone
+        FROM \`${dbName}\`.customer_bookings cb
+        INNER JOIN \`${dbName}\`.branches b ON cb.branch_id = b.id
+        LEFT JOIN \`${dbName}\`.products p ON cb.product_id = p.id
+        LEFT JOIN \`${dbName}\`.customers c ON cb.customer_id = c.id
+        WHERE cb.id = ? AND cb.deleted_at IS NULL`;
+    const params = [id];
+    if (String(userRole).toUpperCase() === 'STAFF') {
+        query += ' AND cb.branch_id = ?';
+        params.push(toNumber(userBranchId, 'branch_id', { min: 1, integer: true }));
+    }
+    const [bookings] = await masterPool.query(query, params);
+    if (bookings.length === 0) throw new Error('Booking không tồn tại, đã bị xóa hoặc bạn không có quyền xem.');
+    return bookings[0];
+};
+
+module.exports = { getCustomerBookings, getCustomerBookingDetail };

@@ -1,4 +1,5 @@
 const userService = require('../services/userService');
+const { respondListError } = require('../utils/pagination');
 
 const createEmployeeAccount = async (req, res) => {
     try {
@@ -30,10 +31,19 @@ const getEmployees = async (req, res) => {
         const tenantId = req.user.tenant_id;
         const { search } = req.query;
 
-        const users = await userService.getUsersByTenant(tenantId, search);
-        res.status(200).json({ message: 'Lấy danh sách tài khoản thành công', total: users.length, data: users });
+        const users = await userService.getUsersByTenant(tenantId, search, req.query);
+        res.status(200).json({ message: 'Lấy danh sách tài khoản thành công', ...users });
     } catch (error) {
-        res.status(500).json({ message: error.message });
+        respondListError(res, error);
+    }
+};
+
+const getDetail = async (req, res) => {
+    try {
+        const data = await userService.getUserDetail(req.user.tenant_id, req.params.id);
+        res.status(200).json({ message: 'Lấy chi tiết tài khoản thành công', data });
+    } catch (error) {
+        res.status(404).json({ message: error.message });
     }
 };
 
@@ -43,7 +53,7 @@ const updateEmployee = async (req, res) => {
         const tenantId = req.user.tenant_id;
         const executorName = req.user.fullname || req.user.username;
         
-        if (parseInt(targetUserId) === req.user.id && req.body.systemRole) {
+        if (Number(targetUserId) === req.user.id && req.body.systemRole && req.body.systemRole !== req.user.system_role) {
             return res.status(400).json({ message: 'Bạn không thể tự thay đổi chức vụ hệ thống của chính mình.' });
         }
 
@@ -92,4 +102,4 @@ const restoreEmployee = async (req, res) => {
     }
 };
 
-module.exports = { createEmployeeAccount, getEmployees, updateEmployee, deleteEmployee, restoreEmployee };
+module.exports = { createEmployeeAccount, getEmployees, getDetail, updateEmployee, deleteEmployee, restoreEmployee };

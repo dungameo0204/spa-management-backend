@@ -17,6 +17,12 @@ const login = async (username, password) => {
         throw new Error('Tài khoản này không tồn tại hoặc đã bị xóa!');
     }
 
+    if (user.tenant_id) {
+        const [tenants] = await masterPool.query('SELECT deleted_at, expire_at FROM tenants WHERE id = ?', [user.tenant_id]);
+        if (tenants.length === 0 || tenants[0].deleted_at !== null) throw new Error('Spa này đã bị vô hiệu hóa. Vui lòng liên hệ quản trị viên.');
+        if (tenants[0].expire_at && new Date(tenants[0].expire_at).getTime() <= Date.now()) throw new Error('Gói phần mềm của Spa đã hết hạn. Vui lòng liên hệ quản trị viên để gia hạn.');
+    }
+
     // 3. So sánh mật khẩu bằng bcrypt (Đã xóa bỏ đoạn châm chước mật khẩu text hôm trước)
     const isMatch = await bcrypt.compare(password, user.password);
 

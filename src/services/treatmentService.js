@@ -1,4 +1,5 @@
 const { masterPool, getTenantDbName } = require('../config/database');
+const { paginateQuery } = require('../utils/pagination');
 
 const toNumber = (value, fieldName, { min = 0, integer = false } = {}) => {
     const numberValue = Number(value);
@@ -275,10 +276,7 @@ const getStaffCommissions = async (tenantId, filters, userRole, userBranchId) =>
         query += ' AND DATE(th.execution_date) <= ?'; params.push(filters.endDate); 
     }
 
-    query += ' ORDER BY th.branch_id ASC, s.fullname ASC, s.id ASC, ths.commission_amount_snapshot ASC';
-
-    const [rows] = await masterPool.query(query, params);
-    return rows;
+    return paginateQuery(masterPool, query, params, 'th.branch_id ASC, s.fullname ASC, s.id ASC, ths.commission_amount_snapshot ASC, ths.id ASC', filters);
 };
 
 // ==========================
@@ -369,10 +367,7 @@ const getTreatments = async (tenantId, filters) => {
         params.push(filters.branchId);
     }
 
-    query += ' ORDER BY t.created_at DESC';
-
-    const [rows] = await masterPool.query(query, params);
-    return { data: rows };
+    return paginateQuery(masterPool, query, params, 't.created_at DESC, t.id DESC', filters);
 };
 
 const getTreatmentDetail = async (tenantId, treatmentId) => {

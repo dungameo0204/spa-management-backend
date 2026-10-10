@@ -19,6 +19,7 @@ const appointmentRoutes = require('./routes/appointmentRoutes');
 const customerBookingRoutes = require('./routes/customerBookingRoutes');
 const customerWalletLogRoutes = require('./routes/customerWalletLogRoutes');
 const debtPaymentRoutes = require('./routes/debtPaymentRoutes');
+const reportRoutes = require('./routes/reportRoutes');
 
 masterPool.getConnection()
     .then(connection => {
@@ -51,6 +52,7 @@ app.use('/api/appointments', appointmentRoutes);
 app.use('/api/customer-bookings', customerBookingRoutes);
 app.use('/api/customer-wallet-logs', customerWalletLogRoutes);
 app.use('/api/debt-payments', debtPaymentRoutes);
+app.use('/api/reports', reportRoutes);
 
 app.listen(PORT, () => {
     console.log(`🚀 Server đang chạy tại http://localhost:${PORT}`);

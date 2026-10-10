@@ -1,4 +1,5 @@
 const { masterPool, getTenantDbName } = require('../config/database');
+const { paginateQuery } = require('../utils/pagination');
 const bcrypt = require('bcryptjs'); // Đừng quên import thư viện mã hóa
 
 const createCustomer = async (tenantId, customerData, executorName) => {
@@ -41,7 +42,7 @@ const createCustomer = async (tenantId, customerData, executorName) => {
     return result.insertId;
 };
 
-const getCustomers = async (tenantId, searchKeyword = '') => {
+const getCustomers = async (tenantId, searchKeyword = '', pagination) => {
     const dbName = await getTenantDbName(tenantId);
     
     // Lưu ý: Tuyệt đối không Select trả về cột password cho Frontend
@@ -57,10 +58,7 @@ const getCustomers = async (tenantId, searchKeyword = '') => {
         params.push(`%${searchKeyword}%`, `%${searchKeyword}%`);
     }
     
-    query += ` ORDER BY created_at DESC`;
-    
-    const [rows] = await masterPool.query(query, params);
-    return rows;
+    return paginateQuery(masterPool, query, params, 'created_at DESC, id DESC', pagination);
 };
 
 const getCustomerById = async (tenantId, customerId) => {

@@ -5,5 +5,6 @@ const { verifyToken } = require('../middlewares/auth');
 
 router.use(verifyToken);
 router.get('/', customerBookingController.getList);
+router.get('/:id', customerBookingController.getDetail);
 
 module.exports = router;

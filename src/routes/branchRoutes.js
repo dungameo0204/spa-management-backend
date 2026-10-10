@@ -8,6 +8,7 @@ router.use(verifyToken, verifyManager);
 
 router.post('/', branchController.create);
 router.get('/', branchController.getList);
+router.get('/:id', branchController.getDetail);
 router.put('/:id', branchController.update);
 router.delete('/:id', branchController.remove);
 router.patch('/:id/restore', branchController.restore);

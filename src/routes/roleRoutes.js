@@ -5,6 +5,7 @@ const { verifyToken, verifyManager } = require('../middlewares/auth');
 
 router.use(verifyToken);
 router.get('/', roleController.getList);
+router.get('/:id', roleController.getDetail);
 
 // Toàn bộ API của Roles đều yêu cầu đăng nhập và có quyền MANAGER
 router.use(verifyToken, verifyManager);

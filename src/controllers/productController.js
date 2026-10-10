@@ -1,4 +1,5 @@
 const productService = require('../services/productService');
+const { respondListError } = require('../utils/pagination');
 
 const create = async (req, res) => {
     try {
@@ -20,15 +21,14 @@ const getList = async (req, res) => {
         // Bỏ is_active hoàn toàn khỏi query params
         const { search, is_product } = req.query; 
 
-        const products = await productService.getProducts(tenantId, search, is_product, userRole, userBranchId);
+        const products = await productService.getProducts(tenantId, search, is_product, userRole, userBranchId, req.query);
         
         res.status(200).json({ 
             message: 'Lấy danh sách thành công', 
-            total: products.length, 
-            data: products 
+            ...products
         });
     } catch (error) {
-        res.status(500).json({ message: error.message });
+        respondListError(res, error);
     }
 };
 

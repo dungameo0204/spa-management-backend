@@ -24,7 +24,8 @@ src/
   utils/response.js            đang rỗng
 db_system_master.sql           Schema master
 db_spa_template.sql            Schema để clone cho tenant/Spa mới
-docs/API_FRONTEND.md           Tài liệu tích hợp frontend
+  docs/API_FRONTEND.md           Tài liệu tích hợp frontend nghiệp vụ Spa
+  docs/SUPERADMIN_FRONTEND.md    Bàn giao độc lập cho frontend quản lý tenant/Superadmin
 docs/migrations/               Migration cho tenant cũ
 docs/CONTEXT.md                File này
 ```
@@ -63,6 +64,7 @@ docs/CONTEXT.md                File này
 | `/api/inventory-imports` | MANAGER | Phiếu nhập kho |
 | `/api/invoices` | Token | Tạo/xem/sửa/xóa hóa đơn; STAFF bị giới hạn cơ sở và ngày thao tác |
 | `/api/appointments` | Token | CRUD lịch hẹn; STAFF bị giới hạn branch token, MANAGER thao tác mọi branch |
+| `/api/reports` | MANAGER | Tổng hợp doanh thu/thu chi, tổng theo nhân viên và chi tiết chứng từ có phân trang |
 | `/api/customer-bookings` | Token | Chỉ đọc/tìm kiếm booking từ MiniApp; STAFF bị giới hạn branch token |
 | `/api/customer-wallet-logs` | Token | CRUD nạp ví; STAFF bị giới hạn branch token |
 | `/api/debt-payments` | Token | CRUD thu nợ; điều chỉnh `customers.total_debt`, STAFF bị giới hạn branch token |
@@ -128,6 +130,12 @@ docs/CONTEXT.md                File này
 
 ## Invoice và treatment: quy tắc quan trọng
 
+### Reports (`/api/reports`)
+
+- MANAGER xem toàn bộ báo cáo; STAFF chỉ xem `/commissions`, `/consultants`, `/details/commissions`, `/details/consultants` theo `branch_id` JWT (bỏ qua `branchId` query, thiếu branch hợp lệ trả 403); SUPER_ADMIN không được truy cập. `startDate`/`endDate` bắt buộc YYYY-MM-DD, inclusive; `branchId` tùy chọn cho MANAGER. `GET /revenue` tổng hợp, `GET /commissions`, `/consultants` nhóm theo branch + staff; `GET /details/:type` phân trang (1–100 dòng/trang) cho invoices/debt_payments/wallet_logs/expenses/inventory_imports/commissions/consultants.
+- Doanh thu bán hàng theo `invoice_date`, `invoice_items.final_price` phân loại `products.is_product`. Chiết khấu cấp hóa đơn (`SUM(final_price) - invoice.total_amount`) trừ hết dịch vụ trước, còn dư trừ sản phẩm. Tổng thu tiền thật = invoice.paid_amount + debt_payments.amount (branch hóa đơn) + customer_wallet_logs.paid_amount; không cộng lại ví dùng/bonus. Tổng chi = expense_vouchers.amount + inventory_imports.total_amount (nhập kho không ghi phiếu chi). Thu−chi không phải lợi nhuận. Mốc ngày tiền thu nợ/chi/nạp ví/nhập kho lấy từ payment_date/expense_date/created_at/import_date tương ứng. Chứng từ xóa mềm không tính.
+- Báo cáo công ca giữ cùng nguồn `treatment_history_staffs.commission_amount_snapshot` như `getStaffCommissions`, nhưng query tổng và phân trang riêng ở DB để tránh tải toàn bộ. Tiền tư vấn là `invoice_item_consultants.revenue_amount` (sale phân bổ, chưa phải hoa hồng), loại các invoice/item/consultant đã xóa mềm. Xem contract dữ liệu chi tiết tại `docs/API_FRONTEND.md`.
+
 ### Invoice (`/api/invoices`)
 
 - Create/update nhận `items[].unit_price` (hoặc alias `items[].price`) là giá bán thực tế; chỉ khi không gửi hai field này mới dùng `products.price`.
@@ -176,7 +184,14 @@ docs/CONTEXT.md                File này
 ## Hạn chế/rủi ro đã biết
 
 - `attachTenantDB` chưa mount, nên expire/deleted tenant chưa được chặn bằng middleware ở API thực tế.
-- Không pagination, health check, refresh token, logout, upload, Swagger hay test suite.
+- API GET danh sách đã phân trang SQL (`page`, `pageSize`, `total`, `totalPages`); báo cáo tổng quan và chi tiết theo ID không phân trang. Chưa có health check, refresh token, logout, upload, Swagger hay test suite tích hợp DB thật.
+
+### Kiểm chứng MySQL tenant (2026-10-09)
+
+- Đã chạy script chỉ đọc `scratch/verify_tenant_readonly.js` trên tenant `db_spa_1791039769068_e185` (tenant ID 7), sử dụng API HTTP thực và truy vấn MySQL đối chiếu. Mật khẩu lấy từ `.env`, không lưu trong script. Script chạy trên cổng ngẫu nhiên; không tạo/xóa dữ liệu.
+- 13 danh sách tenant, danh sách users/tenants: kiểm tra tổng số, toàn bộ các trang với `pageSize=3`, ID không lặp, trang quá giới hạn rỗng, trang không hợp lệ HTTP 400. Đã kiểm tra lọc theo khách/chi nhánh, ranh giới ngày hóa đơn, quyền STAFF theo chi nhánh và chặn STAFF truy cập báo cáo.
+- Đã đối chiếu `reports/revenue` với **toàn bộ trang** của 7 bảng `reports/details/:type`, cả toàn spa và chi nhánh 1; tổng `commissions`/`consultants` của nhóm nhân viên khớp với chi tiết. Kết quả toàn spa trong kỳ 2026-10-01 đến 2026-10-31: 18 hóa đơn, 21 thu nợ, 8 nạp ví, 2 phiếu chi, 3 phiếu nhập, 6 dòng công ca và 7 dòng tư vấn. Doanh thu 42.900.000; dòng tiền ròng -8.170.000. Đây là dữ liệu thử có thể thay đổi, không phải số liệu cố định.
+- `customer_bookings`, `appointments/tomorrow`, `appointments/not-arrived` đang rỗng tại thời điểm test; mới xác nhận response rỗng, chưa thể xác nhận nội dung phân trang của các endpoint này với dữ liệu thật. Chưa thử đồng thời ghi/xóa dữ liệu giữa truy vấn COUNT và truy vấn page.
 - `POST /api/customers/reset-password` public chưa OTP/xác minh: rủi ro bảo mật.
 - `GET /api/branches` dùng `SELECT *`, có thể trả `payment_api_key`; cần xử lý khi production.
 - Cập nhật đồng thời `docs/API_FRONTEND.md` và `docs/CONTEXT.md` khi thay đổi tính năng.
@@ -192,6 +207,7 @@ docs/CONTEXT.md                File này
 7. Chạy `node --check` cho toàn bộ `src/**/*.js`; test HTTP với MySQL khi schema sẵn sàng.
 
 ## Cập nhật gần đây
+- Tenant/Superadmin: `GET /api/tenants` hỗ trợ `status=all|active|expired|disabled`, bao gồm tenant đã vô hiệu hóa khi phù hợp bộ lọc và trả audit/status; chi tiết tenant đọc được cả tenant disabled. Login chặn tài khoản thuộc tenant bị vô hiệu hóa hoặc hết hạn. Xem `docs/SUPERADMIN_FRONTEND.md` trước khi làm UI quản trị.
 - Hoàn thiện API Invoices (Bán hàng): giá dòng ưu tiên frontend gửi (`unit_price`/`price`), fallback product price; tự động trừ tồn kho, sinh thẻ liệu trình, chặn sửa/xóa nếu liệu trình đã sử dụng.
 - Hoàn thiện API Treatments (Thẻ liệu trình): dùng xuyên cơ sở, tìm kiếm theo khách hàng/dịch vụ/khoảng thời gian, thực hiện/hoàn tác buổi và tính hoa hồng KTV.
 - Hoàn thiện API Expenses (Phiếu chi).

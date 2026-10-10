@@ -1,4 +1,5 @@
 const { masterPool, getTenantDbName } = require('../config/database');
+const { paginateQuery } = require('../utils/pagination');
 
 const toNumber = (value, fieldName, { min = 0, integer = false } = {}) => {
     const numberValue = Number(value);
@@ -97,6 +98,21 @@ const adjustInventory = async (connection, dbName, branchId, productId, quantity
     );
 };
 
+const createInvoiceTreatment = async (connection, dbName, customerId, invoiceId, item, executorName) => {
+    if (item.is_product !== 0 && item.is_treatment_combo !== 1) return;
+
+    const isCombo = item.is_treatment_combo === 1;
+    const totalSessions = isCombo ? Number(item.default_sessions) * item.quantity : 1;
+    if (totalSessions <= 0) return;
+
+    const unit = String(item.unit ?? '').trim();
+    const note = isCombo ? null : `${item.quantity}${unit ? ` ${unit}` : ''}`;
+    await connection.query(
+        `INSERT INTO \`${dbName}\`.treatments (customer_id, product_id, invoice_id, total_sessions, remaining_sessions, note, created_by) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [customerId, item.product_id, invoiceId, totalSessions, totalSessions, note, executorName]
+    );
+};
+
 const createInvoice = async (tenantId, invoiceData, executorName, userRole, userBranchId) => {
     const dbName = await getTenantDbName(tenantId);
     const connection = await masterPool.getConnection();
@@ -131,7 +147,7 @@ const createInvoice = async (tenantId, invoiceData, executorName, userRole, user
             const itemDiscountPercent = toNumber(item.discount_percent ?? 0, 'discount_percent');
             const itemDiscountAmount = toNumber(item.discount_amount ?? 0, 'discount_amount');
 
-            const [products] = await connection.query(`SELECT name, price, is_product, is_treatment_combo, default_sessions FROM \`${dbName}\`.products WHERE id = ? AND deleted_at IS NULL`, [productId]);
+            const [products] = await connection.query(`SELECT name, price, unit, is_product, is_treatment_combo, default_sessions FROM \`${dbName}\`.products WHERE id = ? AND deleted_at IS NULL`, [productId]);
             if (products.length === 0) throw new Error(`Sản phẩm/Dịch vụ ID ${productId} không tồn tại.`);
             const product = products[0];
             const unitPrice = item.unit_price !== undefined
@@ -149,7 +165,7 @@ const createInvoice = async (tenantId, invoiceData, executorName, userRole, user
 
             normalizedItems.push({
                 product_id: productId, snapshot_name: product.name, snapshot_price: unitPrice, quantity,
-                is_product: product.is_product, is_treatment_combo: product.is_treatment_combo, default_sessions: product.default_sessions,
+                unit: product.unit, is_product: product.is_product, is_treatment_combo: product.is_treatment_combo, default_sessions: product.default_sessions,
                 discount_percent: itemDiscountPercent, discount_amount: itemDiscountAmount, final_price: itemFinalPrice, consultants
             });
         }
@@ -193,15 +209,7 @@ const createInvoice = async (tenantId, invoiceData, executorName, userRole, user
                 }
             }
 
-            if (item.is_product === 0 || item.is_treatment_combo === 1) {
-                const totalSessions = item.default_sessions * item.quantity;
-                if (totalSessions > 0) {
-                    await connection.query(
-                        `INSERT INTO \`${dbName}\`.treatments (customer_id, product_id, invoice_id, total_sessions, remaining_sessions, created_by) VALUES (?, ?, ?, ?, ?, ?)`,
-                        [customerId, item.product_id, invoiceId, totalSessions, totalSessions, executorName]
-                    );
-                }
-            }
+            await createInvoiceTreatment(connection, dbName, customerId, invoiceId, item, executorName);
 
             if (item.is_product === 1) {
                 await adjustInventory(connection, dbName, branchId, item.product_id, -item.quantity, executorName);
@@ -248,7 +256,6 @@ const getInvoices = async (tenantId, filters, userRole, userBranchId) => {
         params.push(`%${filters.searchKeyword}%`, `%${filters.searchKeyword}%`, `%${filters.searchKeyword}%`);
     }
     if (filters.startDate) { query += ' AND DATE(i.invoice_date) >= ?'; params.push(filters.startDate); }
-    if (filters.startDate) { query += ' AND DATE(i.invoice_date) >= ?'; params.push(filters.startDate); }
     if (filters.endDate) { query += ' AND DATE(i.invoice_date) <= ?'; params.push(filters.endDate); }
     
     if (filters.minAmount !== undefined) { query += ' AND i.total_amount >= ?'; params.push(toNumber(filters.minAmount, 'minAmount', { min: 0 })); }
@@ -270,14 +277,14 @@ const getInvoices = async (tenantId, filters, userRole, userBranchId) => {
         params.push(`%${filters.productName}%`);
     }
 
-    query += ' ORDER BY i.invoice_date DESC, i.created_at DESC';
-    const [rows] = await masterPool.query(query, params);
+    const result = await paginateQuery(masterPool, query, params, 'i.invoice_date DESC, i.created_at DESC, i.id DESC', filters);
     
     // Tương thích dữ liệu cũ từng lưu wallet vào payment_method.
-    return rows.map(row => ({
+    result.data = result.data.map(row => ({
         ...row,
         payment_method: row.payment_method ? row.payment_method.replace(/\s*\[WALLET:\d+\]/, '') : ''
     }));
+    return result;
 };
 
 const getInvoiceDetail = async (tenantId, invoiceId, userRole, userBranchId) => {
@@ -376,7 +383,7 @@ const updateInvoice = async (tenantId, invoiceId, updateData, executorName, user
         for (const item of updateData.items) {
             const productId = toNumber(item.product_id, 'product_id', { min: 1, integer: true });
             const quantity = toNumber(item.quantity, 'quantity', { min: 1, integer: true });
-            const [products] = await connection.query(`SELECT name, price, is_product, is_treatment_combo, default_sessions FROM \`${dbName}\`.products WHERE id = ?`, [productId]);
+            const [products] = await connection.query(`SELECT name, price, unit, is_product, is_treatment_combo, default_sessions FROM \`${dbName}\`.products WHERE id = ?`, [productId]);
             if (products.length === 0) throw new Error(`Sản phẩm/Dịch vụ ID ${productId} không tồn tại.`);
             const unitPrice = item.unit_price !== undefined
                 ? toNumber(item.unit_price, 'unit_price')
@@ -393,7 +400,7 @@ const updateInvoice = async (tenantId, invoiceId, updateData, executorName, user
 
             normalizedItems.push({
                 product_id: productId, snapshot_name: products[0].name, snapshot_price: unitPrice, quantity,
-                is_product: products[0].is_product, is_treatment_combo: products[0].is_treatment_combo, default_sessions: products[0].default_sessions,
+                unit: products[0].unit, is_product: products[0].is_product, is_treatment_combo: products[0].is_treatment_combo, default_sessions: products[0].default_sessions,
                 discount_percent: itemDiscountPercent, discount_amount: itemDiscountAmount, final_price: itemFinalPrice, consultants
             });
         }
@@ -424,10 +431,7 @@ const updateInvoice = async (tenantId, invoiceId, updateData, executorName, user
             if (item.consultants.length > 0) {
                 for (const c of item.consultants) await connection.query(`INSERT INTO \`${dbName}\`.invoice_item_consultants (invoice_item_id, staff_id, revenue_amount, role_type, created_by) VALUES (?, ?, ?, ?, ?)`, [itemResult.insertId, c.staff_id, c.revenue_amount, c.role_type, executorName]);
             }
-            if (item.is_product === 0 || item.is_treatment_combo === 1) {
-                const ts = item.default_sessions * item.quantity;
-                if (ts > 0) await connection.query(`INSERT INTO \`${dbName}\`.treatments (customer_id, product_id, invoice_id, total_sessions, remaining_sessions, created_by) VALUES (?, ?, ?, ?, ?, ?)`, [newCustomerId, item.product_id, invoiceId, ts, ts, executorName]);
-            }
+            await createInvoiceTreatment(connection, dbName, newCustomerId, invoiceId, item, executorName);
             if (item.is_product === 1) {
                 await adjustInventory(connection, dbName, oldInvoice.branch_id, item.product_id, -item.quantity, executorName);
             }

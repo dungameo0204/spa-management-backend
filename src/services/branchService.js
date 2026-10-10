@@ -1,4 +1,5 @@
 const { masterPool, getTenantDbName } = require('../config/database');
+const { paginateQuery } = require('../utils/pagination');
 
 const createBranch = async (tenantId, branchData, executorName) => {
     const dbName = await getTenantDbName(tenantId);
@@ -36,7 +37,7 @@ const createBranch = async (tenantId, branchData, executorName) => {
     return result.insertId;
 };
 
-const getBranches = async (tenantId, searchKeyword = '') => {
+const getBranches = async (tenantId, searchKeyword = '', pagination) => {
     const dbName = await getTenantDbName(tenantId);
     
     let query = `SELECT * FROM \`${dbName}\`.branches WHERE deleted_at IS NULL`;
@@ -47,10 +48,17 @@ const getBranches = async (tenantId, searchKeyword = '') => {
         params.push(`%${searchKeyword}%`, `%${searchKeyword}%`);
     }
     
-    query += ` ORDER BY created_at DESC`;
-    
-    const [rows] = await masterPool.query(query, params);
-    return rows;
+    return paginateQuery(masterPool, query, params, 'created_at DESC, id DESC', pagination);
+};
+
+const getBranchDetail = async (tenantId, branchId) => {
+    const dbName = await getTenantDbName(tenantId);
+    const [branches] = await masterPool.query(
+        `SELECT * FROM \`${dbName}\`.branches WHERE id = ? AND deleted_at IS NULL`,
+        [branchId]
+    );
+    if (branches.length === 0) throw new Error('Chi nhánh không tồn tại hoặc đã bị xóa.');
+    return branches[0];
 };
 
 const updateBranch = async (tenantId, branchId, updateData, executorName) => {
@@ -119,4 +127,4 @@ const restoreBranch = async (tenantId, branchId, executorName) => {
     );
 };
 
-module.exports = { createBranch, getBranches, updateBranch, deleteBranch, restoreBranch };
+module.exports = { createBranch, getBranches, getBranchDetail, updateBranch, deleteBranch, restoreBranch };

@@ -1,4 +1,5 @@
 const { masterPool, getTenantDbName } = require('../config/database');
+const { paginateQuery } = require('../utils/pagination');
 
 const toNumber = (value, fieldName, { min = 0, integer = false, max } = {}) => {
     const numberValue = Number(value);
@@ -333,9 +334,7 @@ const getWalletLogs = async (tenantId, filters, userRole, userBranchId) => {
         params.push(filters.endDate);
     }
 
-    query += ' ORDER BY wl.created_at DESC, wl.id DESC';
-    const [rows] = await masterPool.query(query, params);
-    return rows;
+    return paginateQuery(masterPool, query, params, 'wl.created_at DESC, wl.id DESC', filters);
 };
 
 const getWalletLogDetail = async (tenantId, walletLogId, userRole, userBranchId) => {

@@ -1,4 +1,5 @@
 const tenantService = require('../services/tenantService');
+const { respondListError } = require('../utils/pagination');
 
 const createSpa = async (req, res) => {
     try {
@@ -20,23 +21,31 @@ const createSpa = async (req, res) => {
         });
     } catch (error) {
         console.error('[Create Tenant Error]', error);
-        res.status(500).json({ message: 'Lỗi hệ thống khi tạo Spa mới: ' + error.message });
+        res.status(error.status === 400 ? 400 : 500).json({ message: error.status === 400 ? error.message : 'Lỗi hệ thống khi tạo Spa mới: ' + error.message });
     }
 };
 
 const getTenants = async (req, res) => {
     try {
         const { search } = req.query; 
-        const tenants = await tenantService.getAllTenants(search);
+        const tenants = await tenantService.getAllTenants(search, req.query);
 
         res.status(200).json({
             message: 'Lấy danh sách Spa thành công',
-            total: tenants.length,
-            data: tenants
+            ...tenants
         });
     } catch (error) {
         console.error('[Get Tenants Error]', error);
-        res.status(500).json({ message: 'Lỗi hệ thống khi lấy danh sách Spa' });
+        respondListError(res, error);
+    }
+};
+
+const getDetail = async (req, res) => {
+    try {
+        const data = await tenantService.getTenantDetail(req.params.id);
+        res.status(200).json({ message: 'Lấy chi tiết Spa thành công', data });
+    } catch (error) {
+        res.status(error.status === 400 ? 400 : 404).json({ message: error.message });
     }
 };
 
@@ -55,7 +64,7 @@ const update = async (req, res) => {
         });
     } catch (error) {
         console.error('[Update Tenant Error]', error);
-        res.status(400).json({ message: error.message });
+        res.status(error.status === 404 ? 404 : 400).json({ message: error.message });
     }
 };
 
@@ -71,7 +80,7 @@ const remove = async (req, res) => {
         });
     } catch (error) {
         console.error('[Delete Tenant Error]', error);
-        res.status(400).json({ message: error.message });
+        res.status(error.status === 400 ? 400 : 400).json({ message: error.message });
     }
 };
 
@@ -87,14 +96,47 @@ const restore = async (req, res) => {
         });
     } catch (error) {
         console.error('[Restore Tenant Error]', error);
-        res.status(400).json({ message: error.message });
+        res.status(error.status === 400 ? 400 : 400).json({ message: error.message });
+    }
+};
+
+const respondAdminError = (res, error) => res.status(error.status === 400 || error.status === 404 ? error.status : 500).json({ message: error.message });
+
+const getManagers = async (req, res) => {
+    try {
+        const data = await tenantService.getManagers(req.params.id);
+        res.status(200).json({ message: 'Lấy danh sách MANAGER thành công', total: data.length, data });
+    } catch (error) {
+        respondAdminError(res, error);
+    }
+};
+
+const resetManagerPassword = async (req, res) => {
+    try {
+        await tenantService.resetManagerPassword(req.params.id, req.params.userId, req.body?.newPassword, req.user.fullname || req.user.username);
+        res.status(200).json({ message: 'Đã cấp lại mật khẩu MANAGER thành công.' });
+    } catch (error) {
+        respondAdminError(res, error);
+    }
+};
+
+const renew = async (req, res) => {
+    try {
+        const data = await tenantService.renewTenant(req.params.id, req.body?.years, req.user.fullname || req.user.username);
+        res.status(200).json({ message: 'Gia hạn Spa thành công.', data });
+    } catch (error) {
+        respondAdminError(res, error);
     }
 };
 
 module.exports = {
     createSpa,
     getTenants,
+    getDetail,
     update,
     remove,
-    restore
+    restore,
+    getManagers,
+    resetManagerPassword,
+    renew
 };

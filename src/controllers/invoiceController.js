@@ -1,4 +1,5 @@
 const invoiceService = require('../services/invoiceService');
+const { respondListError } = require('../utils/pagination');
 
 const create = async (req, res) => {
     try {
@@ -27,13 +28,15 @@ const getList = async (req, res) => {
             productName: req.query.productName,
             minAmount: req.query.minAmount,
             maxAmount: req.query.maxAmount,
-            hasDebt: req.query.hasDebt
+            hasDebt: req.query.hasDebt,
+            page: req.query.page,
+            pageSize: req.query.pageSize
         };
 
         const invoices = await invoiceService.getInvoices(tenantId, filters, userRole, userBranchId);
-        res.status(200).json({ message: 'Lấy danh sách thành công', total: invoices.length, data: invoices });
+        res.status(200).json({ message: 'Lấy danh sách thành công', ...invoices });
     } catch (error) {
-        res.status(500).json({ message: error.message });
+        respondListError(res, error);
     }
 };
 
