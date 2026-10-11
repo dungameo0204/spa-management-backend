@@ -98,7 +98,7 @@ const adjustInventory = async (connection, dbName, branchId, productId, quantity
     );
 };
 
-const createInvoiceTreatment = async (connection, dbName, customerId, invoiceId, item, executorName) => {
+const treatmentDetails = item => {
     if (item.is_product !== 0 && item.is_treatment_combo !== 1) return;
 
     const isCombo = item.is_treatment_combo === 1;
@@ -107,9 +107,16 @@ const createInvoiceTreatment = async (connection, dbName, customerId, invoiceId,
 
     const unit = String(item.unit ?? '').trim();
     const note = isCombo ? null : `${item.quantity}${unit ? ` ${unit}` : ''}`;
+    return { totalSessions, note };
+};
+
+const createInvoiceTreatment = async (connection, dbName, customerId, invoiceId, item, executorName, createdAt) => {
+    const details = treatmentDetails(item);
+    if (!details) return;
+    const { totalSessions, note } = details;
     await connection.query(
-        `INSERT INTO \`${dbName}\`.treatments (customer_id, product_id, invoice_id, total_sessions, remaining_sessions, note, created_by) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-        [customerId, item.product_id, invoiceId, totalSessions, totalSessions, note, executorName]
+        `INSERT INTO \`${dbName}\`.treatments (customer_id, product_id, invoice_id, total_sessions, remaining_sessions, note, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, COALESCE(?, NOW()))`,
+        [customerId, item.product_id, invoiceId, totalSessions, totalSessions, note, executorName, createdAt ?? null]
     );
 };
 
@@ -234,10 +241,19 @@ const createInvoice = async (tenantId, invoiceData, executorName, userRole, user
     }
 };
 
+// Avoid selecting i.* alongside a formatted invoice_date: pagination wraps this
+// SELECT in a derived table, where MySQL rejects duplicate column names.
+const invoiceHeaderColumns = `i.id, i.customer_id, i.branch_id, i.total_amount,
+               i.discount_percent, i.discount_amount, i.paid_amount, i.wallet_used,
+               i.debt_amount, i.payment_method, i.note,
+               DATE_FORMAT(i.invoice_date, '%Y-%m-%d %H:%i:%s') AS invoice_date,
+               i.created_at, i.updated_at, i.deleted_at, i.created_by, i.updated_by, i.deleted_by`;
+
 const getInvoices = async (tenantId, filters, userRole, userBranchId) => {
     const dbName = await getTenantDbName(tenantId);
     let query = `
-        SELECT i.*, b.name AS branch_name, c.fullname AS customer_name, c.phone_number
+        SELECT ${invoiceHeaderColumns},
+               b.name AS branch_name, c.fullname AS customer_name, c.phone_number
         FROM \`${dbName}\`.invoices i
         INNER JOIN \`${dbName}\`.branches b ON i.branch_id = b.id
         INNER JOIN \`${dbName}\`.customers c ON i.customer_id = c.id
@@ -252,8 +268,8 @@ const getInvoices = async (tenantId, filters, userRole, userBranchId) => {
     }
 
     if (filters.searchKeyword) {
-        query += ' AND (i.note LIKE ? OR c.fullname LIKE ? OR c.phone_number LIKE ?)';
-        params.push(`%${filters.searchKeyword}%`, `%${filters.searchKeyword}%`, `%${filters.searchKeyword}%`);
+        query += ' AND (c.fullname LIKE ? OR c.phone_number LIKE ?)';
+        params.push(`%${filters.searchKeyword}%`, `%${filters.searchKeyword}%`);
     }
     if (filters.startDate) { query += ' AND DATE(i.invoice_date) >= ?'; params.push(filters.startDate); }
     if (filters.endDate) { query += ' AND DATE(i.invoice_date) <= ?'; params.push(filters.endDate); }
@@ -290,7 +306,8 @@ const getInvoices = async (tenantId, filters, userRole, userBranchId) => {
 const getInvoiceDetail = async (tenantId, invoiceId, userRole, userBranchId) => {
     const dbName = await getTenantDbName(tenantId);
     let query = `
-        SELECT i.*, b.name AS branch_name, c.fullname AS customer_name, c.phone_number 
+        SELECT ${invoiceHeaderColumns},
+               b.name AS branch_name, c.fullname AS customer_name, c.phone_number
         FROM \`${dbName}\`.invoices i
         INNER JOIN \`${dbName}\`.branches b ON i.branch_id = b.id
         INNER JOIN \`${dbName}\`.customers c ON i.customer_id = c.id
@@ -333,19 +350,10 @@ const updateInvoice = async (tenantId, invoiceId, updateData, executorName, user
         if (String(userRole).toUpperCase() !== 'MANAGER' && oldInvoice.branch_id !== userBranchId) throw new Error('Bạn không có quyền sửa hóa đơn của cơ sở khác.');
         checkPermission(userRole, oldInvoice.created_at);
         await ensureInvoiceHasNoDebtPayments(connection, dbName, invoiceId, 'sửa');
-        const [guardTreatments] = await connection.query(
-            `SELECT id FROM \`${dbName}\`.treatments WHERE invoice_id = ? AND deleted_at IS NULL`,
+        const [oldTreatments] = await connection.query(
+            `SELECT id, product_id, total_sessions, remaining_sessions, customer_id, note FROM \`${dbName}\`.treatments WHERE invoice_id = ? AND deleted_at IS NULL ORDER BY id FOR UPDATE`,
             [invoiceId]
         );
-        for (const t of guardTreatments) {
-            const [histories] = await connection.query(
-                `SELECT id FROM \`${dbName}\`.treatment_history WHERE treatment_id = ? AND deleted_at IS NULL LIMIT 1`,
-                [t.id]
-            );
-            if (histories.length > 0) {
-                throw new Error('Không thể sửa/xóa hóa đơn vì thẻ liệu trình đã được khách hàng sử dụng (đã trừ buổi). Vui lòng hoàn tác lịch sử sử dụng liệu trình trước.');
-            }
-        }
 
         const oldWalletUsed = getWalletUsedFromInvoice(oldInvoice);
 
@@ -357,8 +365,7 @@ const updateInvoice = async (tenantId, invoiceId, updateData, executorName, user
             );
         }
 
-        // Xóa mềm Items & Treatments
-        await connection.query(`UPDATE \`${dbName}\`.treatments SET deleted_at = NOW(), deleted_by = ? WHERE invoice_id = ?`, [executorName, invoiceId]);
+        // Thẻ liệu trình được đối chiếu sau khi chuẩn hóa items mới; không xóa hàng loạt.
         const [oldItems] = await connection.query(`SELECT id, product_id, quantity FROM \`${dbName}\`.invoice_items WHERE invoice_id = ? AND deleted_at IS NULL`, [invoiceId]);
         if (oldItems.length > 0) {
             for (const item of oldItems) {
@@ -405,6 +412,52 @@ const updateInvoice = async (tenantId, invoiceId, updateData, executorName, user
             });
         }
 
+        // Ghép thẻ với từng dòng dịch vụ theo product_id và thứ tự cũ. Giữ ID/lịch sử/ngày tạo.
+        const availableTreatments = new Map();
+        for (const treatment of oldTreatments) {
+            const cards = availableTreatments.get(Number(treatment.product_id)) || [];
+            cards.push(treatment);
+            availableTreatments.set(Number(treatment.product_id), cards);
+        }
+        const retainedTreatmentIds = new Set();
+        const treatmentChanges = [];
+        for (const item of normalizedItems) {
+            const details = treatmentDetails(item);
+            if (!details) continue;
+            const oldTreatment = availableTreatments.get(item.product_id)?.shift();
+            if (!oldTreatment) {
+                treatmentChanges.push({ item });
+                continue;
+            }
+            const usedSessions = Number(oldTreatment.total_sessions) - Number(oldTreatment.remaining_sessions);
+            if (details.totalSessions < usedSessions) {
+                throw new Error(`Số buổi mới của liệu trình ID ${oldTreatment.id} không được nhỏ hơn ${usedSessions} buổi đã sử dụng.`);
+            }
+            if (usedSessions > 0 && Number(oldTreatment.customer_id) !== Number(newCustomerId)) {
+                throw new Error('Không thể chuyển liệu trình đã sử dụng sang khách hàng khác.');
+            }
+            retainedTreatmentIds.add(oldTreatment.id);
+            treatmentChanges.push({ item, details, oldTreatment, remainingSessions: details.totalSessions - usedSessions });
+        }
+        for (const treatment of oldTreatments) {
+            if (retainedTreatmentIds.has(treatment.id)) continue;
+            if (Number(treatment.total_sessions) !== Number(treatment.remaining_sessions)) {
+                throw new Error(`Không thể xóa liệu trình ID ${treatment.id} đã được sử dụng.`);
+            }
+            await connection.query(`UPDATE \`${dbName}\`.treatments SET deleted_at = NOW(), deleted_by = ? WHERE id = ? AND deleted_at IS NULL`, [executorName, treatment.id]);
+        }
+        for (const change of treatmentChanges) {
+            if (!change.oldTreatment) continue;
+            if (Number(change.oldTreatment.customer_id) === Number(newCustomerId) &&
+                Number(change.oldTreatment.total_sessions) === change.details.totalSessions &&
+                Number(change.oldTreatment.remaining_sessions) === change.remainingSessions &&
+                (change.oldTreatment.note ?? null) === change.details.note) continue;
+            await connection.query(
+                `UPDATE \`${dbName}\`.treatments SET customer_id = ?, total_sessions = ?, remaining_sessions = ?, note = ?, updated_by = ? WHERE id = ? AND deleted_at IS NULL`,
+                [newCustomerId, change.details.totalSessions, change.remainingSessions, change.details.note, executorName, change.oldTreatment.id]
+            );
+        }
+
         const invDiscountPercent = updateData.discount_percent !== undefined ? toNumber(updateData.discount_percent, 'discount_percent') : oldInvoice.discount_percent;
         const invDiscountAmount = updateData.discount_amount !== undefined ? toNumber(updateData.discount_amount, 'discount_amount') : oldInvoice.discount_amount;
         const totalAmount = grossAmount - (grossAmount * invDiscountPercent / 100) - invDiscountAmount;
@@ -431,7 +484,11 @@ const updateInvoice = async (tenantId, invoiceId, updateData, executorName, user
             if (item.consultants.length > 0) {
                 for (const c of item.consultants) await connection.query(`INSERT INTO \`${dbName}\`.invoice_item_consultants (invoice_item_id, staff_id, revenue_amount, role_type, created_by) VALUES (?, ?, ?, ?, ?)`, [itemResult.insertId, c.staff_id, c.revenue_amount, c.role_type, executorName]);
             }
-            await createInvoiceTreatment(connection, dbName, newCustomerId, invoiceId, item, executorName);
+            // Chỉ tạo thẻ cho dòng mới; thẻ cũ giữ nguyên id, created_at và lịch sử.
+            const change = treatmentChanges.find(c => c.item === item);
+            if (change && !change.oldTreatment) {
+                await createInvoiceTreatment(connection, dbName, newCustomerId, invoiceId, item, executorName, oldInvoice.created_at);
+            }
             if (item.is_product === 1) {
                 await adjustInventory(connection, dbName, oldInvoice.branch_id, item.product_id, -item.quantity, executorName);
             }

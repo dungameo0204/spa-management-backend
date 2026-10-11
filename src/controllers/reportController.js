@@ -12,10 +12,10 @@ const respond = handler => async (req, res) => {
 
 const revenue = respond(req => reportService.getRevenue(req.user.tenant_id, req.query));
 const details = respond(req => reportService.getDetails(req.user.tenant_id, req.params.type, req.query));
-const commissionDetails = respond(req => reportService.getDetails(req.user.tenant_id, 'commissions', req.reportQuery));
-const consultantDetails = respond(req => reportService.getDetails(req.user.tenant_id, 'consultants', req.reportQuery));
-const commissions = respond(req => reportService.getStaffReport(req.user.tenant_id, 'commissions', req.reportQuery));
-const consultants = respond(req => reportService.getStaffReport(req.user.tenant_id, 'consultants', req.reportQuery));
+const commissionDetails = respond(req => reportService.getDetails(req.user.tenant_id, 'commissions', req.query));
+const consultantDetails = respond(req => reportService.getDetails(req.user.tenant_id, 'consultants', req.query));
+const commissions = respond(req => reportService.getStaffReport(req.user.tenant_id, 'commissions', req.query));
+const consultants = respond(req => reportService.getStaffReport(req.user.tenant_id, 'consultants', req.query));
 const products = respond(req => reportService.getProductRevenue(req.user.tenant_id, req.query));
 const productInvoices = respond(req => reportService.getProductInvoices(req.user.tenant_id, req.params.productId, req.query));
 

@@ -94,7 +94,7 @@ Tại thời điểm hiện tại, `src/server.js` mount các endpoint hoạt đ
 | Customer wallet log | `POST/GET /api/customer-wallet-logs`, `GET/PUT/DELETE /api/customer-wallet-logs/:id` |
 | Debt payment | `POST/GET /api/debt-payments`, `GET/PUT/DELETE /api/debt-payments/:id`, `GET /api/debt-payments/invoices/:invoiceId/remaining-debt` |
 | Treatment | `POST /api/treatments`, `POST /api/treatments/execute`, `DELETE /api/treatments/execute/:historyId`, `PUT /api/treatments/execute/:historyId/staffs`, `GET /api/treatments/commissions` |
-| Report (MANAGER; STAFF chỉ xem báo cáo nhân sự của cơ sở mình) | `GET /api/reports/revenue`, `GET /api/reports/commissions`, `GET /api/reports/consultants`, `GET /api/reports/details/:type`, `GET /api/reports/products`, `GET /api/reports/products/:productId/invoices` |
+| Report (chỉ MANAGER) | `GET /api/reports/revenue`, `GET /api/reports/commissions`, `GET /api/reports/consultants`, `GET /api/reports/details/:type`, `GET /api/reports/products`, `GET /api/reports/products/:productId/invoices` |
 
 ---
 
@@ -752,7 +752,7 @@ Lấy header hóa đơn, gồm `paid_amount`, `wallet_used`, `debt_amount`, `bra
 
 Ghi đè **toàn bộ** `items`; body phải gửi `items` theo cấu trúc của POST, trong đó từng item cũng ưu tiên `unit_price` (hoặc `price`) và chỉ fallback `products.price` khi không gửi giá. Các field header có thể gửi: `customer_id`, `discount_percent`, `discount_amount`, `paid_amount`, `wallet_used`, `payment_method`, `note`, `invoice_date`.
 
-Trong một transaction, backend hoàn trả ví/công nợ/tồn kho cũ, xóa mềm item và thẻ liệu trình cũ, sau đó áp dụng hóa đơn mới; các thẻ được tạo lại theo **cùng quy tắc combo/dịch vụ và note như POST** (không sửa hồi tố thẻ của hóa đơn khác). Hàng hóa mới cũng dùng cơ chế tồn âm nếu chưa có dòng inventory. Áp dụng cùng các điều kiện thanh toán của POST: `wallet_used` không vượt `totalAmount` và `paid_amount + wallet_used` không được vượt `totalAmount`. Bị chặn nếu thẻ liệu trình từ hóa đơn đã có lịch sử sử dụng **hoặc hóa đơn đã có phiếu thu nợ active**; khi có phiếu thu nợ, API trả lỗi `Không thể sửa hóa đơn đã có phiếu thu nợ.` STAFF chỉ sửa hóa đơn của cơ sở mình được tạo trong ngày hiện tại.
+Trong một transaction, backend hoàn trả ví/công nợ/tồn kho cũ, xóa mềm item cũ rồi áp dụng hóa đơn mới. Thẻ liệu trình của mặt hàng còn trong hóa đơn được giữ nguyên ID, lịch sử và `created_at`; số buổi còn lại được tính bằng **tổng số buổi mới trừ số buổi đã sử dụng** (ví dụ 5 buổi đã dùng 2, sửa còn 3 buổi thì thẻ còn 1). Chỉ chặn khi tổng buổi mới nhỏ hơn số buổi đã dùng, hoặc bỏ/chuyển khách hàng của thẻ đã dùng. Thẻ mới tạo theo quy tắc POST nhưng có `created_at` bằng ngày tạo hóa đơn gốc, kể cả khi sửa hóa đơn vào ngày khác. Hàng hóa mới vẫn có thể làm tồn âm. Áp dụng cùng điều kiện thanh toán của POST. Hóa đơn có phiếu thu nợ active vẫn bị chặn sửa; STAFF chỉ sửa hóa đơn cơ sở mình được tạo trong ngày hiện tại.
 
 ### `DELETE /api/invoices/:id`
 
@@ -1226,9 +1226,9 @@ Báo cáo dòng hoa hồng đã snapshot. Query tùy chọn: `branchId`, `staffN
 
 ---
 
-## Báo cáo `/api/reports` — MANAGER; STAFF xem báo cáo nhân sự theo cơ sở
+## Báo cáo `/api/reports` — chỉ MANAGER
 
-Tất cả request là `GET`, yêu cầu `Authorization: Bearer <JWT>`. MANAGER xem các báo cáo và có thể chọn `branchId` số nguyên dương; không gửi = toàn tenant. STAFF **chỉ** xem `/commissions`, `/consultants`, `/details/commissions`, `/details/consultants` trong cơ sở `branch_id` của JWT; backend bỏ qua `branchId` trong query (kể cả khác cơ sở), `period.branchId` trả cơ sở thực tế. STAFF không có `branch_id` hợp lệ hoặc quyền khác (SUPER_ADMIN) bị `403`; thiếu token `401`. STAFF vẫn bị `403` với các báo cáo còn lại. Tất cả endpoint nhận **bắt buộc** `startDate=YYYY-MM-DD&endDate=YYYY-MM-DD` (gồm cả hai ngày). `branchId` dùng theo **chi nhánh thực hiện** công ca hoặc **chi nhánh hóa đơn** của tư vấn. Khoảng ngày căn theo giờ DB; ngày giờ MySQL được driver trả dưới dạng JSON datetime, không giả định múi giờ browser. Ngày không hợp lệ, đảo thứ tự, branchId/page/pageSize sai (với MANAGER) hoặc type không hợp lệ trả `400 {"message":"..."}`. Sự cố DB trả `500`.
+Tất cả request là `GET`, yêu cầu `Authorization: Bearer <JWT>` của MANAGER. STAFF và các quyền khác bị `403` ở mọi báo cáo (bao gồm `/commissions`, `/consultants`, `/details/commissions`, `/details/consultants`); thiếu token `401`. MANAGER có thể chọn `branchId` số nguyên dương; không gửi = toàn tenant. Tất cả endpoint nhận **bắt buộc** `startDate=YYYY-MM-DD&endDate=YYYY-MM-DD` (gồm cả hai ngày). `branchId` dùng theo **chi nhánh thực hiện** công ca hoặc **chi nhánh hóa đơn** của tư vấn. Khoảng ngày căn theo giờ DB; ngày giờ MySQL được driver trả dưới dạng JSON datetime, không giả định múi giờ browser. Ngày không hợp lệ, đảo thứ tự, branchId/page/pageSize sai hoặc type không hợp lệ trả `400 {"message":"..."}`. Sự cố DB trả `500`.
 
 Ví dụ báo cáo tuần `GET /api/reports/revenue?startDate=2026-10-05&endDate=2026-10-11&branchId=1`; báo cáo tháng `startDate=2026-10-01&endDate=2026-10-31`. Không cần tham số `week`/`month`.
 
@@ -1540,4 +1540,4 @@ Các GET danh sách trong bảng này sử dụng message theo controller: `/ten
 | `GET /reports/products` | 200 | `{ message: "Lấy báo cáo thành công", period, totalRevenue, total, page, pageSize, totalPages, data: ProductRevenue[] }`; mỗi dòng có `product_id`, `product_name`, `is_product`, `invoice_count`, `item_count`, `quantity`, `item_total`, `revenue`. Tổng tiền dạng number trên toàn kỳ. |
 | `GET /reports/products/:productId/invoices` | 200 | `{ message: "Lấy báo cáo thành công", period, product, invoiceCount, quantity, itemTotal, revenue, total, page, pageSize, totalPages, data: InvoiceItemSale[] }`; `data[]` gồm `invoice_item_id`, `invoice_id`, thông tin ngày/chi nhánh/khách, `snapshot_name`, `snapshot_price`, `quantity`, chiết khấu dòng, `final_price`, `revenue`. Một dòng trên mỗi item bán ra. |
 
-Các GET reports dùng query `startDate`/`endDate` bắt buộc; chỉ bốn endpoint nhân sự `/reports/commissions`, `/reports/consultants`, `/reports/details/commissions`, `/reports/details/consultants` cho phép STAFF xem cơ sở trong JWT, còn lại chỉ MANAGER. `period` chứa `startDate`, `endDate`, `branchId` (có thể `null` đối với MANAGER); báo cáo nhân sự với filter `staffId` còn thêm `period.staffId`. `totalAmount` ở báo cáo nhân sự là number, nhưng `commission_amount_snapshot` của GET `/treatments/commissions` là DECIMAL từ DB (thường là chuỗi). Riêng `/reports/revenue` không có `page`, `pageSize` hay `totalPages`.
+Các GET reports dùng query `startDate`/`endDate` bắt buộc và đều chỉ dành cho MANAGER. `period` chứa `startDate`, `endDate`, `branchId` (có thể `null`); báo cáo nhân sự với filter `staffId` còn thêm `period.staffId`. `totalAmount` ở báo cáo nhân sự là number, nhưng `commission_amount_snapshot` của GET `/treatments/commissions` là DECIMAL từ DB (thường là chuỗi). Riêng `/reports/revenue` không có `page`, `pageSize` hay `totalPages`.

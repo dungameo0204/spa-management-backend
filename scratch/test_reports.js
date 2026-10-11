@@ -103,7 +103,7 @@ const jwt = require('jsonwebtoken');
     await assert.rejects(service.getDetails(1, 'invoices', { ...filters, staffId: 3 }), /staffId/);
     await assert.rejects(service.getDetails(1, 'bogus', filters), /type/);
     await assert.rejects(service.getRevenue(1, { ...filters, branchId: '' }), /branchId/);
-    // Real HTTP router: staff personnel totals and details share the same JWT branch scope.
+    // Real HTTP router: every report, including personnel totals and details, is MANAGER-only.
     process.env.JWT_SECRET = 'report-test-secret';
     const app = express();
     app.use('/api/reports', require('../src/routes/reportRoutes'));
@@ -125,17 +125,8 @@ const jwt = require('jsonwebtoken');
                 for (const branchQuery of ['', '&branchId=999', '&branchId=bad']) {
                     const before = calls.length;
                     const response = await fetch(`${base}/${path}?${dateQuery}${branchQuery}&staffId=3&page=2&pageSize=2`, as(staffToken));
-                    assert.equal(response.status, 200, path);
-                    const body = await response.json();
-                    assert.equal(body.period.branchId, 1);
-                    assert.equal(body.period.staffId, 3);
-                    assert.equal(body.totalAmount, 120);
-                    assert.equal(body.page, 2);
-                    const queries = calls.slice(before);
-                    assert.equal(queries.length, 2);
-                    assert.deepEqual(queries[0].params.slice(0, 4), ['2026-10-01', '2026-10-31', 1, 3]);
-                    assert.deepEqual(queries[1].params.slice(0, 4), ['2026-10-01', '2026-10-31', 1, 3]);
-                    assert.match(queries[0].sql, type === 'commissions' ? /th\.branch_id = \?/ : /i\.branch_id = \?/);
+                    assert.equal(response.status, 403, path);
+                    assert.equal(calls.length, before, 'STAFF must not query report data');
                 }
                 const managerResponse = await fetch(`${base}/${path}?${dateQuery}`, as(managerToken));
                 assert.equal(managerResponse.status, 200);
@@ -143,6 +134,10 @@ const jwt = require('jsonwebtoken');
                 const filtered = await fetch(`${base}/${path}?${dateQuery}&branchId=2`, as(managerToken));
                 assert.equal(filtered.status, 200);
                 assert.equal((await filtered.json()).period.branchId, 2);
+                const before = calls.length;
+                const invalidBranch = await fetch(`${base}/${path}?${dateQuery}&branchId=bad`, as(managerToken));
+                assert.equal(invalidBranch.status, 400);
+                assert.equal(calls.length, before);
                 assert.equal((await fetch(`${base}/${path}?${dateQuery}`)).status, 401);
                 const withoutBranch = jwt.sign({ tenant_id: 1, system_role: 'STAFF' }, process.env.JWT_SECRET);
                 assert.equal((await fetch(`${base}/${path}?${dateQuery}`, as(withoutBranch))).status, 403);

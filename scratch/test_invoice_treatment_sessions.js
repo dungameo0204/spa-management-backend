@@ -19,7 +19,7 @@ const connection = {
         }]];
         if (sql.includes('.customers WHERE id = ? AND deleted_at IS NULL FOR UPDATE')) return [[{ id: 7, wallet_balance: 0 }]];
         if (sql.includes('.products WHERE id = ?')) return [products.has(params[0]) ? [products.get(params[0])] : []];
-        if (sql.includes('SELECT id FROM `test_tenant`.treatments WHERE invoice_id = ?')) return [[]];
+        if (sql.includes('FROM `test_tenant`.treatments WHERE invoice_id = ?') && sql.includes('FOR UPDATE')) return [[]];
         if (sql.includes('SELECT id FROM `test_tenant`.debt_payments WHERE invoice_id = ?')) return [[]];
         if (sql.includes('SELECT id, product_id, quantity FROM `test_tenant`.invoice_items')) return [[]];
         if (sql.includes('INSERT INTO `test_tenant`.treatments')) {
@@ -47,7 +47,7 @@ const items = [
 ];
 const assertTreatments = () => {
     assert.equal(inserts.length, 4, 'ordinary services always create a card; combos require sessions');
-    for (const entry of inserts) assert.match(entry.sql, /remaining_sessions, note, created_by/);
+    for (const entry of inserts) assert.match(entry.sql, /remaining_sessions, note, created_by, created_at/);
     assert.deepEqual(inserts.map(entry => entry.params.slice(1, 6)), [
         [1, 20, 1, 1, '5 nốt'],
         [2, 20, 6, 6, null],
