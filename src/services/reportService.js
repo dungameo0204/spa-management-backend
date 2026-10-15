@@ -55,6 +55,8 @@ const invoiceBase = (dbName) => `
 
 const serviceNet = `GREATEST(0, COALESCE(items.service_gross, 0) - GREATEST(0, COALESCE(items.service_gross, 0) + COALESCE(items.product_gross, 0) - i.total_amount))`;
 const productNet = `(i.total_amount - ${serviceNet})`;
+// Report-time calculation: current product price and current role commission rules.
+const commissionAmount = '(COALESCE(pc.commission_fixed_amount, 0) + p.price * COALESCE(pc.commission_percent, 0) / 100)';
 
 const sources = dbName => ({
     invoices: {
@@ -88,10 +90,10 @@ const sources = dbName => ({
         order: 'imp.import_date DESC, imp.id DESC'
     },
     commissions: {
-        from: `FROM \`${dbName}\`.treatment_history_staffs ths INNER JOIN \`${dbName}\`.treatment_history th ON th.id = ths.treatment_history_id INNER JOIN \`${dbName}\`.treatments t ON t.id = th.treatment_id INNER JOIN \`${dbName}\`.staffs s ON s.id = ths.staff_id INNER JOIN \`${dbName}\`.branches b ON b.id = th.branch_id INNER JOIN \`${dbName}\`.customers c ON c.id = t.customer_id INNER JOIN \`${dbName}\`.products p ON p.id = t.product_id LEFT JOIN \`${dbName}\`.roles r ON r.id = s.role_id`,
+        from: `FROM \`${dbName}\`.treatment_history_staffs ths INNER JOIN \`${dbName}\`.treatment_history th ON th.id = ths.treatment_history_id INNER JOIN \`${dbName}\`.treatments t ON t.id = th.treatment_id INNER JOIN \`${dbName}\`.staffs s ON s.id = ths.staff_id INNER JOIN \`${dbName}\`.branches b ON b.id = th.branch_id INNER JOIN \`${dbName}\`.customers c ON c.id = t.customer_id INNER JOIN \`${dbName}\`.products p ON p.id = t.product_id LEFT JOIN \`${dbName}\`.roles r ON r.id = s.role_id LEFT JOIN \`${dbName}\`.product_commissions pc ON pc.product_id = t.product_id AND pc.role_id = s.role_id AND pc.deleted_at IS NULL`,
         where: 'ths.deleted_at IS NULL AND th.deleted_at IS NULL', date: 'th.execution_date', branch: 'th.branch_id',
-        select: 'ths.id, ths.treatment_history_id, th.execution_date, th.branch_id, b.name AS branch_name, s.id AS staff_id, s.fullname AS staff_name, r.name AS role_name, t.product_id, p.name AS product_name, c.id AS customer_id, c.fullname AS customer_name, ths.commission_amount_snapshot',
-        order: 'th.branch_id ASC, s.fullname ASC, s.id ASC, ths.commission_amount_snapshot ASC, ths.id ASC',
+        select: `ths.id, ths.treatment_history_id, th.execution_date, th.branch_id, b.name AS branch_name, s.id AS staff_id, s.fullname AS staff_name, r.name AS role_name, t.product_id, p.name AS product_name, c.id AS customer_id, c.fullname AS customer_name, ${commissionAmount} AS commission_amount`,
+        order: 'th.branch_id ASC, s.fullname ASC, s.id ASC, commission_amount ASC, ths.id ASC',
         group: 'th.branch_id AS branch_id, b.name AS branch_name, s.id AS staff_id, s.fullname AS staff_name', groupBy: 'th.branch_id, b.name, s.id, s.fullname'
     },
     consultants: {
@@ -108,9 +110,9 @@ const searchColumns = {
     invoices: ['i.id', 'b.name', 'c.fullname', 'c.phone_number', 'i.payment_method', 'i.total_amount', 'i.paid_amount', 'i.debt_amount'],
     debt_payments: ['dp.id', 'dp.invoice_id', 'b.name', 'cb.name', 'c.fullname', 'c.phone_number', 'dp.payment_method', 'dp.note', 'dp.amount'],
     wallet_logs: ['w.id', 'b.name', 'c.fullname', 'c.phone_number', 'w.payment_method', 'w.note', 'w.paid_amount'],
-    expenses: ['e.id', 'b.name', 'e.expense_type', 'e.note', 'e.amount'],
+    expenses: ['e.id', 'b.name', 'e.note', 'e.amount', 'e.expense_type'],
     inventory_imports: ['imp.id', 'b.name', 'imp.import_code', 'imp.supplier_name', 'imp.note', 'imp.total_amount'],
-    commissions: ['ths.id', 'b.name', 's.fullname', 'r.name', 'c.fullname', 'p.name', 'ths.commission_amount_snapshot'],
+    commissions: ['ths.id', 'b.name', 's.fullname', 'r.name', 'c.fullname', 'p.name', commissionAmount],
     consultants: ['ic.id', 'i.id', 'b.name', 's.fullname', 'c.fullname', 'ii.snapshot_name', 'ic.role_type', 'ic.revenue_amount']
 };
 
@@ -123,8 +125,9 @@ const getSource = (dbName, type, filters) => {
     }
     const staffScope = filters.staffId === undefined ? '' : ` AND ${type === 'commissions' ? 's.id' : 'ic.staff_id'} = ?`;
     const columns = searchColumns[type];
-    const searchScope = filters.search ? ` AND (${columns.map(column => `LOCATE(LOWER(?), LOWER(COALESCE(CAST(${column} AS CHAR), ''))) > 0`).join(' OR ')})` : '';
-    return { ...source, where: `${source.where} AND ${range.sql}${staffScope}${searchScope}`, params: [...range.params, ...(filters.staffId === undefined ? [] : [filters.staffId]), ...(filters.search ? columns.map(() => filters.search) : [])] };
+    const itemSearch = type === 'expenses' ? ` OR EXISTS (SELECT 1 FROM \`${dbName}\`.expenses_vouchers_items xi WHERE xi.expenses_voucher_id = e.id AND LOCATE(LOWER(?), LOWER(xi.expense_type)) > 0)` : '';
+    const searchScope = filters.search ? ` AND (${columns.map(column => `LOCATE(LOWER(?), LOWER(COALESCE(CAST(${column} AS CHAR), ''))) > 0`).join(' OR ')}${itemSearch})` : '';
+    return { ...source, where: `${source.where} AND ${range.sql}${staffScope}${searchScope}`, params: [...range.params, ...(filters.staffId === undefined ? [] : [filters.staffId]), ...(filters.search ? [...columns.map(() => filters.search), ...(type === 'expenses' ? [filters.search] : [])] : [])] };
 };
 
 const totalFor = async (source, field) => {
@@ -167,7 +170,7 @@ const getDetails = async (tenantId, type, input) => {
     const amountColumns = {
         invoices: 'i.total_amount', debt_payments: 'dp.amount', wallet_logs: 'w.paid_amount',
         expenses: 'e.amount', inventory_imports: 'imp.total_amount',
-        commissions: 'ths.commission_amount_snapshot', consultants: 'ic.revenue_amount'
+        commissions: commissionAmount, consultants: 'ic.revenue_amount'
     };
     const [[totals], [rows]] = await Promise.all([
         masterPool.query(`SELECT COUNT(*) AS total, COALESCE(SUM(${amountColumns[type]}), 0) AS total_amount ${source.from} WHERE ${source.where}`, source.params),
@@ -183,7 +186,7 @@ const getStaffReport = async (tenantId, type, input) => {
     const paging = pagination(input);
     const dbName = await getTenantDbName(tenantId);
     const source = getSource(dbName, type, filters);
-    const amount = type === 'commissions' ? 'ths.commission_amount_snapshot' : 'ic.revenue_amount';
+    const amount = type === 'commissions' ? commissionAmount : 'ic.revenue_amount';
     const groupedSql = `SELECT ${source.group}, COALESCE(SUM(${amount}), 0) AS total_amount, COUNT(*) AS record_count ${source.from} WHERE ${source.where} GROUP BY ${source.groupBy}`;
     const [[totals], [rows]] = await Promise.all([
         masterPool.query(`SELECT COUNT(*) AS total, COALESCE(SUM(total_amount), 0) AS grand_total FROM (${groupedSql}) AS grouped`, source.params),

@@ -73,6 +73,82 @@ const getCustomerById = async (tenantId, customerId) => {
     return rows[0];
 };
 
+// One customer, all sold lines and all non-deleted cards, including exhausted cards.
+const getCustomerOverview = async (tenantId, customerId) => {
+    const id = Number(customerId);
+    if (!Number.isSafeInteger(id) || id < 1 || String(id) !== String(customerId)) {
+        const error = new Error('customerId không hợp lệ.'); error.status = 400; throw error;
+    }
+    const dbName = await getTenantDbName(tenantId);
+    const [customers] = await masterPool.query(
+        `SELECT id, fullname, phone_number, avatar, address, wallet_balance, total_debt, note,
+                created_at, updated_at, deleted_at, created_by, updated_by, deleted_by
+         FROM \`${dbName}\`.customers WHERE id = ? AND deleted_at IS NULL`, [id]);
+    if (!customers.length) { const error = new Error('Khách hàng không tồn tại hoặc đã bị xóa.'); error.status = 404; throw error; }
+
+    const [purchases] = await masterPool.query(
+        `SELECT ii.id AS invoice_item_id, ii.invoice_id, ii.product_id, ii.snapshot_name AS product_name,
+                ii.snapshot_price AS unit_price, ii.quantity, ii.discount_percent, ii.discount_amount,
+                ii.final_price, p.is_product, i.invoice_date AS purchase_date, i.branch_id
+         FROM \`${dbName}\`.invoices i
+         JOIN \`${dbName}\`.invoice_items ii ON ii.invoice_id = i.id AND ii.deleted_at IS NULL
+         JOIN \`${dbName}\`.products p ON p.id = ii.product_id
+         WHERE i.customer_id = ? AND i.deleted_at IS NULL
+         ORDER BY i.invoice_date DESC, i.id DESC, ii.id DESC`, [id]);
+    const [cards] = await masterPool.query(
+        `SELECT t.*, p.name AS product_name, i.invoice_date AS purchase_date, i.branch_id,
+                (SELECT ii.snapshot_price FROM \`${dbName}\`.invoice_items ii
+                 WHERE ii.invoice_id = t.invoice_id AND ii.product_id = t.product_id AND ii.deleted_at IS NULL
+                 ORDER BY ii.id LIMIT 1) AS unit_price
+         FROM \`${dbName}\`.treatments t
+         JOIN \`${dbName}\`.products p ON p.id = t.product_id
+         LEFT JOIN \`${dbName}\`.invoices i ON i.id = t.invoice_id AND i.deleted_at IS NULL
+         WHERE t.customer_id = ? AND t.deleted_at IS NULL AND (t.invoice_id IS NULL OR i.id IS NOT NULL)
+         ORDER BY COALESCE(i.invoice_date, t.created_at) DESC, t.id DESC`, [id]);
+    if (cards.length) {
+        const [histories] = await masterPool.query(
+            `SELECT th.*, b.name AS branch_name FROM \`${dbName}\`.treatment_history th
+             LEFT JOIN \`${dbName}\`.branches b ON b.id = th.branch_id
+             WHERE th.treatment_id IN (?) AND th.deleted_at IS NULL
+             ORDER BY th.execution_date DESC, th.id DESC`, [cards.map(card => card.id)]);
+        if (histories.length) {
+            const [staffs] = await masterPool.query(
+                `SELECT ths.*, s.fullname AS staff_name FROM \`${dbName}\`.treatment_history_staffs ths
+                 JOIN \`${dbName}\`.staffs s ON s.id = ths.staff_id
+                 WHERE ths.treatment_history_id IN (?) AND ths.deleted_at IS NULL ORDER BY ths.id`, [histories.map(history => history.id)]);
+            histories.forEach(history => { history.staffs = staffs.filter(staff => staff.treatment_history_id === history.id); });
+        }
+        cards.forEach(card => {
+            card.completed_sessions = card.total_sessions - card.remaining_sessions;
+            card.histories = histories.filter(history => history.treatment_id === card.id);
+        });
+    }
+    // Treatments do not store invoice_item_id. Match each invoice card to one
+    // active invoice line of the same product, without reusing a card/line.
+    const cardsByInvoiceProduct = new Map();
+    for (const card of cards) {
+        if (card.invoice_id == null) continue;
+        const key = `${card.invoice_id}:${card.product_id}`;
+        const matches = cardsByInvoiceProduct.get(key) || [];
+        matches.push(card);
+        cardsByInvoiceProduct.set(key, matches);
+    }
+    const matchedCardIds = new Set();
+    const purchasesWithTreatments = purchases.map(item => {
+        const key = `${item.invoice_id}:${item.product_id}`;
+        const matches = cardsByInvoiceProduct.get(key);
+        const treatment = matches?.shift() || null;
+        if (treatment) matchedCardIds.add(treatment.id);
+        return { ...item, treatment };
+    });
+    const timeline = [
+        ...purchasesWithTreatments.map(item => ({ type: 'purchase', date: item.purchase_date, item })),
+        ...cards.filter(card => !matchedCardIds.has(card.id))
+            .map(treatment => ({ type: 'treatment', date: treatment.purchase_date || treatment.created_at, treatment }))
+    ].sort((a, b) => new Date(b.date) - new Date(a.date) || a.type.localeCompare(b.type));
+    return { customer: customers[0], purchases: purchasesWithTreatments, treatments: cards, timeline };
+};
+
 const updateCustomer = async (tenantId, customerId, updateData, executorName) => {
     const dbName = await getTenantDbName(tenantId);
     
@@ -166,6 +242,7 @@ module.exports = {
     createCustomer, 
     getCustomers, 
     getCustomerById,
+    getCustomerOverview,
     updateCustomer, 
     deleteCustomer, 
     restoreCustomer,

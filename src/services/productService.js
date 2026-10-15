@@ -102,7 +102,16 @@ const syncCommissions = async (connection, dbName, productId, commissions, execu
     await insertOrUpdateCommissions(connection, dbName, productId, commissions, executorName);
 };
 
-const createProduct = async (tenantId, productData, executorName) => {
+const guardCommissionWrite = (data, role) => {
+    if (Object.prototype.hasOwnProperty.call(data, 'commissions') && String(role).toUpperCase() !== 'MANAGER') {
+        const error = new Error('Chỉ MANAGER được thay đổi product_commissions.');
+        error.status = 403;
+        throw error;
+    }
+};
+
+const createProduct = async (tenantId, productData, executorName, userRole) => {
+    guardCommissionWrite(productData, userRole);
     const dbName = await getTenantDbName(tenantId);
     const connection = await masterPool.getConnection();
 
@@ -289,7 +298,8 @@ const getProductById = async (tenantId, productId, userRole, userBranchId) => {
     };
 };
 
-const updateProduct = async (tenantId, productId, updateData, executorName) => {
+const updateProduct = async (tenantId, productId, updateData, executorName, userRole) => {
+    guardCommissionWrite(updateData, userRole);
     const dbName = await getTenantDbName(tenantId);
     const connection = await masterPool.getConnection();
 

@@ -278,6 +278,21 @@ CREATE TABLE `expense_vouchers` (
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
+-- Table structure for table `expenses_vouchers_items`
+--
+
+DROP TABLE IF EXISTS `expenses_vouchers_items`;
+CREATE TABLE `expenses_vouchers_items` (
+  `id` int NOT NULL AUTO_INCREMENT,
+  `expenses_voucher_id` int NOT NULL,
+  `expense_type` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `amount` decimal(15,2) NOT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_expenses_voucher_id` (`expenses_voucher_id`),
+  CONSTRAINT `fk_expenses_vouchers_items_voucher` FOREIGN KEY (`expenses_voucher_id`) REFERENCES `expense_vouchers` (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+--
 -- Table structure for table `inventory`
 --
 
@@ -669,6 +684,7 @@ CREATE TABLE `treatment_history` (
   `id` int NOT NULL AUTO_INCREMENT,
   `treatment_id` int NOT NULL,
   `branch_id` int NOT NULL,
+  `appointment_id` int DEFAULT NULL,
   `execution_date` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   `deleted_at` datetime DEFAULT NULL,
@@ -679,8 +695,10 @@ CREATE TABLE `treatment_history` (
   PRIMARY KEY (`id`),
   KEY `treatment_id` (`treatment_id`),
   KEY `branch_id` (`branch_id`),
+  KEY `appointment_id` (`appointment_id`),
   CONSTRAINT `treatment_history_ibfk_1` FOREIGN KEY (`treatment_id`) REFERENCES `treatments` (`id`),
-  CONSTRAINT `treatment_history_ibfk_2` FOREIGN KEY (`branch_id`) REFERENCES `branches` (`id`)
+  CONSTRAINT `treatment_history_ibfk_2` FOREIGN KEY (`branch_id`) REFERENCES `branches` (`id`),
+  CONSTRAINT `treatment_history_ibfk_3` FOREIGN KEY (`appointment_id`) REFERENCES `appointments` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 

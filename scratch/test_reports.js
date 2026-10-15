@@ -53,7 +53,7 @@ const jwt = require('jsonwebtoken');
     const amounts = {
         invoices: 'i.total_amount', debt_payments: 'dp.amount', wallet_logs: 'w.paid_amount',
         expenses: 'e.amount', inventory_imports: 'imp.total_amount',
-        commissions: 'ths.commission_amount_snapshot', consultants: 'ic.revenue_amount'
+        commissions: 'dynamic', consultants: 'ic.revenue_amount'
     };
     for (const [type, column] of Object.entries(amounts)) {
         const first = await service.getDetails(1, type, { ...filters, page: 1, pageSize: 2 });
@@ -62,7 +62,11 @@ const jwt = require('jsonwebtoken');
         assert.equal(next.totalAmount, 120, `${type} second page`);
         const aggregate = calls.at(-2);
         const pageQuery = calls.at(-1);
-        assert.match(aggregate.sql, new RegExp(`COUNT\\(\\*\\) AS total, COALESCE\\(SUM\\(${column.replace('.', '\\.')}\\), 0\\) AS total_amount`));
+        if (type === 'commissions') {
+            assert.match(aggregate.sql, /SUM\(\(COALESCE\(pc\.commission_fixed_amount, 0\) \+ p\.price \* COALESCE\(pc\.commission_percent, 0\) \/ 100\)\)/);
+            assert.match(pageQuery.sql, /product_commissions pc ON pc\.product_id = t\.product_id AND pc\.role_id = s\.role_id AND pc\.deleted_at IS NULL/);
+            assert.doesNotMatch(pageQuery.sql, /ths\.commission_amount_snapshot/);
+        } else assert.match(aggregate.sql, new RegExp(`COUNT\\(\\*\\) AS total, COALESCE\\(SUM\\(${column.replace('.', '\\.')}\\), 0\\) AS total_amount`));
         assert.match(aggregate.sql, /deleted_at IS NULL/);
         assert.deepEqual(aggregate.params, ['2026-10-01', '2026-10-31', 1]);
         assert.deepEqual(pageQuery.params, [...aggregate.params, 2, 2]);

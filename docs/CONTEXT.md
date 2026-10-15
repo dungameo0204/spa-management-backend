@@ -97,7 +97,7 @@ docs/CONTEXT.md                File này
 | `inventory_import_items` | Snapshot product name/price/discount, FK import/product | Import detail |
 | `appointments`, `customer_bookings` | Lịch/booking | Appointment CRUD; customer booking chỉ read/search |
 | `customer_wallet_logs`, `debt_payments` | Ví/thu nợ | Debt payment bắt buộc invoice; `branch_id` hạch toán theo invoice, `collection_branch_id` là nơi thực thu và giới hạn STAFF |
-| `expense_vouchers`, `bank_transactions` | Chi phí/giao dịch bank | Chưa API |
+| `expense_vouchers`, `expenses_vouchers_items`, `bank_transactions` | Phiếu chi nhiều mục/giao dịch bank | `/api/expenses` |
 | `invoices`, `invoice_items`, `invoice_item_consultants` | Bán hàng/hóa đơn | CRUD invoice |
 | `treatments`, `treatment_history`, `treatment_history_staffs` | Liệu trình | Create/list/detail, execute/undo, staff commission |
 | `orders`, `order_items` | Online order | Chưa API |
@@ -132,9 +132,9 @@ docs/CONTEXT.md                File này
 
 ### Reports (`/api/reports`)
 
-- MANAGER xem toàn bộ báo cáo; STAFF chỉ xem `/commissions`, `/consultants`, `/details/commissions`, `/details/consultants` theo `branch_id` JWT (bỏ qua `branchId` query, thiếu branch hợp lệ trả 403); SUPER_ADMIN không được truy cập. `startDate`/`endDate` bắt buộc YYYY-MM-DD, inclusive; `branchId` tùy chọn cho MANAGER. `GET /revenue` tổng hợp, `GET /commissions`, `/consultants` nhóm theo branch + staff; `GET /details/:type` phân trang (1–100 dòng/trang) cho invoices/debt_payments/wallet_logs/expenses/inventory_imports/commissions/consultants.
+- Chỉ MANAGER xem toàn bộ `/api/reports`; STAFF và SUPER_ADMIN nhận 403. `startDate`/`endDate` bắt buộc YYYY-MM-DD, inclusive; `branchId` tùy chọn cho MANAGER. `GET /revenue` tổng hợp, `GET /commissions`, `/consultants` nhóm theo branch + staff; `GET /details/:type` phân trang (1–100 dòng/trang) cho invoices/debt_payments/wallet_logs/expenses/inventory_imports/commissions/consultants.
 - Doanh thu bán hàng theo `invoice_date`, `invoice_items.final_price` phân loại `products.is_product`. Chiết khấu cấp hóa đơn (`SUM(final_price) - invoice.total_amount`) trừ hết dịch vụ trước, còn dư trừ sản phẩm. Tổng thu tiền thật = invoice.paid_amount + debt_payments.amount (branch hóa đơn) + customer_wallet_logs.paid_amount; không cộng lại ví dùng/bonus. Tổng chi = expense_vouchers.amount + inventory_imports.total_amount (nhập kho không ghi phiếu chi). Thu−chi không phải lợi nhuận. Mốc ngày tiền thu nợ/chi/nạp ví/nhập kho lấy từ payment_date/expense_date/created_at/import_date tương ứng. Chứng từ xóa mềm không tính.
-- Báo cáo công ca giữ cùng nguồn `treatment_history_staffs.commission_amount_snapshot` như `getStaffCommissions`, nhưng query tổng và phân trang riêng ở DB để tránh tải toàn bộ. Tiền tư vấn là `invoice_item_consultants.revenue_amount` (sale phân bổ, chưa phải hoa hồng), loại các invoice/item/consultant đã xóa mềm. Xem contract dữ liệu chi tiết tại `docs/API_FRONTEND.md`.
+- Báo cáo công ca tính tại lúc đọc từ `product_commissions` đang hoạt động, role và giá sản phẩm hiện tại; `commission_amount_snapshot` chỉ là cột legacy, assignment mới lưu 0. Phiếu chi dùng `items[]`, header `amount` là tổng để báo cáo không nhân đôi; migration backfill phiếu cũ tại `docs/migrations/2026-10-12_add_expenses_vouchers_items.sql`. Tiền tư vấn là `invoice_item_consultants.revenue_amount`. Tổng quan khách (`GET /api/customers/:id/overview`) trả mua hàng và mọi thẻ chưa xóa kể cả hết buổi, thứ tự mới nhất trước. Xem contract tại `docs/API_FRONTEND.md`.
 
 ### Invoice (`/api/invoices`)
 

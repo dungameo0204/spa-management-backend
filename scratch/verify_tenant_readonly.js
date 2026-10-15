@@ -123,7 +123,7 @@ const near = (a, b, label) => assert.ok(Math.abs(Number(a) - Number(b)) < 0.02, 
                 for (let page = 2; page <= first.totalPages; page++) groups.push(...(await request(`reports/${type}`, { ...params, page, pageSize: 2 })).staffTotals);
                 assert.equal(groups.length, first.total, `${type} staff count`);
                 near(sum(groups, 'total_amount'), first.totalAmount, `${type} grand total`);
-                near(sum(details[type], type === 'commissions' ? 'commission_amount_snapshot' : 'revenue_amount'), first.totalAmount, `${type} detail sum`);
+                near(sum(details[type], type === 'commissions' ? 'commission_amount' : 'revenue_amount'), first.totalAmount, `${type} detail sum`);
             }
             console.log(`PASS reports branch=${branchId ?? 'all'}: ${Object.entries(details).map(([key, rows]) => `${key}:${rows.length}`).join(' ')}; revenue=${summary.totalRevenue}; cash=${summary.netCashFlow}`);
         }

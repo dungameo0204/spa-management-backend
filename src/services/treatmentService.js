@@ -95,15 +95,19 @@ const executeTreatmentSession = async (tenantId, historyData, executorName, user
             const baseDate = execution_date ? new Date(execution_date) : new Date();
             baseDate.setDate(baseDate.getDate() + nextDays);
 
-            await connection.query(
+            const [appointmentResult] = await connection.query(
                 `INSERT INTO \`${dbName}\`.appointments 
                     (customer_id, branch_id, appointment_date, note, status, created_by) 
                  VALUES (?, ?, ?, ?, ?, ?)`,
                 [treatment.customer_id, branchId, baseDate, `Lịch hẹn tự động từ liệu trình: ${treatment.product_name}`, 'Khách chưa đến', executorName]
             );
+            await connection.query(
+                `UPDATE \`${dbName}\`.treatment_history SET appointment_id = ? WHERE id = ?`,
+                [appointmentResult.insertId, treatmentHistoryId]
+            );
         }
 
-        // 5. TỰ ĐỘNG TÍNH HOA HỒNG & Lưu nhân viên (Nếu Frontend truyền lên)
+        // 5. Lưu nhân viên; tiền công được tính khi đọc báo cáo.
         if (Array.isArray(staffs) && staffs.length > 0) {
             for (const staff of staffs) {
                 const staffId = toNumber(staff.staff_id, 'staff_id', { min: 1, integer: true });
@@ -114,32 +118,15 @@ const executeTreatmentSession = async (tenantId, historyData, executorName, user
                 if (normalizedRole === 'STAFF' && Number(staffInfo[0].branch_id) !== branchId) {
                     throw new Error(`Nhân viên ID ${staffId} không thuộc cơ sở của tài khoản STAFF.`);
                 }
-                const roleId = staffInfo[0].role_id;
-
-                // Tra cứu bảng product_commissions
-                let commission = 0;
-                const [commissions] = await connection.query(
-                    `SELECT commission_percent, commission_fixed_amount 
-                     FROM \`${dbName}\`.product_commissions 
-                     WHERE product_id = ? AND role_id = ? AND deleted_at IS NULL`,
-                    [treatment.product_id, roleId]
-                );
-
-                if (commissions.length > 0) {
-                    const pct = Number(commissions[0].commission_percent || 0);
-                    const fixed = Number(commissions[0].commission_fixed_amount || 0);
-                    commission = fixed + (Number(treatment.price) * pct / 100);
-                }
-
                 await connection.query(
                     `INSERT INTO \`${dbName}\`.treatment_history_staffs (treatment_history_id, staff_id, commission_amount_snapshot, created_by) VALUES (?, ?, ?, ?)`,
-                    [treatmentHistoryId, staffId, commission, executorName]
+                    [treatmentHistoryId, staffId, 0, executorName]
                 );
             }
         }
 
         await connection.commit();
-        return { treatmentHistoryId, message: 'Đã trừ 1 buổi liệu trình và tính hoa hồng thành công' };
+        return { treatmentHistoryId, message: 'Đã trừ 1 buổi liệu trình thành công' };
     } catch (error) {
         await connection.rollback();
         throw error;
@@ -149,18 +136,16 @@ const executeTreatmentSession = async (tenantId, historyData, executorName, user
 };
 
 // ==========================
-// 3. GÁN BỔ SUNG NHÂN VIÊN VÀO LỊCH SỬ CŨ (TÍNH LẠI HOA HỒNG)
+// 3. GÁN BỔ SUNG NHÂN VIÊN VÀO LỊCH SỬ CŨ
 // ==========================
 
 const assignStaffToHistory = async (tenantId, historyId, staffData, executorName, userRole, userBranchId) => {
     const dbName = await getTenantDbName(tenantId);
     
-    // Kiểm tra lịch sử tồn tại & Lấy thông tin để tính hoa hồng
+    // Kiểm tra lịch sử tồn tại & phân quyền theo cơ sở
     const [histories] = await masterPool.query(
-        `SELECT th.branch_id, t.product_id, p.price
+        `SELECT th.branch_id
          FROM \`${dbName}\`.treatment_history th
-         INNER JOIN \`${dbName}\`.treatments t ON th.treatment_id = t.id
-         INNER JOIN \`${dbName}\`.products p ON t.product_id = p.id
          WHERE th.id = ? AND th.deleted_at IS NULL`, 
         [historyId]
     );
@@ -185,8 +170,7 @@ const assignStaffToHistory = async (tenantId, historyId, staffData, executorName
             [executorName, historyId]
         );
 
-        // staffs: [] hợp lệ để xóa toàn bộ assignment/hoa hồng của history.
-        // TỰ ĐỘNG TÍNH HOA HỒNG & Lưu mới nếu frontend gửi nhân viên.
+        // staffs: [] hợp lệ để xóa toàn bộ assignment của history.
         for (const staff of staffs) {
             const staffId = toNumber(staff.staff_id, 'staff_id', { min: 1, integer: true });
             
@@ -196,31 +180,14 @@ const assignStaffToHistory = async (tenantId, historyId, staffData, executorName
             if (normalizedRole === 'STAFF' && Number(staffInfo[0].branch_id) !== Number(userBranchId)) {
                 throw new Error(`Nhân viên ID ${staffId} không thuộc cơ sở của tài khoản STAFF.`);
             }
-            const roleId = staffInfo[0].role_id;
-
-            // Tra cứu bảng product_commissions
-            let commission = 0;
-            const [commissions] = await connection.query(
-                `SELECT commission_percent, commission_fixed_amount 
-                 FROM \`${dbName}\`.product_commissions 
-                 WHERE product_id = ? AND role_id = ? AND deleted_at IS NULL`,
-                [history.product_id, roleId]
-            );
-
-            if (commissions.length > 0) {
-                const pct = Number(commissions[0].commission_percent || 0);
-                const fixed = Number(commissions[0].commission_fixed_amount || 0);
-                commission = fixed + (Number(history.price) * pct / 100);
-            }
-
             await connection.query(
                 `INSERT INTO \`${dbName}\`.treatment_history_staffs (treatment_history_id, staff_id, commission_amount_snapshot, created_by) VALUES (?, ?, ?, ?)`,
-                [historyId, staffId, commission, executorName]
+                [historyId, staffId, 0, executorName]
             );
         }
 
         await connection.commit();
-        return { message: 'Đã cập nhật danh sách nhân viên thực hiện và tính hoa hồng thành công' };
+        return { message: 'Đã cập nhật danh sách nhân viên thực hiện thành công' };
     } catch (error) {
         await connection.rollback();
         throw error;
@@ -236,7 +203,7 @@ const assignStaffToHistory = async (tenantId, historyId, staffData, executorName
 const getStaffCommissions = async (tenantId, filters, userRole, userBranchId) => {
     const dbName = await getTenantDbName(tenantId);
     let query = `
-        SELECT ths.id, ths.treatment_history_id, ths.commission_amount_snapshot, ths.created_at,
+        SELECT ths.id, ths.treatment_history_id, (COALESCE(pc.commission_fixed_amount, 0) + p.price * COALESCE(pc.commission_percent, 0) / 100) AS commission_amount, ths.created_at,
                th.execution_date, th.branch_id, b.name AS branch_name,
                s.id AS staff_id, s.fullname AS staff_name, r.name AS role_name,
                t.product_id, p.name AS product_name, c.fullname AS customer_name
@@ -247,6 +214,7 @@ const getStaffCommissions = async (tenantId, filters, userRole, userBranchId) =>
         LEFT JOIN \`${dbName}\`.roles r ON s.role_id = r.id
         INNER JOIN \`${dbName}\`.branches b ON th.branch_id = b.id
         LEFT JOIN \`${dbName}\`.products p ON t.product_id = p.id
+        LEFT JOIN \`${dbName}\`.product_commissions pc ON pc.product_id = t.product_id AND pc.role_id = s.role_id AND pc.deleted_at IS NULL
         LEFT JOIN \`${dbName}\`.customers c ON t.customer_id = c.id
         WHERE ths.deleted_at IS NULL AND th.deleted_at IS NULL
     `;
@@ -276,7 +244,7 @@ const getStaffCommissions = async (tenantId, filters, userRole, userBranchId) =>
         query += ' AND DATE(th.execution_date) <= ?'; params.push(filters.endDate); 
     }
 
-    return paginateQuery(masterPool, query, params, 'th.branch_id ASC, s.fullname ASC, s.id ASC, ths.commission_amount_snapshot ASC, ths.id ASC', filters);
+    return paginateQuery(masterPool, query, params, 'th.branch_id ASC, s.fullname ASC, s.id ASC, commission_amount ASC, ths.id ASC', filters);
 };
 
 // ==========================
@@ -290,7 +258,7 @@ const deleteTreatmentHistory = async (tenantId, historyId, executorName, userRol
     try {
         await connection.beginTransaction();
 
-        const [histories] = await connection.query(`SELECT treatment_id, branch_id FROM \`${dbName}\`.treatment_history WHERE id = ? AND deleted_at IS NULL FOR UPDATE`, [historyId]);
+        const [histories] = await connection.query(`SELECT treatment_id, branch_id, appointment_id FROM \`${dbName}\`.treatment_history WHERE id = ? AND deleted_at IS NULL FOR UPDATE`, [historyId]);
         if (histories.length === 0) throw new Error('Lịch sử không tồn tại hoặc đã bị xóa.');
         
         const history = histories[0];
@@ -307,6 +275,13 @@ const deleteTreatmentHistory = async (tenantId, historyId, executorName, userRol
         // Xóa mềm
         await connection.query(`UPDATE \`${dbName}\`.treatment_history SET deleted_at = NOW(), deleted_by = ? WHERE id = ?`, [executorName, historyId]);
         await connection.query(`UPDATE \`${dbName}\`.treatment_history_staffs SET deleted_at = NOW(), deleted_by = ? WHERE treatment_history_id = ?`, [executorName, historyId]);
+        // Chỉ xóa lịch do chính lần thực hiện này tạo, không đụng lịch thủ công/lịch cũ không có liên kết.
+        if (history.appointment_id != null) {
+            await connection.query(
+                `UPDATE \`${dbName}\`.appointments SET deleted_at = NOW(), deleted_by = ? WHERE id = ? AND deleted_at IS NULL`,
+                [executorName, history.appointment_id]
+            );
+        }
 
         await connection.commit();
         return { message: 'Xóa lịch sử thực hiện và cộng lại 1 buổi thành công' };

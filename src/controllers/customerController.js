@@ -40,6 +40,15 @@ const getDetail = async (req, res) => {
     }
 };
 
+const getOverview = async (req, res) => {
+    try {
+        const data = await customerService.getCustomerOverview(req.user.tenant_id, req.params.id);
+        res.status(200).json({ message: 'Lấy tổng quan khách hàng thành công', data });
+    } catch (error) {
+        res.status(error.status || 500).json({ message: error.message });
+    }
+};
+
 const update = async (req, res) => {
     try {
         const customerId = req.params.id;
@@ -105,4 +114,4 @@ const restore = async (req, res) => {
     }
 };
 
-module.exports = { create, getList, getDetail, update, resetPassword, remove, restore };
+module.exports = { create, getList, getDetail, getOverview, update, resetPassword, remove, restore };

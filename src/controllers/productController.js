@@ -5,10 +5,10 @@ const create = async (req, res) => {
     try {
         const tenantId = req.user.tenant_id;
         const executorName = req.user.fullname || req.user.username;
-        const productId = await productService.createProduct(tenantId, req.body, executorName);
+        const productId = await productService.createProduct(tenantId, req.body, executorName, req.user.system_role);
         res.status(201).json({ message: 'Tạo sản phẩm/dịch vụ thành công', productId });
     } catch (error) {
-        res.status(400).json({ message: error.message });
+        res.status(error.status || 400).json({ message: error.message });
     }
 };
 
@@ -55,10 +55,10 @@ const update = async (req, res) => {
     try {
         const tenantId = req.user.tenant_id;
         const executorName = req.user.fullname || req.user.username;
-        await productService.updateProduct(tenantId, req.params.id, req.body, executorName);
+        await productService.updateProduct(tenantId, req.params.id, req.body, executorName, req.user.system_role);
         res.status(200).json({ message: 'Cập nhật sản phẩm/dịch vụ thành công' });
     } catch (error) {
-        res.status(400).json({ message: error.message });
+        res.status(error.status || 400).json({ message: error.message });
     }
 };
 

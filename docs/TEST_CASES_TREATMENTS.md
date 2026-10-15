@@ -120,8 +120,8 @@ Trước khi thực hiện kiểm thử, đảm bảo database của Spa đã c�
   - Status `201 Created`.
   - `treatments.remaining_sessions` giảm tiếp 1 buổi.
   - Bảng `treatment_history_staffs` lưu 2 dòng:
-    - Dòng 1: `staff_id = 1`, `commission_amount_snapshot = 300000.00`.
-    - Dòng 2: `staff_id = 2`, `commission_amount_snapshot = 300000.00`.
+    - Dòng 1: `staff_id = 1`, `commission_amount_snapshot = 0` (legacy, không dùng tính báo cáo).
+    - Dòng 2: `staff_id = 2`, `commission_amount_snapshot = 0`; API báo cáo tính tiền công theo cấu hình hiện tại.
 
 #### TC-TR-08: Tự động tạo lịch hẹn tái khám nếu dịch vụ có `next_appointment_days > 0`
 - **Điều kiện:** Dịch vụ có `next_appointment_days = 7`, thẻ còn `remaining_sessions = 5`.
@@ -199,7 +199,7 @@ Trước khi thực hiện kiểm thử, đảm bảo database của Spa đã c�
 - **Kỳ vọng:**
   - Status `200 OK`.
   - Body: `{ "message": "...", "total": <n>, "data": [...] }`.
-  - Mỗi phần tử có đủ: `id`, `treatment_history_id`, `commission_amount_snapshot`, `execution_date`, `branch_id`, `branch_name`, `staff_name`, `role_name`, `product_id`, `product_name`, `customer_name`.
+  - Mỗi phần tử có đủ: `id`, `treatment_history_id`, `commission_amount`, `execution_date`, `branch_id`, `branch_name`, `staff_name`, `role_name`, `product_id`, `product_name`, `customer_name`.
   - Không gặp lỗi SQL `Unknown column 's.system_role'`.
 
 #### TC-TR-17: STAFF tự động bị khóa theo chi nhánh của mình
