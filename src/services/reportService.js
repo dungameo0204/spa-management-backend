@@ -135,31 +135,66 @@ const totalFor = async (source, field) => {
     return money(rows[0].value);
 };
 
+const dailyFor = async (source, field) => {
+    const [rows] = await masterPool.query(
+        `SELECT DATE_FORMAT(${source.date}, '%Y-%m-%d') AS date, SUM(${field}) AS value ${source.from} WHERE ${source.where} GROUP BY DATE_FORMAT(${source.date}, '%Y-%m-%d') ORDER BY date`,
+        source.params
+    );
+    return new Map(rows.map(row => [row.date, money(row.value)]));
+};
+
+const round = value => Math.round(value * 100) / 100;
+const revenueAmounts = (serviceRevenue, productRevenue, invoiceCash, walletUsed, debtPayments, walletTopups, expenseVouchers, inventoryImports) => {
+    const totalReceipts = round(invoiceCash + debtPayments + walletTopups);
+    const totalExpenses = round(expenseVouchers + inventoryImports);
+    return {
+        serviceRevenue, productRevenue, totalRevenue: round(serviceRevenue + productRevenue),
+        receipts: { invoiceCash, debtPayments, walletTopups, total: totalReceipts, walletUsedExcluded: walletUsed },
+        expenses: { expenseVouchers, inventoryImports, total: totalExpenses },
+        netCashFlow: round(totalReceipts - totalExpenses)
+    };
+};
+
 const getRevenue = async (tenantId, input) => {
     const filters = { ...parseFilters(input), search: '' };
     if (filters.staffId !== undefined) throw new Error('staffId chỉ dùng cho báo cáo commissions hoặc consultants.');
     const dbName = await getTenantDbName(tenantId);
     const invoice = getSource(dbName, 'invoices', filters);
-    const [[invoiceTotals], debtPayments, walletTopups, expenseVouchers, inventoryImports] = await Promise.all([
+    const debtSource = getSource(dbName, 'debt_payments', filters);
+    const walletSource = getSource(dbName, 'wallet_logs', filters);
+    const expenseSource = getSource(dbName, 'expenses', filters);
+    const inventorySource = getSource(dbName, 'inventory_imports', filters);
+    const [[invoiceTotals], debtPayments, walletTopups, expenseVouchers, inventoryImports,
+        [invoiceDays], debtDays, walletDays, expenseDays, inventoryDays] = await Promise.all([
         masterPool.query(`SELECT COALESCE(SUM(${serviceNet}), 0) AS service_revenue, COALESCE(SUM(${productNet}), 0) AS product_revenue, COALESCE(SUM(i.paid_amount), 0) AS invoice_cash, COALESCE(SUM(i.wallet_used), 0) AS wallet_used ${invoice.from} WHERE ${invoice.where}`, invoice.params),
-        totalFor(getSource(dbName, 'debt_payments', filters), 'dp.amount'),
-        totalFor(getSource(dbName, 'wallet_logs', filters), 'w.paid_amount'),
-        totalFor(getSource(dbName, 'expenses', filters), 'e.amount'),
-        totalFor(getSource(dbName, 'inventory_imports', filters), 'imp.total_amount')
+        totalFor(debtSource, 'dp.amount'),
+        totalFor(walletSource, 'w.paid_amount'),
+        totalFor(expenseSource, 'e.amount'),
+        totalFor(inventorySource, 'imp.total_amount'),
+        masterPool.query(`SELECT DATE_FORMAT(i.invoice_date, '%Y-%m-%d') AS date,
+            SUM(${serviceNet}) AS service_revenue, SUM(${productNet}) AS product_revenue,
+            SUM(i.paid_amount) AS invoice_cash, SUM(i.wallet_used) AS wallet_used
+            ${invoice.from} WHERE ${invoice.where} GROUP BY DATE_FORMAT(i.invoice_date, '%Y-%m-%d') ORDER BY date`, invoice.params),
+        dailyFor(debtSource, 'dp.amount'),
+        dailyFor(walletSource, 'w.paid_amount'),
+        dailyFor(expenseSource, 'e.amount'),
+        dailyFor(inventorySource, 'imp.total_amount')
     ]);
     const { service_revenue, product_revenue, invoice_cash, wallet_used } = invoiceTotals[0];
-    const serviceRevenue = money(service_revenue);
-    const productRevenue = money(product_revenue);
-    const invoiceCash = money(invoice_cash);
-    const walletUsed = money(wallet_used);
-    const round = value => Math.round(value * 100) / 100;
-    const totalReceipts = round(invoiceCash + debtPayments + walletTopups);
-    const totalExpenses = round(expenseVouchers + inventoryImports);
+    const invoiceByDay = new Map(invoiceDays.map(row => [row.date, row]));
+    const daily = [];
+    const end = Date.parse(`${filters.endDate}T00:00:00Z`);
+    for (let time = Date.parse(`${filters.startDate}T00:00:00Z`); time <= end; time += 86400000) {
+        const date = new Date(time).toISOString().slice(0, 10);
+        const row = invoiceByDay.get(date) || {};
+        daily.push({ date, ...revenueAmounts(
+            money(row.service_revenue), money(row.product_revenue), money(row.invoice_cash), money(row.wallet_used),
+            debtDays.get(date) || 0, walletDays.get(date) || 0, expenseDays.get(date) || 0, inventoryDays.get(date) || 0
+        ) });
+    }
     return { period: { startDate: filters.startDate, endDate: filters.endDate, branchId: filters.branchId ?? null },
-        serviceRevenue, productRevenue, totalRevenue: round(serviceRevenue + productRevenue),
-        receipts: { invoiceCash, debtPayments, walletTopups, total: totalReceipts, walletUsedExcluded: walletUsed },
-        expenses: { expenseVouchers, inventoryImports, total: totalExpenses },
-        netCashFlow: round(totalReceipts - totalExpenses) };
+        ...revenueAmounts(money(service_revenue), money(product_revenue), money(invoice_cash), money(wallet_used),
+            debtPayments, walletTopups, expenseVouchers, inventoryImports), daily };
 };
 
 const getDetails = async (tenantId, type, input) => {

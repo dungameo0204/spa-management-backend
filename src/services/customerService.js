@@ -10,7 +10,7 @@ const createCustomer = async (tenantId, customerData, executorName) => {
 
     // Kiểm tra trùng số điện thoại
     const [existing] = await masterPool.query(
-        `SELECT id FROM \`${dbName}\`.customers WHERE phone_number = ? AND deleted_at IS NULL`,
+        `SELECT id FROM \`${dbName}\`.customers WHERE phone_number = ?`,
         [phone_number]
     );
     if (existing.length > 0) {
@@ -24,20 +24,18 @@ const createCustomer = async (tenantId, customerData, executorName) => {
         hashedPassword = await bcrypt.hash(password, salt);
     }
 
-    const [result] = await masterPool.query(
-        `INSERT INTO \`${dbName}\`.customers 
-        (fullname, phone_number, password, avatar, address, note, created_by) 
-        VALUES (?, ?, ?, ?, ?, ?, ?)`,
-        [
-            fullname, 
-            phone_number, 
-            hashedPassword, // Lưu mật khẩu đã mã hóa (hoặc null nếu Lễ tân tạo nhanh)
-            avatar || null, 
-            address || null, 
-            note || null, 
-            executorName
-        ]
-    );
+    let result;
+    try {
+        [result] = await masterPool.query(
+            `INSERT INTO \`${dbName}\`.customers
+            (fullname, phone_number, password, avatar, address, note, created_by)
+            VALUES (?, ?, ?, ?, ?, ?, ?)`,
+            [fullname, phone_number, hashedPassword, avatar || null, address || null, note || null, executorName]
+        );
+    } catch (error) {
+        if (error.code === 'ER_DUP_ENTRY') throw new Error(`Khách hàng với số điện thoại '${phone_number}' đã tồn tại trong hệ thống!`);
+        throw error;
+    }
 
     return result.insertId;
 };
@@ -161,7 +159,7 @@ const updateCustomer = async (tenantId, customerId, updateData, executorName) =>
     // 1. Xử lý Phone Number để check trùng
     if (updateData.phone_number !== undefined) { 
         const [existing] = await masterPool.query(
-            `SELECT id FROM \`${dbName}\`.customers WHERE phone_number = ? AND id != ? AND deleted_at IS NULL`, 
+            `SELECT id FROM \`${dbName}\`.customers WHERE phone_number = ? AND id != ?`,
             [updateData.phone_number, customerId]
         );
         if (existing.length > 0) throw new Error('Số điện thoại này đã được khách hàng khác sử dụng!');
@@ -193,7 +191,12 @@ const updateCustomer = async (tenantId, customerId, updateData, executorName) =>
         params.push(customerId);
 
         const query = `UPDATE \`${dbName}\`.customers SET ${updateFields.join(', ')} WHERE id = ?`;
-        await masterPool.query(query, params);
+        try {
+            await masterPool.query(query, params);
+        } catch (error) {
+            if (error.code === 'ER_DUP_ENTRY') throw new Error('Số điện thoại này đã được khách hàng khác sử dụng!');
+            throw error;
+        }
     }
 };
 
@@ -208,7 +211,7 @@ const updatePasswordByPhone = async (tenantId, phone_number, newPassword) => {
     const hashedPassword = await bcrypt.hash(newPassword, salt);
 
     await masterPool.query(
-        `UPDATE \`${dbName}\`.customers SET password = ?, updated_by = ? WHERE phone_number = ?`,
+        `UPDATE \`${dbName}\`.customers SET password = ?, updated_by = ? WHERE phone_number = ? AND deleted_at IS NULL`,
         [hashedPassword, 'SYSTEM_MINIAPP', phone_number]
     );
 };

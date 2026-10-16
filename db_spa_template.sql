@@ -212,7 +212,8 @@ CREATE TABLE `customers` (
   `created_by` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `updated_by` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `deleted_by` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  PRIMARY KEY (`id`)
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_customers_phone_number` (`phone_number`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 

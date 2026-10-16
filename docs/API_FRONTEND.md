@@ -454,7 +454,7 @@ Không cần token.
 
 - Bắt buộc: `fullname`, `phone_number`.
 - `password` không bắt buộc; nếu có thì được bcrypt hash. Nếu không, customer phải gọi reset-password để thiết lập mật khẩu cho MiniApp.
-- `phone_number` unique trên customer chưa xóa trong tenant.
+- `phone_number` là duy nhất **theo SĐT trong từng tenant**, không ghép với `fullname`: cùng tên nhưng khác SĐT được phép; khác tên nhưng trùng SĐT bị từ chối (`400`). Khách đã xóa mềm vẫn giữ SĐT để có thể khôi phục, vì vậy **không thể dùng lại SĐT đó để tạo khách mới**. Frontend nên tìm khách theo SĐT trước khi tạo, không thêm bản ghi thứ hai.
 - Thành công `201`: `{ "message": "Thêm mới khách hàng thành công", "customerId": 10 }`.
 
 ### `GET /api/customers?search=<keyword>` — Cần token
@@ -485,7 +485,7 @@ Ví dụ một dòng trong `timeline`: `{ "type": "purchase", "date": "2026-10-1
 Body hỗ trợ: `fullname`, `phone_number`, `password`, `avatar`, `address`, `note`.
 
 - `fullname`/`phone_number` nếu gửi không được là chuỗi rỗng.
-- `phone_number` mới sẽ được kiểm tra trùng.
+- `phone_number` mới được kiểm tra trùng trên **toàn bộ khách trong tenant, kể cả khách đã xóa mềm**; trùng trả `400`. Không kiểm tra theo cặp tên + SĐT.
 - `password` chỉ cập nhật khi là chuỗi không rỗng; backend băm bcrypt.
 - Các field `avatar`, `address`, `note` gửi `""`/`null` sẽ thành `null`.
 - Thành công `200`: `{ "message": "Cập nhật thông tin khách hàng thành công" }`.
@@ -493,6 +493,7 @@ Body hỗ trợ: `fullname`, `phone_number`, `password`, `avatar`, `address`, `n
 ### `DELETE /api/customers/:id` / `PATCH /api/customers/:id/restore` — Cần token
 
 - Xóa mềm/khôi phục customer.
+- Xóa mềm không giải phóng SĐT; khôi phục giữ lại số cũ. Tenant đã có dữ liệu cần chạy `docs/migrations/2026-10-16_unique_customer_phone.sql` sau khi xử lý hết SĐT trùng (kể cả bản ghi đã xóa mềm).
 - Thành công tương ứng: `Xóa khách hàng thành công`, `Khôi phục khách hàng thành công`.
 
 ---
@@ -681,7 +682,7 @@ Chạy migration `docs/migrations/2026-10-12_add_expenses_vouchers_items.sql` ch
 
 ## 15. Quản lý Hóa đơn Bán hàng `/api/invoices`
 
-Xử lý giao dịch thanh toán, tự động trừ ví, tính công nợ, chia hoa hồng nhân viên và sinh thẻ liệu trình qua Transaction.
+Xử lý giao dịch thanh toán, trừ đúng **số tiền ví người dùng chọn**, tính công nợ, chia hoa hồng nhân viên và sinh thẻ liệu trình qua Transaction.
 *Lưu ý Phân quyền: STAFF chỉ tạo/xem được hóa đơn ở cơ sở mình, và chỉ được SỬA/XÓA hóa đơn được tạo trong ngày hôm nay.*
 
 ### `POST /api/invoices`
@@ -692,10 +693,10 @@ Xử lý giao dịch thanh toán, tự động trừ ví, tính công nợ, chia
   "branch_id": 1,
   "discount_percent": 10,
   "discount_amount": 0,
-  "paid_amount": 1000000,
+  "paid_amount": 850000,
   "wallet_used": 500000,
   "payment_method": "Ví + Chuyển khoản",
-  "note": "Khách dùng 500k trong ví, còn lại nợ",
+  "note": "Khách dùng 500k trong ví và chuyển khoản 850k",
   "invoice_date": "2026-10-04",
   "items": [
     {
@@ -716,7 +717,7 @@ Xử lý giao dịch thanh toán, tự động trừ ví, tính công nợ, chia
 |---|:---:|---|
 | `customer_id`, `items` | Có | Khách hàng phải tồn tại; `items` không rỗng. |
 | `branch_id` | Có với MANAGER | Cơ sở lập hóa đơn. STAFF bị backend buộc dùng `branch_id` trong token, nên không cần/không thể chọn cơ sở khác. |
-| `paid_amount`, `wallet_used` | Không | Mặc định 0. Backend chặn nếu ví không đủ; `wallet_used` không được lớn hơn `total_amount`; và `paid_amount + wallet_used` không được lớn hơn `total_amount`. `wallet_used` được lưu riêng trên invoice và được trả lại ở API list/detail. |
+| `paid_amount`, `wallet_used` | Không | Mặc định 0. `wallet_used` là **số tiền lấy từ ví do người dùng nhập** (có thể chỉ một phần, không tự lấy tối đa số dư); `paid_amount` là tiền thu bằng phương thức khác. Backend chặn nếu `wallet_used` vượt số dư ví hoặc tổng hóa đơn, hay `paid_amount + wallet_used` vượt tổng hóa đơn. Lưu `wallet_used` riêng trên invoice và trả lại ở API list/detail. |
 | `discount_percent`, `discount_amount` | Không | Chiết khấu tổng hóa đơn. |
 | `items[].product_id`, `items[].quantity` | Có | Product chưa xóa; quantity là số nguyên `> 0`. |
 | `items[].unit_price` | Không | Giá bán một đơn vị do frontend nhập, phải `>= 0`. Nếu không gửi, backend dùng `products.price`. `items[].price` cũng được hỗ trợ như alias tương thích. Giá thực dùng được snapshot vào `invoice_items.snapshot_price`. |
@@ -725,7 +726,7 @@ Xử lý giao dịch thanh toán, tự động trừ ví, tính công nợ, chia
 
 > **Backend tự động:** Tính công nợ, giảm trừ ví, sinh thẻ liệu trình cho dịch vụ (`is_product = 0`) và combo (`is_treatment_combo = 1`). Combo có `total_sessions = remaining_sessions = quantity × default_sessions` (nếu kết quả > 0), `note = null`; dịch vụ không phải combo luôn sinh một thẻ **1 buổi** dù `quantity > 1` hoặc `default_sessions = 0`. Thẻ dịch vụ thường ghi `note = "<quantity> <unit>"` lấy từ `products.unit`: ví dụ mua 5 lần dịch vụ tẩy nốt ruồi, `unit = "nốt"` ⇒ 1 buổi, `note = "5 nốt"`. Nếu `unit` trống/null, ghi riêng số lượng (ví dụ `"5"`). Hàng hóa không phải combo không sinh thẻ.
 
-Backend tự tính `totalAmount`, không tin tổng tiền do frontend tự tính. Điều kiện thanh toán là `0 <= wallet_used <= totalAmount`, `paid_amount >= 0`, và `paid_amount + wallet_used <= totalAmount`; request vượt tổng hóa đơn bị từ chối trước khi trừ ví. Nếu thanh toán đủ thì `paid_amount + wallet_used = totalAmount`; nếu nhỏ hơn, phần thiếu là công nợ. `debtAmount` luôn được tính bằng `totalAmount - paid_amount - wallet_used`; ví dụ `totalAmount: 6.000.000`, `paid_amount: 0`, `wallet_used: 6.000.000` sẽ có `debtAmount: 0`.
+Backend tự tính `totalAmount`, không tin tổng tiền do frontend tự tính. Frontend cho nhập `wallet_used` từ `0` đến `min(wallet_balance, totalAmount)`; **không tự điền số tối đa khi chọn thanh toán bằng ví**. Gửi đúng số người dùng chọn, ví dụ ví còn `1.000.000`, hóa đơn `800.000`, khách chỉ muốn dùng `200.000` trong ví và trả `600.000` bằng tiền khác: gửi `wallet_used: 200000`, `paid_amount: 600000`; sau thanh toán ví còn `800.000`, công nợ `0`. Nếu không dùng ví, gửi `wallet_used: 0` hoặc bỏ field. Backend kiểm tra `0 <= wallet_used <= wallet_balance`, `wallet_used <= totalAmount`, `paid_amount >= 0`, và `paid_amount + wallet_used <= totalAmount`; phần thiếu trở thành công nợ `debtAmount = totalAmount - paid_amount - wallet_used`. Backend **không tự lấy phần còn thiếu từ ví** và không tự tăng `paid_amount`.
 
 Khi gửi `items[].consultants`, backend kiểm tra từng `staff_id` còn hoạt động, `revenue_amount` hợp lệ và tổng tiền chia sale trên từng mặt hàng. Ví dụ item thành tiền `10.000.000` chỉ cho phép chia A `6.000.000` + B `4.000.000` (hoặc thấp hơn), không được vượt `10.000.000`. STAFF còn bị kiểm tra consultant thuộc đúng branch trong token; nếu không hợp lệ request bị từ chối với HTTP `400`.
 
@@ -760,7 +761,7 @@ Lấy header hóa đơn, gồm `paid_amount`, `wallet_used`, `debt_amount`, `bra
 
 ### `PUT /api/invoices/:id`
 
-Ghi đè **toàn bộ** `items`; body phải gửi `items` theo cấu trúc của POST, trong đó từng item cũng ưu tiên `unit_price` (hoặc `price`) và chỉ fallback `products.price` khi không gửi giá. Các field header có thể gửi: `customer_id`, `discount_percent`, `discount_amount`, `paid_amount`, `wallet_used`, `payment_method`, `note`, `invoice_date`.
+Ghi đè **toàn bộ** `items`; body phải gửi `items` theo cấu trúc của POST, trong đó từng item cũng ưu tiên `unit_price` (hoặc `price`) và chỉ fallback `products.price` khi không gửi giá. Các field header có thể gửi: `customer_id`, `discount_percent`, `discount_amount`, `paid_amount`, `wallet_used`, `payment_method`, `note`, `invoice_date`. `wallet_used` nếu gửi là **số tiền ví mới người dùng chọn**, kể cả `0` hoặc một phần số dư; nếu bỏ qua thì giữ số tiền ví đã dùng của hóa đơn cũ (không tự lấy tối đa). `paid_amount` là số tiền thu ngoài ví; frontend nên gửi cả hai khi đổi phương thức thanh toán.
 
 Trong một transaction, backend hoàn trả ví/công nợ/tồn kho cũ, xóa mềm item cũ rồi áp dụng hóa đơn mới. Thẻ liệu trình của mặt hàng còn trong hóa đơn được giữ nguyên ID, lịch sử và `created_at`; số buổi còn lại được tính bằng **tổng số buổi mới trừ số buổi đã sử dụng** (ví dụ 5 buổi đã dùng 2, sửa còn 3 buổi thì thẻ còn 1). Chỉ chặn khi tổng buổi mới nhỏ hơn số buổi đã dùng, hoặc bỏ/chuyển khách hàng của thẻ đã dùng. Thẻ mới tạo theo quy tắc POST nhưng có `created_at` bằng ngày tạo hóa đơn gốc, kể cả khi sửa hóa đơn vào ngày khác. Hàng hóa mới vẫn có thể làm tồn âm. Áp dụng cùng điều kiện thanh toán của POST. Hóa đơn có phiếu thu nợ active vẫn bị chặn sửa; STAFF chỉ sửa hóa đơn cơ sở mình được tạo trong ngày hiện tại.
 
@@ -1269,11 +1270,23 @@ Thành công `200` (mọi số tiền ở endpoint này là `number` tính theo 
     "walletUsedExcluded": 300000
   },
   "expenses": { "expenseVouchers": 100000, "inventoryImports": 600000, "total": 700000 },
-  "netCashFlow": 1000000
+  "netCashFlow": 1000000,
+  "daily": [
+    {
+      "date": "2026-10-05",
+      "serviceRevenue": 0, "productRevenue": 2500000, "totalRevenue": 2500000,
+      "receipts": { "invoiceCash": 1000000, "debtPayments": 200000, "walletTopups": 500000, "total": 1700000, "walletUsedExcluded": 300000 },
+      "expenses": { "expenseVouchers": 100000, "inventoryImports": 600000, "total": 700000 },
+      "netCashFlow": 1000000
+    },
+    { "date": "2026-10-06", "serviceRevenue": 0, "productRevenue": 0, "totalRevenue": 0,
+      "receipts": { "invoiceCash": 0, "debtPayments": 0, "walletTopups": 0, "total": 0, "walletUsedExcluded": 0 },
+      "expenses": { "expenseVouchers": 0, "inventoryImports": 0, "total": 0 }, "netCashFlow": 0 }
+  ]
 }
 ```
 
-`walletUsedExcluded` chỉ là chỉ tiêu tham khảo (tổng ví đã sử dụng trên hóa đơn **trong khoảng lọc**), **không trừ** khỏi `receipts.total` lần nữa; không phải doanh thu nạp ví. Nếu không lọc chi nhánh thì `period.branchId=null`. Kỳ không có chứng từ trả các tổng bằng `0`.
+`daily` gồm **tất cả ngày lịch** từ `startDate` đến `endDate` (bao gồm cả hai đầu), sắp xếp tăng dần, kể cả ngày không có chứng từ (mọi chỉ tiêu bằng `0`). Ví dụ `2026-10-01` đến `2026-10-30` trả đúng 30 phần tử; ví dụ JSON trên chỉ minh họa hai phần tử đầu. Mỗi phần tử có `date` dạng `YYYY-MM-DD` và **cùng cấu trúc chỉ tiêu** với tổng kỳ: `totalRevenue` (doanh thu bán hàng) = `serviceRevenue` (dịch vụ) + `productRevenue` (sản phẩm); `receipts.invoiceCash` là tiền **thực thu trên hóa đơn**, `receipts.total` là **tổng thu** (thêm thu nợ và nạp ví), `expenses.total` là **tổng chi**, `netCashFlow = receipts.total - expenses.total` là thực thu sau chi/tiền ròng. Tiền thu nợ tính vào ngày `payment_date`, nạp ví vào ngày `created_at`, chi theo ngày phiếu; hóa đơn theo `invoice_date`, cùng quy tắc `branchId` và loại trừ bản ghi xóa mềm như tổng kỳ. Không cần request riêng; các trường tổng hiện có không đổi. `walletUsedExcluded` chỉ là chỉ tiêu tham khảo (tổng ví đã sử dụng trên hóa đơn **trong khoảng lọc**), **không trừ** khỏi `receipts.total` lần nữa; không phải doanh thu nạp ví. Nếu không lọc chi nhánh thì `period.branchId=null`. Kỳ không có chứng từ trả các tổng bằng `0` và `daily` vẫn có đầy đủ ngày.
 
 ### 2. `GET /api/reports/details/:type` — các bảng chứng từ có phân trang
 
@@ -1548,7 +1561,7 @@ Các GET danh sách trong bảng này sử dụng message theo controller: `/ten
 | `DELETE /treatments/execute/:historyId` | 200 | `{ message: "Xóa lịch sử thực hiện và cộng lại 1 buổi thành công" }`. |
 
 | `GET /treatments/commissions` | 200 | Danh sách phân trang, `message: "Lấy danh sách hoa hồng nhân viên thành công"`; `data[]`: `{ id, treatment_history_id, commission_amount, created_at, execution_date, branch_id, branch_name, staff_id, staff_name, role_name, product_id, product_name, customer_name }`. Mỗi dòng là một lần phân công, không phải tổng tiền. |
-| `GET /reports/revenue` | 200 | `{ message: "Lấy báo cáo thành công", period, serviceRevenue, productRevenue, totalRevenue, receipts, expenses, netCashFlow }`; **không** có `data`/phân trang. Cấu trúc `receipts` và `expenses` có ví dụ ở mục báo cáo bên trên. |
+| `GET /reports/revenue` | 200 | `{ message: "Lấy báo cáo thành công", period, serviceRevenue, productRevenue, totalRevenue, receipts, expenses, netCashFlow, daily: DailyRevenue[] }`; **không** có `data`/phân trang. `daily[]` trả từng ngày trong khoảng lọc, gồm cả ngày 0, cùng cấu trúc tiền với tổng kỳ và thêm `date`; xem ví dụ ở mục báo cáo bên trên. |
 | `GET /reports/details/:type` | 200 | `{ message: "Lấy báo cáo thành công", type, period, page, pageSize, total, totalAmount, totalPages, data: ReportRow[] }`; `totalAmount` là number tổng tiền toàn kỳ theo bộ lọc (không phụ thuộc trang); `ReportRow` thay đổi theo `type`, xem ví dụ đầy đủ 7 loại trong mục báo cáo. Không có `data` của trang sau nếu hết trang (`[]`). |
 | `GET /reports/commissions` | 200 | `{ message: "Lấy báo cáo thành công", period, totalAmount, total, page, pageSize, totalPages, staffTotals: StaffTotal[] }`; `StaffTotal`: `{ branch_id, branch_name, staff_id, staff_name, total_amount, record_count }`. `totalAmount` là tổng **toàn bộ phạm vi lọc**, không chỉ trang hiện tại. |
 | `GET /reports/consultants` | 200 | Cùng envelope và cấu trúc `StaffTotal[]` như `/reports/commissions`; tiền tư vấn thay vì hoa hồng. |

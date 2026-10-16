@@ -5,6 +5,14 @@ const configPath = require.resolve('../src/config/database');
 require.cache[configPath] = { id: configPath, filename: configPath, loaded: true, exports: {
     getTenantDbName: async () => 'test_tenant', masterPool: { query: async (sql, params = []) => {
         calls.push({ sql, params });
+        if (sql.includes("DATE_FORMAT(i.invoice_date, '%Y-%m-%d') AS date")) return [[
+            { date: '2026-10-01', service_revenue: '0.00', product_revenue: '2500000.00', invoice_cash: '100.00', wallet_used: '30.00' }
+        ]];
+        if (sql.includes("AS date") && sql.includes('GROUP BY DATE_FORMAT(')) {
+            const amounts = { 'dp.amount': '20.00', 'w.paid_amount': '50.00', 'e.amount': '10.00', 'imp.total_amount': '40.00' };
+            const field = Object.keys(amounts).find(key => sql.includes(`SUM(${key})`));
+            return [[{ date: '2026-10-02', value: amounts[field] }]];
+        }
         if (emptyReport && sql.includes('COUNT(*) AS total')) return [[{ total: 0, total_amount: '0.00' }]];
         if (emptyReport && sql.includes('ORDER BY')) return [[]];
         if (sql.includes('COUNT(*) AS total')) return [[{ total: 42, total_amount: '120.00', grand_total: '120.00' }]];
@@ -34,11 +42,38 @@ const jwt = require('jsonwebtoken');
     assert.equal(summary.receipts.walletUsedExcluded, 30);
     assert.equal(summary.expenses.total, 50);
     assert.equal(summary.netCashFlow, 120);
+    assert.equal(summary.daily.length, 31);
+    assert.deepEqual(summary.daily.slice(0, 3).map(day => day.date), ['2026-10-01', '2026-10-02', '2026-10-03']);
+    assert.equal(summary.daily.at(-1).date, '2026-10-31');
+    assert.equal(summary.daily[0].totalRevenue, 2500000);
+    assert.equal(summary.daily[0].receipts.invoiceCash, 100);
+    assert.equal(summary.daily[0].receipts.walletUsedExcluded, 30);
+    assert.equal(summary.daily[1].receipts.total, 70);
+    assert.equal(summary.daily[1].expenses.total, 50);
+    assert.equal(summary.daily[1].netCashFlow, 20);
+    assert.equal(summary.daily[2].totalRevenue, 0);
+    assert.equal(summary.daily[2].receipts.total, 0);
+    assert.equal(summary.daily[2].expenses.total, 0);
+    assert.equal(summary.daily.reduce((sum, day) => sum + day.totalRevenue, 0), summary.totalRevenue);
+    assert.equal(summary.daily.reduce((sum, day) => sum + day.receipts.total, 0), summary.receipts.total);
+    assert.equal(summary.daily.reduce((sum, day) => sum + day.expenses.total, 0), summary.expenses.total);
+    assert.equal(summary.daily.reduce((sum, day) => sum + day.netCashFlow, 0), summary.netCashFlow);
+    assert.equal((await service.getRevenue(1, { startDate: '2026-10-02', endDate: '2026-10-02' })).daily.length, 1);
+    assert.equal((await service.getRevenue(1, { startDate: '2024-02-28', endDate: '2024-03-01' })).daily.length, 3);
     const invoiceSql = calls.find(c => c.sql.includes('AS service_revenue') && c.sql.includes('AS invoice_cash'));
     assert.match(invoiceSql.sql, /COALESCE\(items\.service_gross, 0\) - GREATEST\(0, COALESCE\(items\.service_gross, 0\) \+ COALESCE\(items\.product_gross, 0\) - i\.total_amount\)/);
     assert.match(invoiceSql.sql, /ii\.deleted_at IS NULL/);
     assert.deepEqual(invoiceSql.params, ['2026-10-01', '2026-10-31', 1]);
-    assert.equal(calls.filter(c => c.sql.includes('FROM `test_tenant`.invoices i')).length, 1);
+    const invoiceDailySql = calls.find(c => c.sql.includes("DATE_FORMAT(i.invoice_date, '%Y-%m-%d') AS date"));
+    assert.match(invoiceDailySql.sql, /ii\.deleted_at IS NULL/);
+    assert.match(invoiceDailySql.sql, /GROUP BY DATE_FORMAT\(i\.invoice_date, '%Y-%m-%d'\)/);
+    assert.deepEqual(invoiceDailySql.params, ['2026-10-01', '2026-10-31', 1]);
+    for (const column of ['dp.payment_date', 'w.created_at', 'e.expense_date', 'imp.import_date']) {
+        const query = calls.find(c => c.sql.includes(`DATE_FORMAT(${column}, '%Y-%m-%d') AS date`));
+        assert.match(query.sql, new RegExp(`GROUP BY DATE_FORMAT\\(${column.replace('.', '\\.')}, '%Y-%m-%d'\\)`));
+        assert.deepEqual(query.params, ['2026-10-01', '2026-10-31', 1]);
+    }
+    assert.equal(calls.filter(c => c.sql.includes('FROM `test_tenant`.invoices i')).length, 6);
 
     const details = await service.getDetails(1, 'consultants', { ...filters, page: '2', pageSize: '10', staffId: '3' });
     assert.equal(details.total, 42);
