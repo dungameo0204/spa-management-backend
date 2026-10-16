@@ -98,9 +98,9 @@ const jwt = require('jsonwebtoken');
         const aggregate = calls.at(-2);
         const pageQuery = calls.at(-1);
         if (type === 'commissions') {
-            assert.match(aggregate.sql, /SUM\(\(COALESCE\(pc\.commission_fixed_amount, 0\) \+ p\.price \* COALESCE\(pc\.commission_percent, 0\) \/ 100\)\)/);
-            assert.match(pageQuery.sql, /product_commissions pc ON pc\.product_id = t\.product_id AND pc\.role_id = s\.role_id AND pc\.deleted_at IS NULL/);
-            assert.doesNotMatch(pageQuery.sql, /ths\.commission_amount_snapshot/);
+            assert.match(aggregate.sql, /SUM\(ths\.commission_amount_snapshot\)/);
+            assert.doesNotMatch(pageQuery.sql, /product_commissions pc/);
+            assert.match(pageQuery.sql, /ths\.commission_amount_snapshot/);
         } else assert.match(aggregate.sql, new RegExp(`COUNT\\(\\*\\) AS total, COALESCE\\(SUM\\(${column.replace('.', '\\.')}\\), 0\\) AS total_amount`));
         assert.match(aggregate.sql, /deleted_at IS NULL/);
         assert.deepEqual(aggregate.params, ['2026-10-01', '2026-10-31', 1]);

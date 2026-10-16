@@ -95,9 +95,8 @@ const getCustomerOverview = async (tenantId, customerId) => {
          ORDER BY i.invoice_date DESC, i.id DESC, ii.id DESC`, [id]);
     const [cards] = await masterPool.query(
         `SELECT t.*, p.name AS product_name, i.invoice_date AS purchase_date, i.branch_id,
-                (SELECT ii.snapshot_price FROM \`${dbName}\`.invoice_items ii
-                 WHERE ii.invoice_id = t.invoice_id AND ii.product_id = t.product_id AND ii.deleted_at IS NULL
-                 ORDER BY ii.id LIMIT 1) AS unit_price
+                 (SELECT ii.snapshot_price FROM \`${dbName}\`.invoice_items ii
+                  WHERE ii.id = t.invoice_item_id AND ii.deleted_at IS NULL) AS unit_price
          FROM \`${dbName}\`.treatments t
          JOIN \`${dbName}\`.products p ON p.id = t.product_id
          LEFT JOIN \`${dbName}\`.invoices i ON i.id = t.invoice_id AND i.deleted_at IS NULL
@@ -121,21 +120,9 @@ const getCustomerOverview = async (tenantId, customerId) => {
             card.histories = histories.filter(history => history.treatment_id === card.id);
         });
     }
-    // Treatments do not store invoice_item_id. Match each invoice card to one
-    // active invoice line of the same product, without reusing a card/line.
-    const cardsByInvoiceProduct = new Map();
-    for (const card of cards) {
-        if (card.invoice_id == null) continue;
-        const key = `${card.invoice_id}:${card.product_id}`;
-        const matches = cardsByInvoiceProduct.get(key) || [];
-        matches.push(card);
-        cardsByInvoiceProduct.set(key, matches);
-    }
     const matchedCardIds = new Set();
     const purchasesWithTreatments = purchases.map(item => {
-        const key = `${item.invoice_id}:${item.product_id}`;
-        const matches = cardsByInvoiceProduct.get(key);
-        const treatment = matches?.shift() || null;
+        const treatment = cards.find(card => card.invoice_item_id != null && Number(card.invoice_item_id) === Number(item.invoice_item_id)) || null;
         if (treatment) matchedCardIds.add(treatment.id);
         return { ...item, treatment };
     });

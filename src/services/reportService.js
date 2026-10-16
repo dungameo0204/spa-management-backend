@@ -55,8 +55,7 @@ const invoiceBase = (dbName) => `
 
 const serviceNet = `GREATEST(0, COALESCE(items.service_gross, 0) - GREATEST(0, COALESCE(items.service_gross, 0) + COALESCE(items.product_gross, 0) - i.total_amount))`;
 const productNet = `(i.total_amount - ${serviceNet})`;
-// Report-time calculation: current product price and current role commission rules.
-const commissionAmount = '(COALESCE(pc.commission_fixed_amount, 0) + p.price * COALESCE(pc.commission_percent, 0) / 100)';
+const commissionAmount = 'ths.commission_amount_snapshot';
 
 const sources = dbName => ({
     invoices: {
@@ -90,7 +89,7 @@ const sources = dbName => ({
         order: 'imp.import_date DESC, imp.id DESC'
     },
     commissions: {
-        from: `FROM \`${dbName}\`.treatment_history_staffs ths INNER JOIN \`${dbName}\`.treatment_history th ON th.id = ths.treatment_history_id INNER JOIN \`${dbName}\`.treatments t ON t.id = th.treatment_id INNER JOIN \`${dbName}\`.staffs s ON s.id = ths.staff_id INNER JOIN \`${dbName}\`.branches b ON b.id = th.branch_id INNER JOIN \`${dbName}\`.customers c ON c.id = t.customer_id INNER JOIN \`${dbName}\`.products p ON p.id = t.product_id LEFT JOIN \`${dbName}\`.roles r ON r.id = s.role_id LEFT JOIN \`${dbName}\`.product_commissions pc ON pc.product_id = t.product_id AND pc.role_id = s.role_id AND pc.deleted_at IS NULL`,
+        from: `FROM \`${dbName}\`.treatment_history_staffs ths INNER JOIN \`${dbName}\`.treatment_history th ON th.id = ths.treatment_history_id INNER JOIN \`${dbName}\`.treatments t ON t.id = th.treatment_id INNER JOIN \`${dbName}\`.staffs s ON s.id = ths.staff_id INNER JOIN \`${dbName}\`.branches b ON b.id = th.branch_id INNER JOIN \`${dbName}\`.customers c ON c.id = t.customer_id INNER JOIN \`${dbName}\`.products p ON p.id = t.product_id LEFT JOIN \`${dbName}\`.roles r ON r.id = s.role_id`,
         where: 'ths.deleted_at IS NULL AND th.deleted_at IS NULL', date: 'th.execution_date', branch: 'th.branch_id',
         select: `ths.id, ths.treatment_history_id, th.execution_date, th.branch_id, b.name AS branch_name, s.id AS staff_id, s.fullname AS staff_name, r.name AS role_name, t.product_id, p.name AS product_name, c.id AS customer_id, c.fullname AS customer_name, ${commissionAmount} AS commission_amount`,
         order: 'th.branch_id ASC, s.fullname ASC, s.id ASC, commission_amount ASC, ths.id ASC',

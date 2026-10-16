@@ -26,8 +26,8 @@ const { getCustomerOverview } = require('../src/services/customerService');
             { invoice_item_id: 7, invoice_id: 50, product_id: 2, is_product: 0, purchase_date: '2026-10-10' }
         ],
         cards: [
-            { id: 54, invoice_id: 64, product_id: 23, total_sessions: 1, remaining_sessions: 0, purchase_date: '2026-10-12' },
-            { id: 55, invoice_id: 64, product_id: 23, total_sessions: 5, remaining_sessions: 3, purchase_date: '2026-10-12' },
+            { id: 54, invoice_id: 64, invoice_item_id: 83, product_id: 23, total_sessions: 1, remaining_sessions: 0, purchase_date: '2026-10-12' },
+            { id: 55, invoice_id: 64, invoice_item_id: 85, product_id: 23, total_sessions: 5, remaining_sessions: 3, purchase_date: '2026-10-12' },
             { id: 56, invoice_id: 64, product_id: 23, total_sessions: 1, remaining_sessions: 1, purchase_date: '2026-10-12' },
             { id: 57, invoice_id: null, product_id: 23, total_sessions: 2, remaining_sessions: 2, purchase_date: null, created_at: '2026-10-09' }
         ],

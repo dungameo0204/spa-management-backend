@@ -1,5 +1,6 @@
 const { masterPool, getTenantDbName } = require('../config/database');
 const { paginateQuery } = require('../utils/pagination');
+const { loadCommissionBase, calculateCommission } = require('./commissionService');
 
 const toNumber = (value, fieldName, { min = 0, integer = false } = {}) => {
     const numberValue = Number(value);
@@ -15,12 +16,16 @@ const toNumber = (value, fieldName, { min = 0, integer = false } = {}) => {
 
 const createTreatment = async (tenantId, treatmentData, executorName) => {
     const dbName = await getTenantDbName(tenantId);
-    const { customer_id, product_id, invoice_id, total_sessions, remaining_sessions, note } = treatmentData;
+    const { customer_id, product_id, total_sessions, remaining_sessions, note, commission_base_price, commission_quantity } = treatmentData;
 
     const customerId = toNumber(customer_id, 'customer_id', { min: 1, integer: true });
     const productId = toNumber(product_id, 'product_id', { min: 1, integer: true });
     const totalSessions = toNumber(total_sessions, 'total_sessions', { min: 1, integer: true });
     const remainingSessions = remaining_sessions !== undefined ? toNumber(remaining_sessions, 'remaining_sessions', { min: 0, integer: true }) : totalSessions;
+    if (treatmentData.invoice_id != null) throw new Error('Thẻ thủ công không nhận invoice_id; thẻ từ hóa đơn phải tạo qua API hóa đơn.');
+    if (commission_base_price === undefined || commission_base_price === null || commission_base_price === '') throw new Error('commission_base_price bắt buộc.');
+    const basePrice = toNumber(commission_base_price, 'commission_base_price');
+    const quantity = toNumber(commission_quantity ?? 1, 'commission_quantity', { min: 1, integer: true });
 
     if (remainingSessions > totalSessions) {
         throw new Error('Số buổi còn lại không được lớn hơn tổng số buổi.');
@@ -28,9 +33,9 @@ const createTreatment = async (tenantId, treatmentData, executorName) => {
 
     const [result] = await masterPool.query(
         `INSERT INTO \`${dbName}\`.treatments 
-            (customer_id, product_id, invoice_id, total_sessions, remaining_sessions, note, created_by) 
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
-        [customerId, productId, invoice_id || null, totalSessions, remainingSessions, note || null, executorName]
+            (customer_id, product_id, total_sessions, remaining_sessions, commission_base_price, commission_quantity, note, created_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [customerId, productId, totalSessions, remainingSessions, basePrice, quantity, note || null, executorName]
     );
 
     return { treatmentId: result.insertId };
@@ -107,8 +112,9 @@ const executeTreatmentSession = async (tenantId, historyData, executorName, user
             );
         }
 
-        // 5. Lưu nhân viên; tiền công được tính khi đọc báo cáo.
+        // 5. Lưu tiền công dựa trên giá bán của thẻ.
         if (Array.isArray(staffs) && staffs.length > 0) {
+            const base = await loadCommissionBase(connection, dbName, treatmentId);
             for (const staff of staffs) {
                 const staffId = toNumber(staff.staff_id, 'staff_id', { min: 1, integer: true });
                 
@@ -120,7 +126,7 @@ const executeTreatmentSession = async (tenantId, historyData, executorName, user
                 }
                 await connection.query(
                     `INSERT INTO \`${dbName}\`.treatment_history_staffs (treatment_history_id, staff_id, commission_amount_snapshot, created_by) VALUES (?, ?, ?, ?)`,
-                    [treatmentHistoryId, staffId, 0, executorName]
+                    [treatmentHistoryId, staffId, await calculateCommission(connection, dbName, base, staffInfo[0].role_id), executorName]
                 );
             }
         }
@@ -142,27 +148,23 @@ const executeTreatmentSession = async (tenantId, historyData, executorName, user
 const assignStaffToHistory = async (tenantId, historyId, staffData, executorName, userRole, userBranchId) => {
     const dbName = await getTenantDbName(tenantId);
     
-    // Kiểm tra lịch sử tồn tại & phân quyền theo cơ sở
-    const [histories] = await masterPool.query(
-        `SELECT th.branch_id
-         FROM \`${dbName}\`.treatment_history th
-         WHERE th.id = ? AND th.deleted_at IS NULL`, 
-        [historyId]
-    );
-    if (histories.length === 0) throw new Error('Lịch sử thực hiện không tồn tại.');
-    
-    const history = histories[0];
-    const normalizedRole = String(userRole).toUpperCase();
-    if (normalizedRole === 'STAFF' && Number(history.branch_id) !== Number(userBranchId)) {
-        throw new Error('Bạn không có quyền thao tác trên lịch sử của cơ sở khác.');
-    }
-
     const { staffs } = staffData;
     if (!Array.isArray(staffs)) throw new Error('staffs phải là một mảng.');
 
     const connection = await masterPool.getConnection();
     try {
         await connection.beginTransaction();
+        const [histories] = await connection.query(
+            `SELECT th.branch_id, th.treatment_id FROM \`${dbName}\`.treatment_history th
+             WHERE th.id = ? AND th.deleted_at IS NULL FOR UPDATE`, [historyId]
+        );
+        if (histories.length === 0) throw new Error('Lịch sử thực hiện không tồn tại.');
+        const history = histories[0];
+        const normalizedRole = String(userRole).toUpperCase();
+        if (normalizedRole === 'STAFF' && Number(history.branch_id) !== Number(userBranchId)) {
+            throw new Error('Bạn không có quyền thao tác trên lịch sử của cơ sở khác.');
+        }
+        const base = staffs.length ? await loadCommissionBase(connection, dbName, history.treatment_id) : null;
 
         // Cơ chế Ghi đè: Xóa mềm các nhân viên cũ đã gán (nếu có)
         await connection.query(
@@ -182,7 +184,7 @@ const assignStaffToHistory = async (tenantId, historyId, staffData, executorName
             }
             await connection.query(
                 `INSERT INTO \`${dbName}\`.treatment_history_staffs (treatment_history_id, staff_id, commission_amount_snapshot, created_by) VALUES (?, ?, ?, ?)`,
-                [historyId, staffId, 0, executorName]
+                [historyId, staffId, await calculateCommission(connection, dbName, base, staffInfo[0].role_id), executorName]
             );
         }
 
@@ -203,7 +205,7 @@ const assignStaffToHistory = async (tenantId, historyId, staffData, executorName
 const getStaffCommissions = async (tenantId, filters, userRole, userBranchId) => {
     const dbName = await getTenantDbName(tenantId);
     let query = `
-        SELECT ths.id, ths.treatment_history_id, (COALESCE(pc.commission_fixed_amount, 0) + p.price * COALESCE(pc.commission_percent, 0) / 100) AS commission_amount, ths.created_at,
+         SELECT ths.id, ths.treatment_history_id, ths.commission_amount_snapshot AS commission_amount, ths.created_at,
                th.execution_date, th.branch_id, b.name AS branch_name,
                s.id AS staff_id, s.fullname AS staff_name, r.name AS role_name,
                t.product_id, p.name AS product_name, c.fullname AS customer_name
@@ -214,7 +216,6 @@ const getStaffCommissions = async (tenantId, filters, userRole, userBranchId) =>
         LEFT JOIN \`${dbName}\`.roles r ON s.role_id = r.id
         INNER JOIN \`${dbName}\`.branches b ON th.branch_id = b.id
         LEFT JOIN \`${dbName}\`.products p ON t.product_id = p.id
-        LEFT JOIN \`${dbName}\`.product_commissions pc ON pc.product_id = t.product_id AND pc.role_id = s.role_id AND pc.deleted_at IS NULL
         LEFT JOIN \`${dbName}\`.customers c ON t.customer_id = c.id
         WHERE ths.deleted_at IS NULL AND th.deleted_at IS NULL
     `;

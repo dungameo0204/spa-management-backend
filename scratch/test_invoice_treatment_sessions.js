@@ -23,8 +23,9 @@ const connection = {
         if (sql.includes('SELECT id FROM `test_tenant`.debt_payments WHERE invoice_id = ?')) return [[]];
         if (sql.includes('SELECT id, product_id, quantity FROM `test_tenant`.invoice_items')) return [[]];
         if (sql.includes('INSERT INTO `test_tenant`.treatments')) {
-            inserts.push({ sql, params });
-            return [{ insertId: nextId++ }];
+            const insertId = nextId++;
+            inserts.push({ sql, params, insertId });
+            return [{ insertId }];
         }
         if (sql.startsWith('INSERT INTO')) return [{ insertId: nextId++ }];
         if (sql.startsWith('UPDATE')) return [{ affectedRows: 1 }];
@@ -47,8 +48,8 @@ const items = [
 ];
 const assertTreatments = () => {
     assert.equal(inserts.length, 4, 'ordinary services always create a card; combos require sessions');
-    for (const entry of inserts) assert.match(entry.sql, /remaining_sessions, note, created_by, created_at/);
-    assert.deepEqual(inserts.map(entry => entry.params.slice(1, 6)), [
+    for (const entry of inserts) assert.match(entry.sql, /invoice_item_id, total_sessions, remaining_sessions, note, created_by, created_at/);
+    assert.deepEqual(inserts.map(entry => [entry.params[1], entry.params[2], ...entry.params.slice(4, 7)]), [
         [1, 20, 1, 1, '5 nốt'],
         [2, 20, 6, 6, null],
         [4, 20, 1, 1, '4'],
@@ -62,5 +63,13 @@ const assertTreatments = () => {
     inserts.length = 0;
     await service.updateInvoice(1, 20, { items }, 'tester', 'MANAGER');
     assertTreatments();
+    inserts.length = 0;
+    const duplicated = [items[0], items[0], items[2], items[4]];
+    const result = await service.createInvoice(1, { customer_id: 7, branch_id: 1, items: duplicated }, 'tester', 'MANAGER');
+    assert.deepEqual(result.itemMappings.map(mapping => mapping.request_index), [0, 1, 2, 3]);
+    assert.equal(new Set(result.itemMappings.map(mapping => mapping.invoice_item_id)).size, 4);
+    assert.deepEqual(result.itemMappings.map(mapping => mapping.treatment_id), [inserts[0].insertId, inserts[1].insertId, null, null]);
+    assert.deepEqual(inserts.map(entry => entry.params[3]), result.itemMappings.slice(0, 2).map(mapping => mapping.invoice_item_id));
+    assert.equal(inserts[0].params[1], inserts[1].params[1], 'same service must receive two distinct cards');
     console.log('PASS: POST/PUT invoice creates one session for ordinary services, combo quantity × default_sessions, correct note, no product card');
 })().catch(error => { console.error(error); process.exitCode = 1; });

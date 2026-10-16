@@ -562,6 +562,26 @@ CREATE TABLE `product_commissions` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
+-- Commission bands per sold unit price and staff role.
+DROP TABLE IF EXISTS `product_commission_tiers`;
+CREATE TABLE `product_commission_tiers` (
+  `id` int NOT NULL AUTO_INCREMENT,
+  `product_id` int NOT NULL,
+  `role_id` int NOT NULL,
+  `min_price` decimal(15,2) NOT NULL,
+  `max_price` decimal(15,2) DEFAULT NULL,
+  `calculation_type` enum('FIXED','PERCENT') NOT NULL,
+  `fixed_amount` decimal(15,2) NOT NULL DEFAULT '0.00',
+  `percent` decimal(5,2) NOT NULL DEFAULT '0.00',
+  `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  `created_by` varchar(100) DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `product_role_min` (`product_id`,`role_id`,`min_price`),
+  KEY `role_id` (`role_id`),
+  CONSTRAINT `pct_product_fk` FOREIGN KEY (`product_id`) REFERENCES `products` (`id`),
+  CONSTRAINT `pct_role_fk` FOREIGN KEY (`role_id`) REFERENCES `roles` (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 --
 -- Table structure for table `products`
 --
@@ -741,6 +761,9 @@ CREATE TABLE `treatments` (
   `customer_id` int NOT NULL,
   `product_id` int NOT NULL,
   `invoice_id` int DEFAULT NULL,
+  `invoice_item_id` int DEFAULT NULL,
+  `commission_base_price` decimal(15,2) DEFAULT NULL,
+  `commission_quantity` int NOT NULL DEFAULT '1',
   `total_sessions` int NOT NULL,
   `remaining_sessions` int NOT NULL,
   `note` text COLLATE utf8mb4_unicode_ci,
@@ -754,9 +777,11 @@ CREATE TABLE `treatments` (
   KEY `customer_id` (`customer_id`),
   KEY `product_id` (`product_id`),
   KEY `invoice_id` (`invoice_id`),
+  KEY `invoice_item_id` (`invoice_item_id`),
   CONSTRAINT `treatments_ibfk_1` FOREIGN KEY (`customer_id`) REFERENCES `customers` (`id`),
   CONSTRAINT `treatments_ibfk_2` FOREIGN KEY (`product_id`) REFERENCES `products` (`id`),
-  CONSTRAINT `treatments_ibfk_3` FOREIGN KEY (`invoice_id`) REFERENCES `invoices` (`id`)
+  CONSTRAINT `treatments_ibfk_3` FOREIGN KEY (`invoice_id`) REFERENCES `invoices` (`id`),
+  CONSTRAINT `treatments_invoice_item_fk` FOREIGN KEY (`invoice_item_id`) REFERENCES `invoice_items` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 /*!40103 SET TIME_ZONE=@OLD_TIME_ZONE */;
