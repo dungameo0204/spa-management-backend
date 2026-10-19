@@ -1,0 +1,18 @@
+<service>
+  <id>SpaBackend</id>
+  <name>Spa Backend</name>
+  <description>Spa Management Node.js backend</description>
+  <executable>C:\Program Files\nodejs\node.exe</executable>
+  <arguments>"C:\SpaBackend\current\src\server.js"</arguments>
+  <workingdirectory>C:\SpaBackend\config</workingdirectory>
+  <startmode>Automatic</startmode>
+  <onfailure action="restart" delay="10 sec" />
+  <onfailure action="restart" delay="30 sec" />
+  <resetfailure>1 hour</resetfailure>
+  <stoptimeout>30 sec</stoptimeout>
+  <logpath>C:\SpaBackend\logs</logpath>
+  <log mode="roll-by-size">
+    <sizeThreshold>10485760</sizeThreshold>
+    <keepFiles>8</keepFiles>
+  </log>
+</service>

@@ -70,17 +70,22 @@ const update = async (req, res) => {
     }
 };
 
-// Controller mới: Đổi mật khẩu qua SĐT (Không cần Token Auth)
+// MANAGER đặt lại mật khẩu MiniApp cho khách thuộc chính tenant của mình.
 const resetPassword = async (req, res) => {
     try {
-        const { tenantId, phone_number, new_password } = req.body;
+        const { phone_number, new_password } = req.body;
 
-        // Bắt buộc phải có tenantId truyền từ Client/App lên vì API này không dùng Token
-        if (!tenantId || !phone_number || !new_password) {
-            return res.status(400).json({ message: 'Thiếu thông tin bắt buộc (tenantId, phone_number, new_password)' });
+        if (!phone_number || !new_password) {
+            return res.status(400).json({ message: 'Thiếu thông tin bắt buộc (phone_number, new_password)' });
+        }
+        if (typeof new_password !== 'string' || new_password.trim().length < 6 || new_password.length > 255) {
+            return res.status(400).json({ message: 'Mật khẩu mới phải có từ 6 đến 255 ký tự.' });
         }
 
-        await customerService.updatePasswordByPhone(tenantId, phone_number, new_password);
+        const tenantId = req.user.tenant_id;
+        const executorName = req.user.fullname || req.user.username;
+
+        await customerService.updatePasswordByPhone(tenantId, phone_number, new_password, executorName);
         
         res.status(200).json({ message: 'Đổi mật khẩu thành công' });
     } catch (error) {

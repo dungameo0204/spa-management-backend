@@ -187,8 +187,8 @@ const updateCustomer = async (tenantId, customerId, updateData, executorName) =>
     }
 };
 
-// Hàm dành riêng cho việc Đổi mật khẩu qua MiniApp (Quên mật khẩu)
-const updatePasswordByPhone = async (tenantId, phone_number, newPassword) => {
+// MANAGER đặt lại mật khẩu MiniApp cho khách thuộc tenant của mình.
+const updatePasswordByPhone = async (tenantId, phone_number, newPassword, executorName) => {
     const dbName = await getTenantDbName(tenantId);
     
     const [check] = await masterPool.query(`SELECT id FROM \`${dbName}\`.customers WHERE phone_number = ? AND deleted_at IS NULL`, [phone_number]);
@@ -199,7 +199,7 @@ const updatePasswordByPhone = async (tenantId, phone_number, newPassword) => {
 
     await masterPool.query(
         `UPDATE \`${dbName}\`.customers SET password = ?, updated_by = ? WHERE phone_number = ? AND deleted_at IS NULL`,
-        [hashedPassword, 'SYSTEM_MINIAPP', phone_number]
+        [hashedPassword, executorName, phone_number]
     );
 };
 

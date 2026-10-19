@@ -183,8 +183,8 @@ docs/CONTEXT.md                File này
 
 ## Hạn chế/rủi ro đã biết
 
-- `attachTenantDB` chưa mount, nên expire/deleted tenant chưa được chặn bằng middleware ở API thực tế.
-- API GET danh sách đã phân trang SQL (`page`, `pageSize`, `total`, `totalPages`); báo cáo tổng quan và chi tiết theo ID không phân trang. Chưa có health check, refresh token, logout, upload, Swagger hay test suite tích hợp DB thật.
+- `attachTenantDB` chưa mount, nên expire/deleted tenant chưa được chặn bằng middleware ở API thực tế; login đã kiểm tra trạng thái tenant nhưng token đã phát hành chưa bị kiểm tra lại ở mọi request.
+- API GET danh sách đã phân trang SQL (`page`, `pageSize`, `total`, `totalPages`); báo cáo tổng quan và chi tiết theo ID không phân trang. Có `GET /health` kiểm tra master MySQL và chỉ trả `ok`/`unavailable`; chưa có refresh token, logout, upload, Swagger hay test suite tích hợp DB thật.
 
 ### Kiểm chứng MySQL tenant (2026-10-09)
 
@@ -192,7 +192,7 @@ docs/CONTEXT.md                File này
 - 13 danh sách tenant, danh sách users/tenants: kiểm tra tổng số, toàn bộ các trang với `pageSize=3`, ID không lặp, trang quá giới hạn rỗng, trang không hợp lệ HTTP 400. Đã kiểm tra lọc theo khách/chi nhánh, ranh giới ngày hóa đơn, quyền STAFF theo chi nhánh và chặn STAFF truy cập báo cáo.
 - Đã đối chiếu `reports/revenue` với **toàn bộ trang** của 7 bảng `reports/details/:type`, cả toàn spa và chi nhánh 1; tổng `commissions`/`consultants` của nhóm nhân viên khớp với chi tiết. Kết quả toàn spa trong kỳ 2026-10-01 đến 2026-10-31: 18 hóa đơn, 21 thu nợ, 8 nạp ví, 2 phiếu chi, 3 phiếu nhập, 6 dòng công ca và 7 dòng tư vấn. Doanh thu 42.900.000; dòng tiền ròng -8.170.000. Đây là dữ liệu thử có thể thay đổi, không phải số liệu cố định.
 - `customer_bookings`, `appointments/tomorrow`, `appointments/not-arrived` đang rỗng tại thời điểm test; mới xác nhận response rỗng, chưa thể xác nhận nội dung phân trang của các endpoint này với dữ liệu thật. Chưa thử đồng thời ghi/xóa dữ liệu giữa truy vấn COUNT và truy vấn page.
-- `POST /api/customers/reset-password` public chưa OTP/xác minh: rủi ro bảo mật.
+- `POST /api/customers/reset-password` đã chuyển thành thao tác chỉ MANAGER, tenant lấy từ JWT. MiniApp chưa có quên mật khẩu public; nếu bổ sung phải có OTP/xác minh riêng.
 - `GET /api/branches` dùng `SELECT *`, có thể trả `payment_api_key`; cần xử lý khi production.
 - Cập nhật đồng thời `docs/API_FRONTEND.md` và `docs/CONTEXT.md` khi thay đổi tính năng.
 

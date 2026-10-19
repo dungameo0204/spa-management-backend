@@ -54,7 +54,7 @@ CREATE TABLE `appointments` (
   `branch_id` int NOT NULL,
   `appointment_date` datetime NOT NULL,
   `note` text COLLATE utf8mb4_unicode_ci,
-  `status` varchar(50) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'Khách chưa đến',
+  `status` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT 'PENDING',
   `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   `created_by` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
@@ -283,15 +283,18 @@ CREATE TABLE `expense_vouchers` (
 --
 
 DROP TABLE IF EXISTS `expenses_vouchers_items`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
 CREATE TABLE `expenses_vouchers_items` (
   `id` int NOT NULL AUTO_INCREMENT,
   `expenses_voucher_id` int NOT NULL,
-  `expense_type` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `expense_type` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `amount` decimal(15,2) NOT NULL,
   PRIMARY KEY (`id`),
   KEY `idx_expenses_voucher_id` (`expenses_voucher_id`),
   CONSTRAINT `fk_expenses_vouchers_items_voucher` FOREIGN KEY (`expenses_voucher_id`) REFERENCES `expense_vouchers` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
 
 --
 -- Table structure for table `inventory`
@@ -536,6 +539,32 @@ CREATE TABLE `orders` (
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
+-- Table structure for table `product_commission_tiers`
+--
+
+DROP TABLE IF EXISTS `product_commission_tiers`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `product_commission_tiers` (
+  `id` int NOT NULL AUTO_INCREMENT,
+  `product_id` int NOT NULL,
+  `role_id` int NOT NULL,
+  `min_price` decimal(15,2) NOT NULL,
+  `max_price` decimal(15,2) DEFAULT NULL,
+  `calculation_type` enum('FIXED','PERCENT') COLLATE utf8mb4_unicode_ci NOT NULL,
+  `fixed_amount` decimal(15,2) NOT NULL DEFAULT '0.00',
+  `percent` decimal(5,2) NOT NULL DEFAULT '0.00',
+  `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  `created_by` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `product_role_min` (`product_id`,`role_id`,`min_price`),
+  KEY `role_id` (`role_id`),
+  CONSTRAINT `pct_product_fk` FOREIGN KEY (`product_id`) REFERENCES `products` (`id`),
+  CONSTRAINT `pct_role_fk` FOREIGN KEY (`role_id`) REFERENCES `roles` (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
 -- Table structure for table `product_commissions`
 --
 
@@ -561,26 +590,6 @@ CREATE TABLE `product_commissions` (
   CONSTRAINT `product_commissions_ibfk_2` FOREIGN KEY (`role_id`) REFERENCES `roles` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
-
--- Commission bands per sold unit price and staff role.
-DROP TABLE IF EXISTS `product_commission_tiers`;
-CREATE TABLE `product_commission_tiers` (
-  `id` int NOT NULL AUTO_INCREMENT,
-  `product_id` int NOT NULL,
-  `role_id` int NOT NULL,
-  `min_price` decimal(15,2) NOT NULL,
-  `max_price` decimal(15,2) DEFAULT NULL,
-  `calculation_type` enum('FIXED','PERCENT') NOT NULL,
-  `fixed_amount` decimal(15,2) NOT NULL DEFAULT '0.00',
-  `percent` decimal(5,2) NOT NULL DEFAULT '0.00',
-  `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
-  `created_by` varchar(100) DEFAULT NULL,
-  PRIMARY KEY (`id`),
-  UNIQUE KEY `product_role_min` (`product_id`,`role_id`,`min_price`),
-  KEY `role_id` (`role_id`),
-  CONSTRAINT `pct_product_fk` FOREIGN KEY (`product_id`) REFERENCES `products` (`id`),
-  CONSTRAINT `pct_role_fk` FOREIGN KEY (`role_id`) REFERENCES `roles` (`id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 --
 -- Table structure for table `products`
@@ -794,4 +803,4 @@ CREATE TABLE `treatments` (
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
--- Dump completed on 2026-10-06 15:45:46
+-- Dump completed on 2026-10-18 14:09:07

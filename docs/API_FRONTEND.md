@@ -15,7 +15,7 @@ Ví dụ: `GET /api/customers?search=An&page=2&pageSize=10` trả `{ "message": 
 
 - Stack: Node.js, Express 5, MySQL (`mysql2`), JWT, bcrypt.
 - Nội dung JSON: gửi header `Content-Type: application/json`.
-- CORS đang mở cho mọi origin (`cors()`).
+- Khi `NODE_ENV=production`, backend chỉ cho các origin HTTPS liệt kê trong `CORS_ORIGINS` (phân tách dấu phẩy) và chỉ lắng nghe `127.0.0.1` để sử dụng cùng Cloudflare Tunnel; ngoài production, CORS mở theo cấu hình dev. Xem `docs/DEPLOY_WINDOWS_CLOUDFLARE.md` trước khi công bố API.
 - URL gốc cục bộ: `http://localhost:<PORT>`, trong đó `PORT` lấy từ biến môi trường, mặc định là `5000`.
 - Ví dụ dưới đây dùng: `http://localhost:5000`.
 - Các API GET trả danh sách có phân trang bằng `page`/`pageSize`; xem phần **Phân trang cho API danh sách** ở đầu tài liệu. API tổng quan `/api/reports/revenue` không phân trang.
@@ -84,7 +84,7 @@ Tại thời điểm hiện tại, `src/server.js` mount các endpoint hoạt đ
 | Role | `POST/GET /api/roles`, `GET/PUT/DELETE /api/roles/:id`, `PATCH /api/roles/:id/restore` |
 | Staff | `POST/GET /api/staffs`, `GET/PUT/DELETE /api/staffs/:id`, `PATCH /api/staffs/:id/restore` |
 | Branch | `POST/GET /api/branches`, `GET/PUT/DELETE /api/branches/:id`, `PATCH /api/branches/:id/restore` |
-| Customer | `POST /api/customers/reset-password`, `POST/GET /api/customers`, `GET/PUT/DELETE /api/customers/:id`, `PATCH /api/customers/:id/restore` |
+| Customer | `POST /api/customers/reset-password` (MANAGER), `POST/GET /api/customers`, `GET/PUT/DELETE /api/customers/:id`, `PATCH /api/customers/:id/restore` |
 | Product | `GET /api/products`, `GET /api/products/:id`, `POST /api/products`, `PUT/DELETE /api/products/:id`, `PATCH /api/products/:id/restore` (MANAGER và STAFF); chỉ MANAGER được ghi `commissions`/`commission_tiers` |
 | Inventory import | `POST/GET /api/inventory-imports`, `GET/PUT/DELETE /api/inventory-imports/:id` |
 | Expense | `POST/GET /api/expenses`, `GET /api/expenses/:id`, `PUT/DELETE /api/expenses/:id` |
@@ -422,22 +422,22 @@ Body có thể gửi một phần: `fullname`, `phone_number`, `address`, `role_
 
 ## 11. Khách hàng `/api/customers`
 
-### `POST /api/customers/reset-password` — Public
+### `POST /api/customers/reset-password` — Chỉ MANAGER
 
-Không cần token.
+Cần JWT của MANAGER. Tenant được lấy từ token; backend bỏ hoàn toàn `tenantId` do client gửi để không thể đổi mật khẩu khách của Spa khác. Đây là thao tác quản trị, **không phải** luồng “quên mật khẩu” public của MiniApp.
 
 ```json
 {
-  "tenantId": 3,
   "phone_number": "0900000000",
   "new_password": "new-secret"
 }
 ```
 
-- Cả ba field đều bắt buộc.
-- Backend tìm customer chưa xóa theo `tenantId + phone_number`, băm `new_password` bằng bcrypt.
+- Cả hai field đều bắt buộc; mật khẩu mới dài 6–255 ký tự.
+- Backend tìm customer chưa xóa theo tenant trong JWT + `phone_number`, băm `new_password` bằng bcrypt và ghi người thực hiện.
 - Thành công `200`: `{ "message": "Đổi mật khẩu thành công" }`.
-- **Cảnh báo bảo mật:** API hiện không có OTP/xác minh số điện thoại; bất kỳ client nào biết `tenantId` và số điện thoại đều có thể gọi đổi mật khẩu. Frontend không nên coi đây là luồng quên mật khẩu an toàn nếu chưa bổ sung xác minh ở backend.
+- Không token trả `401`, token không phải MANAGER trả `403`. Endpoint có giới hạn số lần gọi theo IP.
+- MiniApp chưa có luồng quên mật khẩu public; muốn mở lại phải bổ sung OTP/xác minh quyền sở hữu số điện thoại ở backend.
 
 ### `POST /api/customers` — Cần token
 
@@ -453,7 +453,7 @@ Không cần token.
 ```
 
 - Bắt buộc: `fullname`, `phone_number`.
-- `password` không bắt buộc; nếu có thì được bcrypt hash. Nếu không, customer phải gọi reset-password để thiết lập mật khẩu cho MiniApp.
+- `password` không bắt buộc; nếu có thì được bcrypt hash. Nếu không, MANAGER có thể thiết lập sau bằng endpoint reset-password ở trên. Khách không thể tự đặt lại mật khẩu public khi chưa có OTP/xác minh.
 - `phone_number` là duy nhất **theo SĐT trong từng tenant**, không ghép với `fullname`: cùng tên nhưng khác SĐT được phép; khác tên nhưng trùng SĐT bị từ chối (`400`). Khách đã xóa mềm vẫn giữ SĐT để có thể khôi phục, vì vậy **không thể dùng lại SĐT đó để tạo khách mới**. Frontend nên tìm khách theo SĐT trước khi tạo, không thêm bản ghi thứ hai.
 - Thành công `201`: `{ "message": "Thêm mới khách hàng thành công", "customerId": 10 }`.
 
@@ -1512,7 +1512,7 @@ Mục này là bảng tra cứu **response thực tế**, bổ sung cho phần m
 | `DELETE /customers/:id` | 200 | `{ message: "Xóa khách hàng thành công" }`. |
 | `PATCH /customers/:id/restore` | 200 | `{ message: "Khôi phục khách hàng thành công" }`. |
 
-Các GET danh sách trong bảng này sử dụng message theo controller: `/tenants`: `Lấy danh sách Spa thành công`; `/users`: `Lấy danh sách tài khoản thành công`; các danh mục còn lại: `Lấy danh sách thành công`. `POST /customers/reset-password` là public; không nhầm nó với API cần JWT.
+Các GET danh sách trong bảng này sử dụng message theo controller: `/tenants`: `Lấy danh sách Spa thành công`; `/users`: `Lấy danh sách tài khoản thành công`; các danh mục còn lại: `Lấy danh sách thành công`. `POST /customers/reset-password` cần JWT của MANAGER và lấy tenant từ token.
 
 ### Sản phẩm, nhập kho, phiếu chi
 
