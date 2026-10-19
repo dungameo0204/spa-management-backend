@@ -2,6 +2,8 @@
 
 > Runbook thao tác production. Mục tiêu là chạy app mới song song với app/database cũ, public qua Cloudflare Tunnel và tự cập nhật theo Git tag dành riêng cho máy. Không tự suy luận khi gặp khác biệt; áp dụng các điều kiện **DỪNG** trong tài liệu.
 
+Nếu dùng gói bootstrap, giải nén nguyên thư mục vào `C:\Install\SpaBackendBootstrap`. Mọi đường dẫn bootstrap bên dưới giả định vị trí này; nếu giải nén nơi khác thì phải thay đồng bộ đường dẫn, không tự đổi đích database.
+
 ## 1. Giá trị phải được xác nhận trước khi thao tác
 
 Ghi lại, không để placeholder khi chạy lệnh:
@@ -106,8 +108,8 @@ Import schema từ đúng release đã duyệt:
 
 ```powershell
 $mysql = 'C:\Program Files\MySQL\MySQL Server 8.0\bin\mysql.exe'
-& $mysql -u root -p db_system_master --execute="source C:/Install/release/db_system_master.sql"
-& $mysql -u root -p db_spa_template --execute="source C:/Install/release/db_spa_template.sql"
+& $mysql -u root -p db_system_master --execute="source C:/Install/SpaBackendBootstrap/db_system_master.sql"
+& $mysql -u root -p db_spa_template --execute="source C:/Install/SpaBackendBootstrap/db_spa_template.sql"
 ```
 
 Đường dẫn trong lệnh MySQL `source` dùng dấu `/`. Tuyệt đối không đổi đích sang DB cũ. Sau import:
@@ -120,11 +122,11 @@ SELECT COUNT(*) AS master_users FROM db_system_master.users;
 
 ## 6. Chuẩn bị `C:\SpaBackend` và `.env`
 
-Tạo thư mục và copy toàn bộ `scripts/windows/` từ release đã duyệt vào `C:\SpaBackend\scripts`:
+Tạo thư mục và copy toàn bộ `scripts/windows/` từ gói bootstrap đã kiểm tra hash vào `C:\SpaBackend\scripts`:
 
 ```powershell
 New-Item -ItemType Directory -Force -Path 'C:\SpaBackend\config', 'C:\SpaBackend\scripts' | Out-Null
-Copy-Item 'C:\Install\release\scripts\windows\*' 'C:\SpaBackend\scripts' -Force
+Copy-Item 'C:\Install\SpaBackendBootstrap\scripts\windows\*' 'C:\SpaBackend\scripts' -Force
 ```
 
 Tạo `C:\SpaBackend\config\.env`:
