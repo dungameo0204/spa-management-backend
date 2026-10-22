@@ -500,6 +500,8 @@ Body hỗ trợ: `fullname`, `phone_number`, `password`, `avatar`, `address`, `n
 
 ## 12. Sản phẩm/Dịch vụ `/api/products` (MANAGER và STAFF quản lý)
 
+> Bản triển khai giá bán riêng (chỉ tenant đã migration): `price` là **giá niêm yết**, `sale_price` là **giá bán**. POST product nhận `sale_price` tùy chọn (không gửi thì bằng `price`); PUT product có thể sửa `sale_price` riêng. Nếu PUT chỉ gửi `price`, backend đồng bộ `sale_price` theo `price` để tương thích client cũ; muốn giữ giá bán khác giá niêm yết, gửi cả hai trường. GET danh sách/chi tiết trả về cả `price` và `sale_price`. `sale_price` phải là số không âm, không nhận `null`/chuỗi rỗng. Frontend tính phần trăm hiển thị; khi POST/PUT invoice phải gửi `items[].unit_price` bằng giá bán mong muốn. Nếu bỏ `unit_price` và alias `items[].price`, invoice vẫn dùng `products.price` (giá niêm yết), **không tự lấy `sale_price` và không tự tính chiết khấu**. Xem `docs/migrations/README_product_sale_price.md` trước khi deploy.
+
 Mọi endpoint trong mục này yêu cầu Bearer token. MANAGER và STAFF đều có quyền tạo/sửa/xóa mềm/khôi phục sản phẩm. Chỉ MANAGER được gửi `commissions` **hoặc** `commission_tiers` khi tạo hoặc sửa (`STAFF` gửi một trong hai field, kể cả `[]` hay `null`, sẽ nhận `403`, không ghi dữ liệu). Product được tạo trong **một transaction** cùng cấu hình hoa hồng/tồn kho ban đầu (nếu có); nếu một bước lỗi thì toàn bộ thao tác bị rollback.
 
 ### `POST /api/products` (MANAGER/STAFF; cấu hình công ca chỉ MANAGER)

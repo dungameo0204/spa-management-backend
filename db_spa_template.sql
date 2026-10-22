@@ -605,6 +605,7 @@ CREATE TABLE `products` (
   `description` text COLLATE utf8mb4_unicode_ci,
   `benefits` text COLLATE utf8mb4_unicode_ci,
   `price` decimal(15,2) NOT NULL,
+  `sale_price` decimal(15,2) NOT NULL,
   `unit` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `is_product` tinyint(1) NOT NULL,
   `is_treatment_combo` tinyint(1) DEFAULT '0',

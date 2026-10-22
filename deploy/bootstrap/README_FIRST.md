@@ -10,6 +10,8 @@
    C:\Install\SpaBackendBootstrap
    ```
 
+   Nếu bạn là người trực tiếp triển khai, đọc `HUONG_DAN_CAI_MAY_KHACH_CHO_NGUOI_DUNG.md` trước để hiểu toàn bộ quy trình. Khi thao tác thật, làm theo runbook `INSTALL_CUSTOMER_SERVER_TOMORROW.md` và các điều kiện DỪNG.
+
 2. Nếu chạy Codex trực tiếp trên máy khách, mở Codex tại thư mục trên và gửi prompt:
 
    ```text
@@ -26,9 +28,11 @@
 
 ## Nội dung chính
 
+- `HUONG_DAN_CAI_MAY_KHACH_CHO_NGUOI_DUNG.md`: hướng dẫn quy trình cho người trực tiếp cài đặt.
 - `INSTALL_CUSTOMER_SERVER_TOMORROW.md`: tài liệu điều phối chính.
 - `db_system_master.sql`, `db_spa_template.sql`: schema database mới.
 - `scripts\windows\`: deploy, service, backup, rollback và auto-update.
+- `scripts\windows\New-SuperAdminPasswordSql.ps1`: nhập mật khẩu kín, tạo câu SQL đổi mật khẩu superadmin (không tự chạy SQL).
 - `deploy\windows\SpaBackend.xml`: cấu hình WinSW.
 - `.env.example`: danh sách biến môi trường mẫu, không chứa secret thật.
 - `manifest.json`: danh sách và SHA-256 của từng file trong gói.

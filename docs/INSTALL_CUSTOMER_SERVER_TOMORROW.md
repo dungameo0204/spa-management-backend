@@ -13,7 +13,7 @@ Ghi lại, không để placeholder khi chạy lệnh:
 | Git tag đầu tiên | `backend-spa-a-v1.0.0` | Chưa chốt |
 | `ServerId` | `spa-a` | Chưa chốt |
 | Tag pattern riêng máy | `backend-spa-a-v*` | Chưa chốt |
-| API hostname | `api.infinityhavocx.men` | Dự kiến |
+| API hostname | `api-spa-xuly.infinityhavocx.men` | Đã chốt; cần cấu hình Cloudflare Tunnel |
 | Frontend origin HTTPS | `https://app.infinityhavocx.men` | Chưa xác nhận |
 | Port backend mới | `5000` | Phải kiểm tra trống |
 | MySQL host/port | `127.0.0.1:3306` | Phải kiểm kê |
@@ -282,7 +282,7 @@ Không đưa migration DB vào auto-update. Release cần migration phải đư�
 1. Tạo remote-managed tunnel trong tài khoản Cloudflare có MFA.
 2. Trên máy khách, chạy duy nhất lệnh install connector do dashboard cung cấp. Tunnel token là secret: không lưu vào Git/tài liệu/log/screenshot.
 3. Published application:
-   - Hostname: `api.infinityhavocx.men` hoặc hostname đã chốt.
+   - Hostname: `api-spa-xuly.infinityhavocx.men` (subdomain `api-spa-xuly`, domain `infinityhavocx.men`).
    - Service: `http://127.0.0.1:5000`.
 4. Không bật Cloudflare Access interactive trước toàn bộ API JWT.
 5. Không cache API; nếu thêm WAF/rate limit phải test `OPTIONS` và login thật.
@@ -296,7 +296,7 @@ Get-Service cloudflared
 Từ mạng ngoài máy khách (ví dụ 4G):
 
 ```powershell
-Invoke-RestMethod 'https://api.infinityhavocx.men/health'
+Invoke-RestMethod 'https://api-spa-xuly.infinityhavocx.men/health'
 ```
 
 ## 11. Nghiệm thu

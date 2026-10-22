@@ -153,13 +153,17 @@ const createProduct = async (tenantId, productData, executorName, userRole) => {
 
     try {
         const {
-            name, images, description, benefits, price, unit, is_product,
+            name, images, description, benefits, price, sale_price, unit, is_product,
             is_treatment_combo = false, default_sessions = 1, session_unit = 'buổi',
             next_appointment_days = 0, commissions, inventory
         } = productData;
 
         if (!name || !String(name).trim()) throw new Error('Tên sản phẩm/dịch vụ không được để trống.');
         toNumber(price, 'price');
+        if (sale_price !== undefined) {
+            if (sale_price === null || sale_price === '') throw new Error('sale_price không hợp lệ.');
+            toNumber(sale_price, 'sale_price');
+        }
         toBooleanNumber(is_product, 'is_product');
         toNumber(default_sessions, 'default_sessions', { min: 0, integer: true });
         toNumber(next_appointment_days, 'next_appointment_days', { min: 0, integer: true });
@@ -190,12 +194,12 @@ const createProduct = async (tenantId, productData, executorName, userRole) => {
 
         const [result] = await connection.query(
             `INSERT INTO \`${dbName}\`.products
-                (name, images, description, benefits, price, unit, is_product, is_treatment_combo,
+                (name, images, description, benefits, price, sale_price, unit, is_product, is_treatment_combo,
                  default_sessions, session_unit, next_appointment_days, created_by)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
                 String(name).trim(), images === undefined || images === null ? null : JSON.stringify(images),
-                description || null, benefits || null, Number(price), unit || null,
+                description || null, benefits || null, Number(price), Number(sale_price === undefined ? price : sale_price), unit || null,
                 toBooleanNumber(is_product, 'is_product'), toBooleanNumber(is_treatment_combo, 'is_treatment_combo'), Number(default_sessions),
                 session_unit || 'buổi', Number(next_appointment_days), executorName
             ]
@@ -364,7 +368,7 @@ const updateProduct = async (tenantId, productId, updateData, executorName, user
         const params = [];
         const allowedFields = [
             'description', 'benefits', 'unit', 'is_product', 'is_treatment_combo',
-            'default_sessions', 'session_unit', 'next_appointment_days', 'price'
+            'default_sessions', 'session_unit', 'next_appointment_days', 'price', 'sale_price'
         ];
 
         if (updateData.name !== undefined) {
@@ -386,7 +390,8 @@ const updateProduct = async (tenantId, productId, updateData, executorName, user
 
         for (const field of allowedFields) {
             if (updateData[field] === undefined) continue;
-            if (field === 'price') toNumber(updateData[field], 'price');
+            if (field === 'sale_price' && (updateData[field] === null || updateData[field] === '')) throw new Error('sale_price không hợp lệ.');
+            if (field === 'price' || field === 'sale_price') toNumber(updateData[field], field);
             if (['default_sessions', 'next_appointment_days'].includes(field)) {
                 toNumber(updateData[field], field, { min: 0, integer: true });
             }
@@ -397,6 +402,13 @@ const updateProduct = async (tenantId, productId, updateData, executorName, user
                 updateFields.push(`${field} = ?`);
                 params.push(['description', 'benefits', 'unit', 'session_unit'].includes(field) ? (updateData[field] || null) : Number(updateData[field]));
             }
+        }
+
+        // Legacy clients only send price. Keep the sale price in sync in that case;
+        // an explicit sale_price (including zero) always wins.
+        if (updateData.price !== undefined && updateData.sale_price === undefined) {
+            updateFields.push('sale_price = ?');
+            params.push(Number(updateData.price));
         }
 
         if (updateFields.length > 0) {

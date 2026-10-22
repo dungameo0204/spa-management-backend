@@ -8,6 +8,7 @@
     "dev": "nodemon src/server.js",
     "db:migrate:commission": "node scripts/apply-commission-migration.js",
     "test:server-config": "node scratch/test_server_config.js",
+    "test:product-sale-price": "node scratch/test_product_sale_price.js",
     "test:deployment-security": "node scratch/test_health_and_rate_limit.js && node scratch/test_customer_reset_security.js"
   },
   "keywords": [],

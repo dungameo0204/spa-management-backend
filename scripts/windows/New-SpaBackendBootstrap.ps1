@@ -14,6 +14,7 @@ if ($PackageName -notmatch '^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$') {
 
 $files = [ordered]@{
     'deploy\bootstrap\README_FIRST.md' = 'README_FIRST.md'
+    'docs\HUONG_DAN_CAI_MAY_KHACH_CHO_NGUOI_DUNG.md' = 'HUONG_DAN_CAI_MAY_KHACH_CHO_NGUOI_DUNG.md'
     'docs\INSTALL_CUSTOMER_SERVER_TOMORROW.md' = 'INSTALL_CUSTOMER_SERVER_TOMORROW.md'
     'docs\DEPLOY_WINDOWS_CLOUDFLARE.md' = 'docs\DEPLOY_WINDOWS_CLOUDFLARE.md'
     '.env.example' = '.env.example'
@@ -27,6 +28,7 @@ $files = [ordered]@{
     'scripts\windows\Install-SpaBackendAutoUpdate.ps1' = 'scripts\windows\Install-SpaBackendAutoUpdate.ps1'
     'scripts\windows\Backup-SpaDatabase.ps1' = 'scripts\windows\Backup-SpaDatabase.ps1'
     'scripts\windows\Rollback-SpaBackend.ps1' = 'scripts\windows\Rollback-SpaBackend.ps1'
+    'scripts\windows\New-SuperAdminPasswordSql.ps1' = 'scripts\windows\New-SuperAdminPasswordSql.ps1'
 }
 
 $stagingRoot = Join-Path ([IO.Path]::GetTempPath()) "$PackageName-$([guid]::NewGuid().ToString('N'))"

@@ -3,6 +3,7 @@ const mysql = require('mysql2/promise');
 // 1. Cấu hình cơ bản (Lấy từ file .env)
 const dbConfig = {
     host: process.env.DB_HOST,
+    port: process.env.DB_PORT ? Number(process.env.DB_PORT) : 3306,
     user: process.env.DB_USER,
     password: process.env.DB_PASSWORD,
     // pool settings để tối ưu hiệu suất, tái sử dụng kết nối
