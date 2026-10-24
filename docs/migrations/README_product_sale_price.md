@@ -2,6 +2,8 @@
 
 `products.price` remains the listed price for existing clients and the current invoice fallback. `products.sale_price` is the selling price. The frontend must send `items[].unit_price = sale_price` to `POST /api/invoices` (and `PUT /api/invoices/:id`); the backend does not calculate the displayed percentage discount. An invoice without an explicit unit price still falls back to `products.price`.
 
+Product POST now requires both prices (`0 <= sale_price < price`). Product PUT validates the resulting pair whenever either price is supplied; it never silently overwrites the other price. Existing backfilled rows where `sale_price >= price` remain untouched and can receive non-price updates; price changes must make the resulting pair valid. Do not rerun the migration or automatically discount existing products.
+
 ## Local test setup
 
 Use an isolated MySQL instance, not merely schemas renamed on the same MySQL server: tenant lookup and template cloning reference `db_system_master` and `db_spa_template` literally. The local integration test uses a disposable instance at `127.0.0.1:3307` with data directory `artifacts/mysql-product-test/data` and three schemas: `db_system_master`, `db_spa_template`, `db_spa_product_test`. It checks the server's actual data directory before writing. The SQL dumps in the repo contain `DROP TABLE`; import them **only** into empty schemas on the isolated instance. Do not import them into a populated server. The test data contains no real customer records.

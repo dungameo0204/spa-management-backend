@@ -159,11 +159,11 @@ const createProduct = async (tenantId, productData, executorName, userRole) => {
         } = productData;
 
         if (!name || !String(name).trim()) throw new Error('Tên sản phẩm/dịch vụ không được để trống.');
-        toNumber(price, 'price');
-        if (sale_price !== undefined) {
-            if (sale_price === null || sale_price === '') throw new Error('sale_price không hợp lệ.');
-            toNumber(sale_price, 'sale_price');
-        }
+        if (price === null || price === '') throw new Error('price không hợp lệ.');
+        const listedPrice = toNumber(price, 'price');
+        if (sale_price === undefined || sale_price === null || sale_price === '') throw new Error('sale_price không hợp lệ.');
+        const sellingPrice = toNumber(sale_price, 'sale_price');
+        if (sellingPrice >= listedPrice) throw new Error('sale_price phải nhỏ hơn price.');
         toBooleanNumber(is_product, 'is_product');
         toNumber(default_sessions, 'default_sessions', { min: 0, integer: true });
         toNumber(next_appointment_days, 'next_appointment_days', { min: 0, integer: true });
@@ -199,7 +199,7 @@ const createProduct = async (tenantId, productData, executorName, userRole) => {
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
                 String(name).trim(), images === undefined || images === null ? null : JSON.stringify(images),
-                description || null, benefits || null, Number(price), Number(sale_price === undefined ? price : sale_price), unit || null,
+                description || null, benefits || null, listedPrice, sellingPrice, unit || null,
                 toBooleanNumber(is_product, 'is_product'), toBooleanNumber(is_treatment_combo, 'is_treatment_combo'), Number(default_sessions),
                 session_unit || 'buổi', Number(next_appointment_days), executorName
             ]
@@ -359,10 +359,19 @@ const updateProduct = async (tenantId, productId, updateData, executorName, user
     try {
         await connection.beginTransaction();
         const [products] = await connection.query(
-            `SELECT id FROM \`${dbName}\`.products WHERE id = ? AND deleted_at IS NULL`,
+            `SELECT id, price, sale_price FROM \`${dbName}\`.products WHERE id = ? AND deleted_at IS NULL FOR UPDATE`,
             [productId]
         );
         if (products.length === 0) throw new Error('Sản phẩm/dịch vụ không tồn tại hoặc đã bị xóa.');
+
+        // Keep legacy prices untouched for non-price edits; validate the final pair on any price edit.
+        if (updateData.price !== undefined || updateData.sale_price !== undefined) {
+            if (updateData.price === null || updateData.price === '') throw new Error('price không hợp lệ.');
+            if (updateData.sale_price === null || updateData.sale_price === '') throw new Error('sale_price không hợp lệ.');
+            const listedPrice = updateData.price === undefined ? Number(products[0].price) : toNumber(updateData.price, 'price');
+            const sellingPrice = updateData.sale_price === undefined ? Number(products[0].sale_price) : toNumber(updateData.sale_price, 'sale_price');
+            if (sellingPrice >= listedPrice) throw new Error('sale_price phải nhỏ hơn price.');
+        }
 
         const updateFields = [];
         const params = [];
@@ -402,13 +411,6 @@ const updateProduct = async (tenantId, productId, updateData, executorName, user
                 updateFields.push(`${field} = ?`);
                 params.push(['description', 'benefits', 'unit', 'session_unit'].includes(field) ? (updateData[field] || null) : Number(updateData[field]));
             }
-        }
-
-        // Legacy clients only send price. Keep the sale price in sync in that case;
-        // an explicit sale_price (including zero) always wins.
-        if (updateData.price !== undefined && updateData.sale_price === undefined) {
-            updateFields.push('sale_price = ?');
-            params.push(Number(updateData.price));
         }
 
         if (updateFields.length > 0) {

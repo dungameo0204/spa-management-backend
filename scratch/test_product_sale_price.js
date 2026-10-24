@@ -57,18 +57,36 @@ const main = async () => {
         assert.equal(Number(revised.body.data.price), 900000);
         assert.equal(Number(revised.body.data.sale_price), 700000);
 
-        // A legacy client sending price alone resets sale_price to the new listed price.
+        // Partial price updates preserve the other price, and validate the resulting pair.
+        assert.equal((await request('PUT', `/products/${id}`, { price: 600000 })).status, 400);
+        assert.equal((await request('PUT', `/products/${id}`, { sale_price: 900000 })).status, 400);
+        assert.equal((await request('PUT', `/products/${id}`, { price: 700000 })).status, 400);
+        assert.equal((await request('PUT', `/products/${id}`, { sale_price: 0 })).status, 200);
         assert.equal((await request('PUT', `/products/${id}`, { price: 1000000 })).status, 200);
-        assert.equal(Number((await request('GET', `/products/${id}`)).body.data.sale_price), 1000000);
+        assert.equal(Number((await request('GET', `/products/${id}`)).body.data.sale_price), 0);
         assert.equal((await request('PUT', `/products/${id}`, { sale_price: 800000 })).status, 200);
+        assert.equal((await request('PUT', `/products/${id}`, { price: 0, sale_price: 0 })).status, 400);
         for (const bad of [null, '', -1, 'NaN']) {
             assert.equal((await request('PUT', `/products/${id}`, { sale_price: bad })).status, 400);
         }
+        for (const bad of [null, '', -1, 'NaN']) {
+            assert.equal((await request('PUT', `/products/${id}`, { price: bad })).status, 400);
+        }
         assert.equal(Number((await request('GET', `/products/${id}`)).body.data.sale_price), 800000);
-        assert.equal((await request('POST', '/products', { name: `${name} invalid`, price: 100, sale_price: null, is_product: false })).status, 400);
-        const oldClient = await request('POST', '/products', { name: `${name} legacy`, price: 300000, is_product: false });
-        assert.equal(oldClient.status, 201);
-        assert.equal(Number((await request('GET', `/products/${oldClient.body.productId}`)).body.data.sale_price), 300000);
+        for (const bad of [undefined, null, '', -1, 100, 101, 'NaN']) {
+            const result = await request('POST', '/products', { name: `${name} invalid`, price: 100, ...(bad === undefined ? {} : { sale_price: bad }), is_product: false });
+            assert.equal(result.status, 400, JSON.stringify(result.body));
+        }
+        assert.equal((await request('POST', '/products', { name: `${name} zero`, price: 100, sale_price: 0, is_product: false })).status, 201);
+
+        // Backfilled legacy product remains unchanged when editing non-price fields.
+        assert.equal((await request('PUT', `/products/${legacy.id}`, { description: 'legacy unchanged price' })).status, 200);
+        assert.equal((await request('PUT', `/products/${legacy.id}`, { sale_price: 1000000 })).status, 400);
+        assert.equal((await request('PUT', `/products/${legacy.id}`, { price: 900000 })).status, 400);
+        const [[legacyAfter]] = await masterPool.query('SELECT price, sale_price, description FROM db_spa_product_test.products WHERE id = ?', [legacy.id]);
+        assert.equal(Number(legacyAfter.price), 1000000);
+        assert.equal(Number(legacyAfter.sale_price), 1000000);
+        assert.equal(legacyAfter.description, 'legacy unchanged price');
 
         const invoiceBase = { branch_id: 1, customer_id: 1, items: [{ product_id: id, quantity: 1, unit_price: 800000 }], paid_amount: 800000 };
         const invoice = await request('POST', '/invoices', invoiceBase);

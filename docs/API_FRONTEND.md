@@ -500,7 +500,7 @@ Body hỗ trợ: `fullname`, `phone_number`, `password`, `avatar`, `address`, `n
 
 ## 12. Sản phẩm/Dịch vụ `/api/products` (MANAGER và STAFF quản lý)
 
-> Bản triển khai giá bán riêng (chỉ tenant đã migration): `price` là **giá niêm yết**, `sale_price` là **giá bán**. POST product nhận `sale_price` tùy chọn (không gửi thì bằng `price`); PUT product có thể sửa `sale_price` riêng. Nếu PUT chỉ gửi `price`, backend đồng bộ `sale_price` theo `price` để tương thích client cũ; muốn giữ giá bán khác giá niêm yết, gửi cả hai trường. GET danh sách/chi tiết trả về cả `price` và `sale_price`. `sale_price` phải là số không âm, không nhận `null`/chuỗi rỗng. Frontend tính phần trăm hiển thị; khi POST/PUT invoice phải gửi `items[].unit_price` bằng giá bán mong muốn. Nếu bỏ `unit_price` và alias `items[].price`, invoice vẫn dùng `products.price` (giá niêm yết), **không tự lấy `sale_price` và không tự tính chiết khấu**. Xem `docs/migrations/README_product_sale_price.md` trước khi deploy.
+> Bản triển khai giá bán riêng (chỉ tenant đã migration): `price` là **giá niêm yết**, `sale_price` là **giá bán**. POST product bắt buộc gửi cả hai, với `0 <= sale_price < price` (vì vậy `price > 0`). PUT có thể sửa một hoặc cả hai giá; backend kiểm tra cặp giá sau cập nhật, không tự đồng bộ giá còn lại. Nếu dữ liệu cũ đang có `sale_price >= price`, vẫn được sửa các trường không liên quan đến giá mà không tự thay đổi giá; mọi PUT sửa giá phải đưa cặp giá về hợp lệ. GET danh sách/chi tiết trả về cả `price` và `sale_price`. Frontend tính phần trăm hiển thị; khi POST/PUT invoice phải gửi `items[].unit_price` bằng giá bán mong muốn. Nếu bỏ `unit_price` và alias `items[].price`, invoice vẫn dùng `products.price` (giá niêm yết), **không tự lấy `sale_price` và không tự tính chiết khấu**. Xem `docs/migrations/README_product_sale_price.md` trước khi deploy.
 
 Mọi endpoint trong mục này yêu cầu Bearer token. MANAGER và STAFF đều có quyền tạo/sửa/xóa mềm/khôi phục sản phẩm. Chỉ MANAGER được gửi `commissions` **hoặc** `commission_tiers` khi tạo hoặc sửa (`STAFF` gửi một trong hai field, kể cả `[]` hay `null`, sẽ nhận `403`, không ghi dữ liệu). Product được tạo trong **một transaction** cùng cấu hình hoa hồng/tồn kho ban đầu (nếu có); nếu một bước lỗi thì toàn bộ thao tác bị rollback.
 
@@ -515,6 +515,7 @@ Ví dụ MANAGER tạo dịch vụ có **hai bậc công** cho chức vụ `role
   "description": "Mô tả dịch vụ",
   "benefits": "Phục hồi, dưỡng ẩm",
   "price": 900000,
+  "sale_price": 800000,
   "unit": "nốt",
   "is_product": false,
   "is_treatment_combo": false,
@@ -535,7 +536,7 @@ Ví dụ giá bán một đơn vị là 900.000đ thì khớp bậc `[0, 1.000.0
 
 | Field | Bắt buộc | Quy tắc |
 |---|---:|---|
-| `name`, `price`, `is_product` | Có | Tên unique trong product chưa xóa; `price >= 0`; `is_product` nhận boolean hoặc `0/1`. |
+| `name`, `price`, `sale_price`, `is_product` | Có | Tên unique trong product chưa xóa; `0 <= sale_price < price`; `is_product` nhận boolean hoặc `0/1`. Không gửi hoặc gửi `null`/chuỗi rỗng cho giá sẽ bị từ chối. |
 | `images` | Không | Mảng JSON hoặc `null`. |
 | `description`, `benefits`, `unit` | Không | Chuỗi; rỗng được lưu `null`. |
 | `is_treatment_combo`, `default_sessions`, `session_unit`, `next_appointment_days` | Không | Default theo schema; hai field số buổi/ngày là số nguyên `>= 0`. |
@@ -571,7 +572,7 @@ Thành công `201`: `{ "message": "Tạo sản phẩm/dịch vụ thành công",
 
 ### `PUT /api/products/:id` (MANAGER/STAFF; cấu hình công ca chỉ MANAGER)
 
-- Partial update: `name`, `images`, `description`, `benefits`, `price`, `unit`, `is_product`, `is_treatment_combo`, `default_sessions`, `session_unit`, `next_appointment_days`.
+- Partial update: `name`, `images`, `description`, `benefits`, `price`, `sale_price`, `unit`, `is_product`, `is_treatment_combo`, `default_sessions`, `session_unit`, `next_appointment_days`. Sửa một trong hai giá phải bảo đảm `0 <= sale_price < price` sau cập nhật; không tự thay đổi giá còn lại. Sản phẩm cũ có giá không hợp lệ vẫn được sửa các trường khác nhưng không được sửa giá thành cặp không hợp lệ.
 - `is_active` là cột legacy trong schema và bị API Product bỏ qua khi create/update; trạng thái sử dụng product được quản lý bằng xóa mềm (`deleted_at`).
 - Nếu gửi `commissions`, backend đồng bộ toàn bộ danh sách: role không còn trong body bị xóa mềm, role trong body được tạo/cập nhật. Có thể gửi `[]` để xóa hết commission.
 - Nếu gửi `commission_tiers`, backend thay toàn bộ bậc của sản phẩm trong transaction; `[]` xóa tất cả bậc. Nếu không gửi, giữ nguyên. Chỉ MANAGER được gửi field này.
