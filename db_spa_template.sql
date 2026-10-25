@@ -42,6 +42,15 @@ CREATE TABLE `app_contents` (
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
+-- Dumping data for table `app_contents`
+--
+
+LOCK TABLES `app_contents` WRITE;
+/*!40000 ALTER TABLE `app_contents` DISABLE KEYS */;
+/*!40000 ALTER TABLE `app_contents` ENABLE KEYS */;
+UNLOCK TABLES;
+
+--
 -- Table structure for table `appointments`
 --
 
@@ -68,6 +77,15 @@ CREATE TABLE `appointments` (
   CONSTRAINT `appointments_ibfk_2` FOREIGN KEY (`branch_id`) REFERENCES `branches` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `appointments`
+--
+
+LOCK TABLES `appointments` WRITE;
+/*!40000 ALTER TABLE `appointments` DISABLE KEYS */;
+/*!40000 ALTER TABLE `appointments` ENABLE KEYS */;
+UNLOCK TABLES;
 
 --
 -- Table structure for table `bank_transactions`
@@ -98,6 +116,15 @@ CREATE TABLE `bank_transactions` (
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
+-- Dumping data for table `bank_transactions`
+--
+
+LOCK TABLES `bank_transactions` WRITE;
+/*!40000 ALTER TABLE `bank_transactions` DISABLE KEYS */;
+/*!40000 ALTER TABLE `bank_transactions` ENABLE KEYS */;
+UNLOCK TABLES;
+
+--
 -- Table structure for table `branches`
 --
 
@@ -124,6 +151,15 @@ CREATE TABLE `branches` (
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `branches`
+--
+
+LOCK TABLES `branches` WRITE;
+/*!40000 ALTER TABLE `branches` DISABLE KEYS */;
+/*!40000 ALTER TABLE `branches` ENABLE KEYS */;
+UNLOCK TABLES;
 
 --
 -- Table structure for table `customer_bookings`
@@ -159,6 +195,15 @@ CREATE TABLE `customer_bookings` (
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
+-- Dumping data for table `customer_bookings`
+--
+
+LOCK TABLES `customer_bookings` WRITE;
+/*!40000 ALTER TABLE `customer_bookings` DISABLE KEYS */;
+/*!40000 ALTER TABLE `customer_bookings` ENABLE KEYS */;
+UNLOCK TABLES;
+
+--
 -- Table structure for table `customer_wallet_logs`
 --
 
@@ -190,6 +235,15 @@ CREATE TABLE `customer_wallet_logs` (
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
+-- Dumping data for table `customer_wallet_logs`
+--
+
+LOCK TABLES `customer_wallet_logs` WRITE;
+/*!40000 ALTER TABLE `customer_wallet_logs` DISABLE KEYS */;
+/*!40000 ALTER TABLE `customer_wallet_logs` ENABLE KEYS */;
+UNLOCK TABLES;
+
+--
 -- Table structure for table `customers`
 --
 
@@ -200,6 +254,7 @@ CREATE TABLE `customers` (
   `id` int NOT NULL AUTO_INCREMENT,
   `fullname` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
   `phone_number` varchar(15) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `date_of_birth` date DEFAULT NULL,
   `password` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `avatar` varchar(500) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `address` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
@@ -216,6 +271,15 @@ CREATE TABLE `customers` (
   UNIQUE KEY `uq_customers_phone_number` (`phone_number`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `customers`
+--
+
+LOCK TABLES `customers` WRITE;
+/*!40000 ALTER TABLE `customers` DISABLE KEYS */;
+/*!40000 ALTER TABLE `customers` ENABLE KEYS */;
+UNLOCK TABLES;
 
 --
 -- Table structure for table `debt_payments`
@@ -253,6 +317,15 @@ CREATE TABLE `debt_payments` (
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
+-- Dumping data for table `debt_payments`
+--
+
+LOCK TABLES `debt_payments` WRITE;
+/*!40000 ALTER TABLE `debt_payments` DISABLE KEYS */;
+/*!40000 ALTER TABLE `debt_payments` ENABLE KEYS */;
+UNLOCK TABLES;
+
+--
 -- Table structure for table `expense_vouchers`
 --
 
@@ -279,6 +352,15 @@ CREATE TABLE `expense_vouchers` (
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
+-- Dumping data for table `expense_vouchers`
+--
+
+LOCK TABLES `expense_vouchers` WRITE;
+/*!40000 ALTER TABLE `expense_vouchers` DISABLE KEYS */;
+/*!40000 ALTER TABLE `expense_vouchers` ENABLE KEYS */;
+UNLOCK TABLES;
+
+--
 -- Table structure for table `expenses_vouchers_items`
 --
 
@@ -295,6 +377,15 @@ CREATE TABLE `expenses_vouchers_items` (
   CONSTRAINT `fk_expenses_vouchers_items_voucher` FOREIGN KEY (`expenses_voucher_id`) REFERENCES `expense_vouchers` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `expenses_vouchers_items`
+--
+
+LOCK TABLES `expenses_vouchers_items` WRITE;
+/*!40000 ALTER TABLE `expenses_vouchers_items` DISABLE KEYS */;
+/*!40000 ALTER TABLE `expenses_vouchers_items` ENABLE KEYS */;
+UNLOCK TABLES;
 
 --
 -- Table structure for table `inventory`
@@ -319,6 +410,15 @@ CREATE TABLE `inventory` (
   CONSTRAINT `inventory_ibfk_2` FOREIGN KEY (`product_id`) REFERENCES `products` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `inventory`
+--
+
+LOCK TABLES `inventory` WRITE;
+/*!40000 ALTER TABLE `inventory` DISABLE KEYS */;
+/*!40000 ALTER TABLE `inventory` ENABLE KEYS */;
+UNLOCK TABLES;
 
 --
 -- Table structure for table `inventory_import_items`
@@ -352,6 +452,15 @@ CREATE TABLE `inventory_import_items` (
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
+-- Dumping data for table `inventory_import_items`
+--
+
+LOCK TABLES `inventory_import_items` WRITE;
+/*!40000 ALTER TABLE `inventory_import_items` DISABLE KEYS */;
+/*!40000 ALTER TABLE `inventory_import_items` ENABLE KEYS */;
+UNLOCK TABLES;
+
+--
 -- Table structure for table `inventory_imports`
 --
 
@@ -380,6 +489,15 @@ CREATE TABLE `inventory_imports` (
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
+-- Dumping data for table `inventory_imports`
+--
+
+LOCK TABLES `inventory_imports` WRITE;
+/*!40000 ALTER TABLE `inventory_imports` DISABLE KEYS */;
+/*!40000 ALTER TABLE `inventory_imports` ENABLE KEYS */;
+UNLOCK TABLES;
+
+--
 -- Table structure for table `invoice_item_consultants`
 --
 
@@ -404,6 +522,15 @@ CREATE TABLE `invoice_item_consultants` (
   CONSTRAINT `invoice_item_consultants_ibfk_2` FOREIGN KEY (`staff_id`) REFERENCES `staffs` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `invoice_item_consultants`
+--
+
+LOCK TABLES `invoice_item_consultants` WRITE;
+/*!40000 ALTER TABLE `invoice_item_consultants` DISABLE KEYS */;
+/*!40000 ALTER TABLE `invoice_item_consultants` ENABLE KEYS */;
+UNLOCK TABLES;
 
 --
 -- Table structure for table `invoice_items`
@@ -440,6 +567,15 @@ CREATE TABLE `invoice_items` (
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
+-- Dumping data for table `invoice_items`
+--
+
+LOCK TABLES `invoice_items` WRITE;
+/*!40000 ALTER TABLE `invoice_items` DISABLE KEYS */;
+/*!40000 ALTER TABLE `invoice_items` ENABLE KEYS */;
+UNLOCK TABLES;
+
+--
 -- Table structure for table `invoices`
 --
 
@@ -474,6 +610,15 @@ CREATE TABLE `invoices` (
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
+-- Dumping data for table `invoices`
+--
+
+LOCK TABLES `invoices` WRITE;
+/*!40000 ALTER TABLE `invoices` DISABLE KEYS */;
+/*!40000 ALTER TABLE `invoices` ENABLE KEYS */;
+UNLOCK TABLES;
+
+--
 -- Table structure for table `order_items`
 --
 
@@ -503,6 +648,15 @@ CREATE TABLE `order_items` (
   CONSTRAINT `fk_oi_product` FOREIGN KEY (`product_id`) REFERENCES `products` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `order_items`
+--
+
+LOCK TABLES `order_items` WRITE;
+/*!40000 ALTER TABLE `order_items` DISABLE KEYS */;
+/*!40000 ALTER TABLE `order_items` ENABLE KEYS */;
+UNLOCK TABLES;
 
 --
 -- Table structure for table `orders`
@@ -539,6 +693,15 @@ CREATE TABLE `orders` (
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
+-- Dumping data for table `orders`
+--
+
+LOCK TABLES `orders` WRITE;
+/*!40000 ALTER TABLE `orders` DISABLE KEYS */;
+/*!40000 ALTER TABLE `orders` ENABLE KEYS */;
+UNLOCK TABLES;
+
+--
 -- Table structure for table `product_commission_tiers`
 --
 
@@ -563,6 +726,15 @@ CREATE TABLE `product_commission_tiers` (
   CONSTRAINT `pct_role_fk` FOREIGN KEY (`role_id`) REFERENCES `roles` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `product_commission_tiers`
+--
+
+LOCK TABLES `product_commission_tiers` WRITE;
+/*!40000 ALTER TABLE `product_commission_tiers` DISABLE KEYS */;
+/*!40000 ALTER TABLE `product_commission_tiers` ENABLE KEYS */;
+UNLOCK TABLES;
 
 --
 -- Table structure for table `product_commissions`
@@ -590,6 +762,15 @@ CREATE TABLE `product_commissions` (
   CONSTRAINT `product_commissions_ibfk_2` FOREIGN KEY (`role_id`) REFERENCES `roles` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `product_commissions`
+--
+
+LOCK TABLES `product_commissions` WRITE;
+/*!40000 ALTER TABLE `product_commissions` DISABLE KEYS */;
+/*!40000 ALTER TABLE `product_commissions` ENABLE KEYS */;
+UNLOCK TABLES;
 
 --
 -- Table structure for table `products`
@@ -624,6 +805,15 @@ CREATE TABLE `products` (
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
+-- Dumping data for table `products`
+--
+
+LOCK TABLES `products` WRITE;
+/*!40000 ALTER TABLE `products` DISABLE KEYS */;
+/*!40000 ALTER TABLE `products` ENABLE KEYS */;
+UNLOCK TABLES;
+
+--
 -- Table structure for table `promotions`
 --
 
@@ -656,6 +846,15 @@ CREATE TABLE `promotions` (
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
+-- Dumping data for table `promotions`
+--
+
+LOCK TABLES `promotions` WRITE;
+/*!40000 ALTER TABLE `promotions` DISABLE KEYS */;
+/*!40000 ALTER TABLE `promotions` ENABLE KEYS */;
+UNLOCK TABLES;
+
+--
 -- Table structure for table `roles`
 --
 
@@ -675,6 +874,15 @@ CREATE TABLE `roles` (
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `roles`
+--
+
+LOCK TABLES `roles` WRITE;
+/*!40000 ALTER TABLE `roles` DISABLE KEYS */;
+/*!40000 ALTER TABLE `roles` ENABLE KEYS */;
+UNLOCK TABLES;
 
 --
 -- Table structure for table `staffs`
@@ -703,6 +911,15 @@ CREATE TABLE `staffs` (
   CONSTRAINT `staffs_ibfk_1` FOREIGN KEY (`branch_id`) REFERENCES `branches` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `staffs`
+--
+
+LOCK TABLES `staffs` WRITE;
+/*!40000 ALTER TABLE `staffs` DISABLE KEYS */;
+/*!40000 ALTER TABLE `staffs` ENABLE KEYS */;
+UNLOCK TABLES;
 
 --
 -- Table structure for table `treatment_history`
@@ -734,6 +951,15 @@ CREATE TABLE `treatment_history` (
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
+-- Dumping data for table `treatment_history`
+--
+
+LOCK TABLES `treatment_history` WRITE;
+/*!40000 ALTER TABLE `treatment_history` DISABLE KEYS */;
+/*!40000 ALTER TABLE `treatment_history` ENABLE KEYS */;
+UNLOCK TABLES;
+
+--
 -- Table structure for table `treatment_history_staffs`
 --
 
@@ -758,6 +984,15 @@ CREATE TABLE `treatment_history_staffs` (
   CONSTRAINT `treatment_history_staffs_ibfk_2` FOREIGN KEY (`staff_id`) REFERENCES `staffs` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `treatment_history_staffs`
+--
+
+LOCK TABLES `treatment_history_staffs` WRITE;
+/*!40000 ALTER TABLE `treatment_history_staffs` DISABLE KEYS */;
+/*!40000 ALTER TABLE `treatment_history_staffs` ENABLE KEYS */;
+UNLOCK TABLES;
 
 --
 -- Table structure for table `treatments`
@@ -794,6 +1029,15 @@ CREATE TABLE `treatments` (
   CONSTRAINT `treatments_invoice_item_fk` FOREIGN KEY (`invoice_item_id`) REFERENCES `invoice_items` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `treatments`
+--
+
+LOCK TABLES `treatments` WRITE;
+/*!40000 ALTER TABLE `treatments` DISABLE KEYS */;
+/*!40000 ALTER TABLE `treatments` ENABLE KEYS */;
+UNLOCK TABLES;
 /*!40103 SET TIME_ZONE=@OLD_TIME_ZONE */;
 
 /*!40101 SET SQL_MODE=@OLD_SQL_MODE */;
@@ -804,4 +1048,4 @@ CREATE TABLE `treatments` (
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
--- Dump completed on 2026-10-19 22:31:33
+-- Dump completed on 2026-10-25 16:08:12

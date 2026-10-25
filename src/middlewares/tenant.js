@@ -21,14 +21,14 @@ const attachTenantDB = async (req, res, next) => {
                   );
 
         if (rows.length === 0) {
-            return res.status(404).json({ message: 'Không tìm thấy thông tin cơ sở (Tenant).' });
+            return res.status(403).json({ code: 'TENANT_DISABLED', message: 'Không tìm thấy thông tin cơ sở (Tenant).' });
         }
 
         const tenant = rows[0];
 
         // Kiểm tra xem Spa có bị hệ thống khóa tay không
         if (tenant.deleted_at !== null) {
-            return res.status(403).json({ message: 'Tài khoản Spa này đã bị khóa hệ thống!' });
+            return res.status(403).json({ code: 'TENANT_DISABLED', message: 'Tài khoản Spa này đã bị khóa hệ thống!' });
         }
 
         // Kiểm tra xem Spa đã hết hạn sử dụng phần mềm chưa (Áp dụng cho gói Thuê)
@@ -42,9 +42,10 @@ const attachTenantDB = async (req, res, next) => {
             // Quy đổi mili-giây ra số ngày
             const daysLeft = Math.ceil(timeDiff / (1000 * 60 * 60 * 24)); 
 
-            if (daysLeft < 0) {
+            if (timeDiff <= 0) {
                 // Trường hợp 1: Đã quá hạn thật sự -> CHẶN ĐỨNG YÊU CẦU
                 return res.status(403).json({ 
+                    code: 'TENANT_EXPIRED',
                     message: 'Gói phần mềm đã hết hạn! Vui lòng gia hạn để tiếp tục sử dụng.' 
                 });
             } else if (daysLeft <= 10) {
@@ -66,7 +67,7 @@ const attachTenantDB = async (req, res, next) => {
         
     } catch (error) {
         console.error('[Tenant Middleware Error]', error);
-        res.status(500).json({ message: 'Lỗi xác thực hệ thống Tenant.' });
+        res.status(500).json({ code: 'TENANT_SERVICE_ERROR', message: 'Lỗi xác thực hệ thống Tenant.' });
     }
 };
 

@@ -1,5 +1,7 @@
 # Product listed price and sale price (customer-specific rollout)
 
+> Update 2026-10-25: for the combined birthday + sale-price rollout use `README_customer_upgrade.md` and the guarded `db:migrate:customer-upgrade` runner. The earlier customer-specific instructions below are historical; the combined rollout explicitly inventories all tenants and upgrades the live template separately. Do not blindly rerun the original SQL.
+
 `products.price` remains the listed price for existing clients and the current invoice fallback. `products.sale_price` is the selling price. The frontend must send `items[].unit_price = sale_price` to `POST /api/invoices` (and `PUT /api/invoices/:id`); the backend does not calculate the displayed percentage discount. An invoice without an explicit unit price still falls back to `products.price`.
 
 Product POST now requires both prices (`0 <= sale_price < price`). Product PUT validates the resulting pair whenever either price is supplied; it never silently overwrites the other price. Existing backfilled rows where `sale_price >= price` remain untouched and can receive non-price updates; price changes must make the resulting pair valid. Do not rerun the migration or automatically discount existing products.

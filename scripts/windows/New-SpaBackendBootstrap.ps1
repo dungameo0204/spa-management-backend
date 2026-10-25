@@ -16,6 +16,7 @@ $files = [ordered]@{
     'deploy\bootstrap\README_FIRST.md' = 'README_FIRST.md'
     'docs\HUONG_DAN_CAI_MAY_KHACH_CHO_NGUOI_DUNG.md' = 'HUONG_DAN_CAI_MAY_KHACH_CHO_NGUOI_DUNG.md'
     'docs\INSTALL_CUSTOMER_SERVER_TOMORROW.md' = 'INSTALL_CUSTOMER_SERVER_TOMORROW.md'
+    'docs\migrations\README_customer_upgrade.md' = 'docs\migrations\README_customer_upgrade.md'
     'docs\DEPLOY_WINDOWS_CLOUDFLARE.md' = 'docs\DEPLOY_WINDOWS_CLOUDFLARE.md'
     '.env.example' = '.env.example'
     'db_system_master.sql' = 'db_system_master.sql'

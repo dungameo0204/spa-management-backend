@@ -20,8 +20,15 @@ const createTreatment = async (tenantId, treatmentData, executorName) => {
 
     const customerId = toNumber(customer_id, 'customer_id', { min: 1, integer: true });
     const productId = toNumber(product_id, 'product_id', { min: 1, integer: true });
-    const totalSessions = toNumber(total_sessions, 'total_sessions', { min: 1, integer: true });
-    const remainingSessions = remaining_sessions !== undefined ? toNumber(remaining_sessions, 'remaining_sessions', { min: 0, integer: true }) : totalSessions;
+    // Keep numeric form strings compatible, but reject coercions such as null/false/[] -> 0.
+    const sessionCount = (value, field, min) => {
+        if (!['number', 'string'].includes(typeof value) || !/^\d+$/.test(String(value)) || !Number.isSafeInteger(Number(value)) || Number(value) > 2147483647) {
+            throw new Error(`${field} không hợp lệ.`);
+        }
+        return toNumber(value, field, { min, integer: true });
+    };
+    const totalSessions = sessionCount(total_sessions, 'total_sessions', 1);
+    const remainingSessions = remaining_sessions !== undefined ? sessionCount(remaining_sessions, 'remaining_sessions', 0) : totalSessions;
     if (treatmentData.invoice_id != null) throw new Error('Thẻ thủ công không nhận invoice_id; thẻ từ hóa đơn phải tạo qua API hóa đơn.');
     if (commission_base_price === undefined || commission_base_price === null || commission_base_price === '') throw new Error('commission_base_price bắt buộc.');
     const basePrice = toNumber(commission_base_price, 'commission_base_price');

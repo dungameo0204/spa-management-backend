@@ -1,8 +1,10 @@
 const { masterPool, getTenantDbName } = require('../config/database');
 const { paginateQuery } = require('../utils/pagination');
+const { normalizeDateOfBirth } = require('../utils/dateOfBirth');
 const bcrypt = require('bcryptjs'); // Đừng quên import thư viện mã hóa
 
 const createCustomer = async (tenantId, customerData, executorName) => {
+    const dateOfBirth = normalizeDateOfBirth(customerData.date_of_birth);
     const dbName = await getTenantDbName(tenantId);
     
     // Bóc tách tất cả các trường từ bảng mới
@@ -28,9 +30,9 @@ const createCustomer = async (tenantId, customerData, executorName) => {
     try {
         [result] = await masterPool.query(
             `INSERT INTO \`${dbName}\`.customers
-            (fullname, phone_number, password, avatar, address, note, created_by)
-            VALUES (?, ?, ?, ?, ?, ?, ?)`,
-            [fullname, phone_number, hashedPassword, avatar || null, address || null, note || null, executorName]
+            (fullname, phone_number, password, avatar, address, note, created_by, date_of_birth)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+            [fullname, phone_number, hashedPassword, avatar || null, address || null, note || null, executorName, dateOfBirth]
         );
     } catch (error) {
         if (error.code === 'ER_DUP_ENTRY') throw new Error(`Khách hàng với số điện thoại '${phone_number}' đã tồn tại trong hệ thống!`);
@@ -45,7 +47,7 @@ const getCustomers = async (tenantId, searchKeyword = '', pagination) => {
     
     // Lưu ý: Tuyệt đối không Select trả về cột password cho Frontend
     let query = `
-        SELECT id, fullname, phone_number, avatar, address, wallet_balance, total_debt, note, created_at, updated_at 
+        SELECT id, fullname, phone_number, DATE_FORMAT(date_of_birth, '%Y-%m-%d') AS date_of_birth, avatar, address, wallet_balance, total_debt, note, created_at, updated_at
         FROM \`${dbName}\`.customers 
         WHERE deleted_at IS NULL
     `;
@@ -62,7 +64,7 @@ const getCustomers = async (tenantId, searchKeyword = '', pagination) => {
 const getCustomerById = async (tenantId, customerId) => {
     const dbName = await getTenantDbName(tenantId);
     const [rows] = await masterPool.query(
-        `SELECT id, fullname, phone_number, avatar, address, wallet_balance, total_debt, note, created_at, updated_at, created_by, updated_by
+        `SELECT id, fullname, phone_number, DATE_FORMAT(date_of_birth, '%Y-%m-%d') AS date_of_birth, avatar, address, wallet_balance, total_debt, note, created_at, updated_at, created_by, updated_by
          FROM \`${dbName}\`.customers
          WHERE id = ? AND deleted_at IS NULL`,
         [customerId]
@@ -79,7 +81,7 @@ const getCustomerOverview = async (tenantId, customerId) => {
     }
     const dbName = await getTenantDbName(tenantId);
     const [customers] = await masterPool.query(
-        `SELECT id, fullname, phone_number, avatar, address, wallet_balance, total_debt, note,
+        `SELECT id, fullname, phone_number, DATE_FORMAT(date_of_birth, '%Y-%m-%d') AS date_of_birth, avatar, address, wallet_balance, total_debt, note,
                 created_at, updated_at, deleted_at, created_by, updated_by, deleted_by
          FROM \`${dbName}\`.customers WHERE id = ? AND deleted_at IS NULL`, [id]);
     if (!customers.length) { const error = new Error('Khách hàng không tồn tại hoặc đã bị xóa.'); error.status = 404; throw error; }
@@ -135,6 +137,7 @@ const getCustomerOverview = async (tenantId, customerId) => {
 };
 
 const updateCustomer = async (tenantId, customerId, updateData, executorName) => {
+    const dateOfBirth = updateData.date_of_birth !== undefined ? normalizeDateOfBirth(updateData.date_of_birth) : undefined;
     const dbName = await getTenantDbName(tenantId);
     
     const [check] = await masterPool.query(`SELECT id FROM \`${dbName}\`.customers WHERE id = ? AND deleted_at IS NULL`, [customerId]);
@@ -142,6 +145,11 @@ const updateCustomer = async (tenantId, customerId, updateData, executorName) =>
 
     let updateFields = [];
     let params = [];
+
+    if (dateOfBirth !== undefined) {
+        updateFields.push('date_of_birth = ?');
+        params.push(dateOfBirth);
+    }
 
     // 1. Xử lý Phone Number để check trùng
     if (updateData.phone_number !== undefined) { 

@@ -1,3 +1,10 @@
+# Nâng cấp database đã có dữ liệu (bổ sung 25/10/2026)
+
+Nếu đây là máy đã triển khai, không import lại schema bootstrap. Làm theo
+`docs/migrations/README_customer_upgrade.md` trong release source để kiểm kê, backup,
+migrate ngày sinh + `sale_price` cho từng tenant và template trước khi đổi release.
+Script deploy/auto-update không tự thực hiện migration. Không bật auto-update trong đợt nâng cấp schema.
+
 # Handoff cài backend Spa trên máy Windows khách
 
 > Runbook thao tác production. Mục tiêu là chạy app mới song song với app/database cũ, public qua Cloudflare Tunnel và tự cập nhật theo Git tag dành riêng cho máy. Không tự suy luận khi gặp khác biệt; áp dụng các điều kiện **DỪNG** trong tài liệu.
