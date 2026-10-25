@@ -163,3 +163,4 @@ Write-Host "   CÀI ĐẶT HOÀN TẤT CHO SPA O'HINA!                    " -For
 Write-Host "   Backend URL local: http://127.0.0.1:5000            " -ForegroundColor Green
 Write-Host "   Public API Domain: https://api-spa-ohina.infinityhavocx.men " -ForegroundColor Green
 Write-Host "==========================================================" -ForegroundColor Green
+

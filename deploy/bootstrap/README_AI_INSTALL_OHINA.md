@@ -74,3 +74,4 @@ cloudflared.exe service install <TUNNEL_TOKEN>
 2. Kiểm tra 2 Task trong Task Scheduler:
    * `SpaBackendDailyBackup` (Chạy lúc 19:15 hàng ngày đẩy lên R2).
    * `SpaBackendAutoUpdate` (Chạy lúc 19:30 hàng ngày cập nhật tag `backend-ohina-v*`).
+
