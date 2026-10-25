@@ -39,6 +39,19 @@ try {
     "$($hash.Hash)  $($hash.Path | Split-Path -Leaf)" | Set-Content -LiteralPath (Join-Path $backupDir 'SHA256.txt') -Encoding ASCII
     $manifest = [ordered]@{ createdAt = [DateTimeOffset]::Now.ToString('o'); databases = @($databases); dump = 'spa-databases.sql'; sha256 = $hash.Hash }
     $manifest | ConvertTo-Json -Depth 3 | Set-Content -LiteralPath (Join-Path $backupDir 'manifest.json') -Encoding UTF8
+
+    # Cloudflare R2 Upload if configured
+    $r2Config = Join-Path $Root 'config\r2-backup.json'
+    $uploader = Join-Path $Root 'current\scripts\upload-backup-r2.js'
+    if ((Test-Path -LiteralPath $r2Config -PathType Leaf) -and (Test-Path -LiteralPath $uploader -PathType Leaf)) {
+        Write-Host 'Found R2 config. Uploading backup to Cloudflare R2...' -ForegroundColor Cyan
+        $nodeExe = Join-Path $Root 'runtime\node\node.exe'
+        if (-not (Test-Path -LiteralPath $nodeExe -PathType Leaf)) { $nodeExe = 'node' }
+        & $nodeExe $uploader --config $r2Config --dump $dumpPath --stamp $stamp
+        if ($LASTEXITCODE -ne 0) {
+            Write-Warning ('Cloudflare R2 upload failed with exit code ' + $LASTEXITCODE)
+        }
+    }
 } finally {
     $env:MYSQL_PWD = $oldPassword
 }
