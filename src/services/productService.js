@@ -163,7 +163,7 @@ const createProduct = async (tenantId, productData, executorName, userRole) => {
         const listedPrice = toNumber(price, 'price');
         if (sale_price === undefined || sale_price === null || sale_price === '') throw new Error('sale_price không hợp lệ.');
         const sellingPrice = toNumber(sale_price, 'sale_price');
-        if (sellingPrice >= listedPrice) throw new Error('sale_price phải nhỏ hơn price.');
+        if (sellingPrice > listedPrice) throw new Error('sale_price không được lớn hơn price.');
         toBooleanNumber(is_product, 'is_product');
         toNumber(default_sessions, 'default_sessions', { min: 0, integer: true });
         toNumber(next_appointment_days, 'next_appointment_days', { min: 0, integer: true });
@@ -370,7 +370,7 @@ const updateProduct = async (tenantId, productId, updateData, executorName, user
             if (updateData.sale_price === null || updateData.sale_price === '') throw new Error('sale_price không hợp lệ.');
             const listedPrice = updateData.price === undefined ? Number(products[0].price) : toNumber(updateData.price, 'price');
             const sellingPrice = updateData.sale_price === undefined ? Number(products[0].sale_price) : toNumber(updateData.sale_price, 'sale_price');
-            if (sellingPrice >= listedPrice) throw new Error('sale_price phải nhỏ hơn price.');
+            if (sellingPrice > listedPrice) throw new Error('sale_price không được lớn hơn price.');
         }
 
         const updateFields = [];
