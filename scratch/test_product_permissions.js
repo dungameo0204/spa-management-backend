@@ -37,17 +37,20 @@ const app = express(); app.use(express.json()); app.use('/api/products', require
         }
         assert.equal((await request('PUT', '/10', { name: 'B' })).status, 200);
         assert.equal((await request('POST', '/', { name: 'No sale price', price: 20, is_product: 1 })).status, 400);
-        assert.equal((await request('POST', '/', { name: 'Equal prices', price: 20, sale_price: 20, is_product: 1 })).status, 400);
+        assert.equal((await request('POST', '/', { name: 'Equal prices', price: 20, sale_price: 20, is_product: 1 })).status, 201);
+        assert.equal((await request('POST', '/', { name: 'Above price', price: 20, sale_price: 25, is_product: 1 })).status, 400);
         assert.equal((await request('POST', '/', { name: 'Zero sale price', price: 20, sale_price: 0, is_product: 1 })).status, 201);
-        assert.equal((await request('PUT', '/10', { price: 10 })).status, 400);
-        assert.equal((await request('PUT', '/10', { sale_price: 20 })).status, 400);
+        assert.equal((await request('PUT', '/10', { price: 5 })).status, 400);
+        assert.equal((await request('PUT', '/10', { price: 10 })).status, 200);
+        assert.equal((await request('PUT', '/10', { sale_price: 20 })).status, 200);
+        assert.equal((await request('PUT', '/10', { sale_price: 25 })).status, 400);
         const beforePriceUpdate = calls.length;
         assert.equal((await request('PUT', '/10', { price: 30 })).status, 200);
         const priceUpdate = calls.slice(beforePriceUpdate).find(call => call.sql.startsWith('UPDATE `test_tenant`.products SET'));
         assert.ok(priceUpdate.sql.includes('price = ?'));
         assert.ok(!priceUpdate.sql.includes('sale_price = ?'));
         assert.equal((await request('PUT', '/11', { name: 'Legacy' })).status, 200);
-        assert.equal((await request('PUT', '/11', { sale_price: 20 })).status, 400);
+        assert.equal((await request('PUT', '/11', { sale_price: 20 })).status, 200);
         assert.equal((await request('PUT', '/12', { description: 'Legacy above listed price' })).status, 200);
         assert.equal((await request('PUT', '/12', { price: 25 })).status, 400);
         assert.equal((await request('DELETE', '/10')).status, 200);
