@@ -1,3 +1,15 @@
+## Lịch sử ghi chú hóa đơn trong hồ sơ khách hàng
+
+- `customers.note` vẫn là chuỗi text, giữ ghi chú cũ và nối từng sự kiện bằng `\n`; không thay đổi schema/response khách hàng. Frontend render text với CSS `white-space: pre-wrap`, không dùng HTML injection.
+- Dòng mới có dạng `27/10/2026 [HĐ #123 - Tạo] Khách đổi 1 buổi nặn mụn thành 1 buổi peel`. Ngày là ngày thao tác thực tế theo timezone local backend, không lấy `invoice_date`.
+- POST hóa đơn: `note` không rỗng sau trim thì nối dòng `Tạo`; không có nội dung thì không nối.
+- PUT hóa đơn: không gửi `note` giữ nội dung hiện tại; gửi cùng nội dung sau trim không nối trùng; thay đổi nội dung nối dòng `Sửa ghi chú`. Gửi null/chuỗi rỗng/khoảng trắng sẽ xóa `invoices.note` và nối dòng `Đã xóa ghi chú` nếu trước đó có nội dung.
+- DELETE hóa đơn thành công: luôn nối dòng `[HĐ #123 - Đã xóa]`, không xóa các ghi chú cũ trong hồ sơ khách.
+- Đổi khách trên hóa đơn: khách cũ nhận dòng `Chuyển sang khách #ID`; khách mới nhận dòng `Chuyển từ khách #ID` cùng ghi chú hiện tại. Lịch sử cũ không di chuyển/xóa.
+- `note` chỉ nhận string/null, không nhận object/array/boolean/number. Nếu ghi chú vượt dung lượng TEXT (65535 byte UTF-8), API trả HTTP 400 và rollback toàn bộ thao tác hóa đơn, không cắt nội dung.
+- Không tự bổ sung ghi chú cho hóa đơn cũ khi triển khai; API sửa hồ sơ khách vẫn có thể thay thế toàn bộ `customers.note`, nên đây không phải audit log bất biến.
+- Sau khi tạo/sửa/xóa hóa đơn, frontend cần tải lại dữ liệu khách để thấy ghi chú mới; response hóa đơn không đổi.
+
 # STAFF: giới hạn ngày phiếu và xóa lịch sử liệu trình
 
 - `POST /api/inventory-imports`, `PUT /api/inventory-imports/:id`: STAFF không được gửi `import_date` hoặc `created_at` (kể cả null/rỗng); vi phạm trả HTTP 400. Khi tạo, ngày được ghi tự động bằng thời gian hiện tại của database.
