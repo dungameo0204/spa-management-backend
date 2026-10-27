@@ -1,5 +1,6 @@
 const { masterPool, getTenantDbName } = require('../config/database');
 const { paginateQuery } = require('../utils/pagination');
+const { assertStaffDateFieldsAbsent } = require('../utils/staffDatePolicy');
 
 const toNumber = (value, fieldName, { min = 0, integer = false } = {}) => {
     const numberValue = Number(value);
@@ -34,6 +35,7 @@ const addItems = async (connection, dbName, voucherId, items) => {
 const totalItems = items => Math.round(items.reduce((sum, item) => sum + item.amount, 0) * 100) / 100;
 
 const createExpense = async (tenantId, expenseData, executorName, userRole, userBranchId) => {
+    assertStaffDateFieldsAbsent(userRole, expenseData, 'expense_date');
     const dbName = await getTenantDbName(tenantId);
     let { branch_id, note, expense_date } = expenseData;
     const items = normalizeItems(expenseData.items);
@@ -142,6 +144,7 @@ const getExpenseDetail = async (tenantId, expenseId, userRole, userBranchId) => 
 };
 
 const updateExpense = async (tenantId, expenseId, updateData, executorName, userRole, userBranchId) => {
+    assertStaffDateFieldsAbsent(userRole, updateData, 'expense_date');
     const dbName = await getTenantDbName(tenantId);
     
     // Kiểm tra phiếu tồn tại & Phân quyền

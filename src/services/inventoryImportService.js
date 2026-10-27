@@ -1,5 +1,6 @@
 const { masterPool, getTenantDbName } = require('../config/database');
 const { paginateQuery } = require('../utils/pagination');
+const { assertStaffDateFieldsAbsent } = require('../utils/staffDatePolicy');
 
 const toNumber = (value, fieldName, { min = 0, integer = false } = {}) => {
     const numberValue = Number(value);
@@ -24,6 +25,7 @@ const checkPermission = (userRole, importDate) => {
 };
 
 const createInventoryImport = async (tenantId, importData, executorName, userRole, userBranchId) => {
+    assertStaffDateFieldsAbsent(userRole, importData, 'import_date');
     const dbName = await getTenantDbName(tenantId);
     const connection = await masterPool.getConnection();
 
@@ -223,6 +225,7 @@ const getInventoryImportDetail = async (tenantId, inventoryImportId, userRole, u
 };
 
 const updateInventoryImport = async (tenantId, inventoryImportId, updateData, executorName, userRole, userBranchId) => {
+    assertStaffDateFieldsAbsent(userRole, updateData, 'import_date');
     const dbName = await getTenantDbName(tenantId);
     const connection = await masterPool.getConnection();
 

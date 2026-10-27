@@ -41,7 +41,7 @@ INSERT INTO `products` (`name`, `price`, `sale_price`, `unit`, `is_product`) VAL
 INSERT INTO `products` (`name`, `price`, `sale_price`, `unit`, `is_product`) VALUES ('Kem bôi da Pesancort', 120000, 120000, 'tuýp', 1);
 INSERT INTO `products` (`name`, `price`, `sale_price`, `unit`, `is_product`) VALUES ('Thuốc tiêm redtox', 0, 0, 'Lọ', 1);
 INSERT INTO `products` (`name`, `price`, `sale_price`, `unit`, `is_product`) VALUES ('Serum làm sáng ATX B3 Sensilis 30ml', 1300000, 1200000, 'Lọ', 1);
-INSERT INTO `products` (`name`, `price`, `sale_price`, `unit`, `is_product`) VALUES ('Sữa rửa mặt SVR cho da dầu 400ml', NULL, NULL, 'Lọ', 1);
+INSERT INTO `products` (`name`, `price`, `sale_price`, `unit`, `is_product`) VALUES ('Sữa rửa mặt SVR cho da dầu 400ml', 0, 0, 'Lọ', 1);
 INSERT INTO `products` (`name`, `price`, `sale_price`, `unit`, `is_product`) VALUES ('Nước tẩy trang SVR cho da dầu 400ml', 450000, 380000, 'Lọ', 1);
 INSERT INTO `products` (`name`, `price`, `sale_price`, `unit`, `is_product`) VALUES ('Tre Padagis', 1900000, 1900000, 'Lọ', 1);
 INSERT INTO `products` (`name`, `price`, `sale_price`, `unit`, `is_product`) VALUES ('Kem Clascon1%', 750000, 750000, 'Lọ', 1);
