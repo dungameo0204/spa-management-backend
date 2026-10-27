@@ -34,7 +34,7 @@ const reset = () => { state.calls = []; };
     assert.equal(state.commits, 1);
 
     reset();
-    state.history = { treatment_id: 4, branch_id: 2, appointment_id: 71 };
+    state.history = { treatment_id: 4, branch_id: 2, appointment_id: 71, execution_date: new Date(), created_at: new Date() };
     await deleteTreatmentHistory(1, 51, 'tester', 'STAFF', 2);
     assert.deepEqual(find('UPDATE `test_tenant`.appointments SET deleted_at')[0].params, ['tester', 71]);
     assert.match(find('UPDATE `test_tenant`.appointments SET deleted_at')[0].sql, /AND deleted_at IS NULL/);

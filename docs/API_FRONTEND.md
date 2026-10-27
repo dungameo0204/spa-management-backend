@@ -1,3 +1,11 @@
+# STAFF: giới hạn ngày phiếu và xóa lịch sử liệu trình
+
+- `POST /api/inventory-imports`, `PUT /api/inventory-imports/:id`: STAFF không được gửi `import_date` hoặc `created_at` (kể cả null/rỗng); vi phạm trả HTTP 400. Khi tạo, ngày được ghi tự động bằng thời gian hiện tại của database.
+- `POST /api/expenses`, `PUT /api/expenses/:id`: STAFF không được gửi `expense_date` hoặc `created_at` (kể cả null/rỗng); vi phạm trả HTTP 400. Frontend cần bỏ các trường này khỏi payload STAFF, không chỉ khóa ô nhập.
+- `DELETE /api/treatments/execute/:historyId`: STAFF chỉ được xóa khi cả `execution_date` và `created_at` đều thuộc hôm nay theo ngày lịch/múi giờ local của backend. Ngày thiếu/không hợp lệ, quá khứ hoặc tương lai đều bị chặn HTTP 400, trước khi hoàn buổi/xóa công ca/lịch hẹn. Giới hạn chi nhánh vẫn áp dụng.
+- MANAGER không bị áp dụng các giới hạn mới này. Không thay đổi các quyền sửa/xóa phiếu khác.
+- Máy chạy Node.js và MySQL cần cấu hình đồng bộ thời gian/múi giờ.
+
 # Tài liệu API cho Frontend — Spa Management Backend
 
 ## Phân trang cho API danh sách (cập nhật 2026-10-09)

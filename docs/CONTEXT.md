@@ -1,3 +1,10 @@
+# Bổ sung chính sách ngày cho STAFF
+
+- `src/utils/staffDatePolicy.js`: so sánh ngày lịch local backend; chặn STAFF gửi ngày nghiệp vụ/created_at khi tạo hoặc cập nhật nhập kho, phiếu chi.
+- STAFF xóa treatment_history: cả execution_date và created_at phải là hôm nay; kiểm tra sau khóa bản ghi trong transaction và trước mọi thao tác ghi. MANAGER giữ nguyên quyền.
+- STAFF phải bỏ import_date/expense_date và created_at khỏi payload, không gửi null. Tạo phiếu dùng NOW() hiện có; cần đồng bộ timezone Node/MySQL.
+- Kiểm thử không dùng DB thật: `npm run test:staff-date-policy`.
+
 # CONTEXT — Spa Management Backend
 
 > File bàn giao cho developer/AI. Đọc file này trước khi sửa code; cập nhật nó cùng lúc khi thêm route, schema, migration hoặc quy tắc nghiệp vụ. Trạng thái: **06/10/2026**.

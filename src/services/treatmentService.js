@@ -1,5 +1,6 @@
 const { masterPool, getTenantDbName } = require('../config/database');
 const { paginateQuery } = require('../utils/pagination');
+const { isToday } = require('../utils/staffDatePolicy');
 const { loadCommissionBase, calculateCommission } = require('./commissionService');
 
 const toNumber = (value, fieldName, { min = 0, integer = false } = {}) => {
@@ -266,12 +267,18 @@ const deleteTreatmentHistory = async (tenantId, historyId, executorName, userRol
     try {
         await connection.beginTransaction();
 
-        const [histories] = await connection.query(`SELECT treatment_id, branch_id, appointment_id FROM \`${dbName}\`.treatment_history WHERE id = ? AND deleted_at IS NULL FOR UPDATE`, [historyId]);
+        const [histories] = await connection.query(`SELECT treatment_id, branch_id, appointment_id, execution_date, created_at FROM \`${dbName}\`.treatment_history WHERE id = ? AND deleted_at IS NULL FOR UPDATE`, [historyId]);
         if (histories.length === 0) throw new Error('Lịch sử không tồn tại hoặc đã bị xóa.');
         
         const history = histories[0];
         if (String(userRole).toUpperCase() === 'STAFF' && Number(history.branch_id) !== Number(userBranchId)) {
             throw new Error('Bạn không có quyền thao tác trên lịch sử của cơ sở khác.');
+        }
+
+        const now = new Date();
+        if (String(userRole).toUpperCase() === 'STAFF' &&
+            (!isToday(history.execution_date, now) || !isToday(history.created_at, now))) {
+            throw new Error('Nhân viên chỉ được xóa lịch sử có ngày thực hiện và ngày tạo đều là hôm nay.');
         }
 
         // Hoàn lại 1 buổi cho thẻ liệu trình
