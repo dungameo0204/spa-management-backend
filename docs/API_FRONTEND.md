@@ -1,14 +1,18 @@
-# Rosa treatment groups
+# Hướng dẫn thay đổi frontend Rosa
+
+Đọc `docs/ROSA_FRONTEND_CHANGELOG.md` trước để biết màn hình/API nào thay đổi, ý nghĩa trường gửi/nhận, các quy tắc tích hợp và checklist frontend. Backend local Rosa hiện cấu hình cổng 5002 → MySQL 3308. Tài liệu này bên dưới là tham chiếu API đầy đủ.
+
+## Rosa treatment groups
 
 See `docs/ROSA_TREATMENT_GROUPS_API.md` for invoice `items[].treatment` creation, nested children/history, lifetime cards and signed group completion. Invoice creation already creates the cards atomically: **do not send a second POST /api/treatments**. Explicit configured lines require quantity=1; omitted configuration retains legacy behavior. Invoice detail exposes actual cards at `data.items[].treatment`.
 
-## Rosa: schema nền tảng (chưa phải toàn bộ API mới)
+## Rosa: chức năng đã triển khai sau giai đoạn schema nền tảng
 
 Xem `docs/ROSA_SCHEMA.md`. POST thẻ thủ công chấp nhận `total_sessions: null` cho trọn đời, khi đó bỏ `remaining_sessions` hoặc gửi null; không nhận parent_treatment_id. Thẻ trọn đời hoạt động giữ số buổi NULL khi thực hiện; thẻ đóng/cha đóng bị chặn. Bộ lọc active bao gồm thẻ trọn đời còn mở.
 
-GET booking dùng arrival_date/time để lọc/sắp xếp. Các cột hồ sơ, ảnh, thành phần dịch vụ, chữ ký và kết thúc liệu trình đã có ở DB nhưng chưa có API ghi mới trong bước này. Frontend không gửi những trường mới vào API hiện tại với kỳ vọng chúng sẽ được lưu. Không triển khai frontend mới trước khi hoàn thiện API tương ứng.
+GET booking dùng arrival_date/time để lọc/sắp xếp, hỗ trợ khoảng giờ và has_arrived; booking có CRUD nội bộ. API hồ sơ, ảnh nhiều file, cấu hình dịch vụ con, tạo nhóm từ invoice, chữ ký từng buổi và ký kết thúc đã triển khai. Xem các tài liệu chuyên đề được liệt kê trong ROSA_FRONTEND_CHANGELOG.md; không áp dụng ghi chú schema-only cũ như giới hạn của API hiện tại.
 
-Hóa đơn có thẻ trọn đời/cha-con/đã đóng bị chặn sửa qua luồng hiện tại; hóa đơn có thẻ cha-con/đã đóng bị chặn xóa để tránh mất liên kết/chữ ký.
+Hóa đơn có thẻ trọn đời/cha-con/đã đóng bị chặn sửa và xóa qua luồng hiện tại để tránh mất liên kết/chữ ký.
 
 ## Lịch sử ghi chú hóa đơn trong hồ sơ khách hàng
 
@@ -505,7 +509,7 @@ Body có thể gửi một phần: `fullname`, `phone_number`, `address`, `role_
 
 ## Rosa: quan hệ dịch vụ con trong products
 
-POST/PUT `/api/products` hỗ trợ `child_service_ids: [12, 15]` chỉ cho dịch vụ (`is_product: false`). GET danh sách/chi tiết trả thêm mảng ID này, sản phẩm bán lẻ/dịch vụ không có con trả `[]`. PUT bỏ field giữ nguyên; `[]` gỡ hết; null/ID trùng/ID không hợp lệ/vòng lặp bị từ chối. Quan hệ lưu trong `product_service_components`, không phải cột JSON mới. Chưa tự sinh thẻ con khi bán hóa đơn. Chi tiết payload, xóa/khôi phục và kiểm thử: `docs/ROSA_PRODUCT_COMPONENTS_API.md`.
+POST/PUT `/api/products` hỗ trợ `child_service_ids: [12, 15]` chỉ cho dịch vụ (`is_product: false`). GET danh sách/chi tiết trả thêm mảng ID này, sản phẩm bán lẻ/dịch vụ không có con trả `[]`. PUT bỏ field giữ nguyên; `[]` gỡ hết; null/ID trùng/ID không hợp lệ/vòng lặp bị từ chối. Quan hệ lưu trong `product_service_components`, không phải cột JSON mới. Khi bán, gửi `items[].treatment.children` để tạo thẻ con thực tế cho khách trong transaction invoice; không tự chọn tất cả con từ danh mục. Chi tiết cấu hình: `docs/ROSA_PRODUCT_COMPONENTS_API.md`; tạo thẻ: `docs/ROSA_TREATMENT_GROUPS_API.md`.
 
 ## 11. Khách hàng `/api/customers`
 

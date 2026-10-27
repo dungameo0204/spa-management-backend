@@ -57,11 +57,11 @@ GET /api/products và GET /api/products/:id thêm child_service_ids theo sort_or
 
 Mọi thao tác tạo/sửa/xóa/khôi phục products lấy advisory lock cùng tenant trước transaction và nhả sau commit/rollback. Điều này tuần tự hóa các thao tác quản trị products trong tenant để tránh race vòng lặp/đổi loại; SQL thủ công không tuân thủ lock vẫn có thể làm sai quan hệ. Quy mô hiện tại dùng kiểm tra đồ thị toàn tenant, chưa benchmark dữ liệu rất lớn.
 
-## Chưa triển khai
+## Ranh giới danh mục và thẻ thực tế
 
 - Không tự đổi is_treatment_combo.
-- Không tự sinh thẻ liệu trình cha/con khi bán hóa đơn; invoice vẫn theo luồng cũ.
-- Không tự phân bổ giá/hoa hồng hoặc số buổi cho con.
+- Danh mục không tự sinh thẻ cho khách. Invoice hiện nhận items[].treatment.children để tạo nhóm thực tế trong cùng transaction; xem docs/ROSA_TREATMENT_GROUPS_API.md. Không gửi cấu hình treatment thì giữ hành vi invoice cũ.
+- Danh mục không tự chọn số buổi con. Khi bán, frontend gửi số buổi/null/0 riêng từng con; giá snapshot hoa hồng con lấy products.price, không phải giá frontend gửi và không cộng thành dòng tiền mới.
 - Không thay đổi thẻ/hóa đơn lịch sử khi sửa danh mục.
 
 ## Test

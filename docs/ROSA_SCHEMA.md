@@ -57,7 +57,7 @@ NEW requires no customer_id, nonblank name and phone; EXISTING requires customer
 
 ## Session signature
 
-### Per-session note (database-only)
+### Per-session note (schema and API)
 
 `treatment_history.note TEXT NULL` added on Rosa 3308 to both db_spa_template and db_spa_1791039769068_e185. Existing history rows retain NULL. This is separate from treatments.note and closure_note. POST /api/treatments/execute now accepts optional note and customer_signature_svg at session creation; see docs/ROSA_TREATMENT_GROUPS_API.md. No additional schema change was needed for API support.
 
@@ -78,4 +78,4 @@ treatment_history adds customer_signature_svg MEDIUMTEXT and customer_signed_at 
 - node scratch/test_customer_overview.js
 - Set DOTENV_CONFIG_PATH=D:\SpaRosa\config\.env, then npm run test:rosa:mysql.
 
-MySQL test writes are transaction-rolled-back; AUTO_INCREMENT counters can advance even on rollback. Rosa MySQL test also checks two images per session, sort order, capture date independence, orphan-image FK rejection and parent hard-delete restriction. Legacy nonempty backfill is covered by SQL-contract assertions, not a live legacy-data migration fixture. Separate skin-images HTTP tests cover implemented upload endpoints; future signature/booking/closure endpoints are not tested.
+MySQL test writes are transaction-rolled-back; AUTO_INCREMENT counters can advance even on rollback. Rosa MySQL test also checks two images per session, sort order, capture date independence, orphan-image FK rejection and parent hard-delete restriction. Legacy nonempty backfill is covered by SQL-contract assertions, not a live legacy-data migration fixture. Separate skin-images HTTP tests cover uploads. Implemented per-session metadata/group closure and booking APIs have their own test suites: npm run test:treatment-groups, npm run test:treatment-groups:mysql, npm run test:customer-bookings and npm run test:customer-bookings:mysql (explicit Rosa configuration for MySQL). Frontend overview: docs/ROSA_FRONTEND_CHANGELOG.md.
