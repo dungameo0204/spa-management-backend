@@ -12,6 +12,7 @@
     "test:customer-upgrade:mysql": "node scratch/test_customer_upgrade_mysql.js",
     "test:server-config": "node scratch/test_server_config.js",
     "test:staff-date-policy": "node scratch/test_staff_date_policy.js && node scratch/test_treatment_appointment_cleanup.js && node scratch/test_expense_items.js",
+    "test:invoice-notes": "node scratch/test_invoice_customer_notes.js && node scratch/test_invoice_treatment_sessions.js && node scratch/test_invoice_update_treatments.js",
     "test:auth-session": "node scratch/test_auth_session.js",
     "test:product-sale-price": "node scratch/test_product_sale_price.js",
     "test:deployment-security": "node scratch/test_health_and_rate_limit.js && node scratch/test_customer_reset_security.js"

@@ -1,6 +1,7 @@
 const { masterPool, getTenantDbName } = require('../config/database');
 const { paginateQuery } = require('../utils/pagination');
 const { recalculateTreatmentCommissions } = require('./commissionService');
+const { normalizeInvoiceNote, appendInvoiceCustomerNote } = require('./customerNoteService');
 
 const toNumber = (value, fieldName, { min = 0, integer = false } = {}) => {
     const numberValue = Number(value);
@@ -128,6 +129,7 @@ const createInvoice = async (tenantId, invoiceData, executorName, userRole, user
 
     try {
         let { customer_id, branch_id, discount_percent = 0, discount_amount = 0, paid_amount = 0, wallet_used, payment_method, note, invoice_date, items } = invoiceData;
+        note = normalizeInvoiceNote(note);
 
         // 1. Phân quyền chi nhánh
         if (String(userRole).toUpperCase() !== 'MANAGER') branch_id = userBranchId;
@@ -236,6 +238,9 @@ const createInvoice = async (tenantId, invoiceData, executorName, userRole, user
             );
         }
 
+        if (note) {
+            await appendInvoiceCustomerNote(connection, dbName, customerId, invoiceId, 'Tạo', note, executorName);
+        }
         await connection.commit();
         return { invoiceId, totalAmount, debtAmount, walletUsed, itemMappings };
     } catch (error) {
@@ -353,6 +358,8 @@ const updateInvoice = async (tenantId, invoiceId, updateData, executorName, user
         
         const oldInvoice = headers[0];
         if (String(userRole).toUpperCase() !== 'MANAGER' && oldInvoice.branch_id !== userBranchId) throw new Error('Bạn không có quyền sửa hóa đơn của cơ sở khác.');
+        const oldNote = normalizeInvoiceNote(oldInvoice.note);
+        const newNote = updateData.note === undefined ? oldNote : normalizeInvoiceNote(updateData.note);
         checkPermission(userRole, oldInvoice.created_at);
         await ensureInvoiceHasNoDebtPayments(connection, dbName, invoiceId, 'sửa');
         const [oldTreatments] = await connection.query(
@@ -511,7 +518,7 @@ const updateInvoice = async (tenantId, invoiceId, updateData, executorName, user
         // 3. Insert & Update Database
         await connection.query(
             `UPDATE \`${dbName}\`.invoices SET customer_id = ?, total_amount = ?, discount_percent = ?, discount_amount = ?, paid_amount = ?, wallet_used = ?, debt_amount = ?, payment_method = ?, note = ?, invoice_date = COALESCE(?, invoice_date), updated_by = ? WHERE id = ?`,
-            [newCustomerId, totalAmount, invDiscountPercent, invDiscountAmount, paid, newWalletUsed, debtAmount, basePaymentMethod, updateData.note || oldInvoice.note, updateData.invoice_date || null, executorName, invoiceId]
+            [newCustomerId, totalAmount, invDiscountPercent, invDiscountAmount, paid, newWalletUsed, debtAmount, basePaymentMethod, newNote, updateData.invoice_date || null, executorName, invoiceId]
         );
 
         for (const item of normalizedItems) {
@@ -540,6 +547,16 @@ const updateInvoice = async (tenantId, invoiceId, updateData, executorName, user
             await connection.query(`UPDATE \`${dbName}\`.customers SET total_debt = total_debt + ?, wallet_balance = wallet_balance - ?, updated_by = ? WHERE id = ?`, [debtAmount, newWalletUsed, executorName, newCustomerId]);
         }
 
+        const noteTime = new Date();
+        if (Number(newCustomerId) !== Number(oldInvoice.customer_id)) {
+            await appendInvoiceCustomerNote(connection, dbName, oldInvoice.customer_id, invoiceId,
+                `Chuyển sang khách #${newCustomerId}`, null, executorName, noteTime);
+            await appendInvoiceCustomerNote(connection, dbName, newCustomerId, invoiceId,
+                `Chuyển từ khách #${oldInvoice.customer_id}`, newNote, executorName, noteTime);
+        } else if (newNote !== oldNote) {
+            await appendInvoiceCustomerNote(connection, dbName, newCustomerId, invoiceId,
+                newNote ? 'Sửa ghi chú' : 'Đã xóa ghi chú', newNote, executorName, noteTime);
+        }
         await connection.commit();
         return { message: 'Cập nhật hóa đơn thành công', totalAmount, debtAmount };
     } catch (error) {
@@ -602,6 +619,7 @@ const deleteInvoice = async (tenantId, invoiceId, executorName, userRole, userBr
             await connection.query(`UPDATE \`${dbName}\`.invoice_items SET deleted_at = NOW(), deleted_by = ? WHERE invoice_id = ?`, [executorName, invoiceId]);
         }
 
+        await appendInvoiceCustomerNote(connection, dbName, oldInvoice.customer_id, invoiceId, 'Đã xóa', null, executorName);
         await connection.commit();
         return { message: 'Xóa hóa đơn thành công (Đã hoàn trả công nợ, ví tiền và thu hồi liệu trình)' };
     } catch (error) {
