@@ -3,7 +3,7 @@ const { respondListError } = require('../utils/pagination');
 
 const create = async (req, res) => {
     try {
-        if (!req.body.fullname || !req.body.phone_number) {
+        if (!req.body || typeof req.body.fullname !== 'string' || !req.body.fullname.trim() || typeof req.body.phone_number !== 'string' || !req.body.phone_number.trim()) {
             return res.status(400).json({ message: 'Vui lòng điền đầy đủ Họ tên và Số điện thoại' });
         }
 
@@ -55,10 +55,13 @@ const update = async (req, res) => {
         const tenantId = req.user.tenant_id;
         const executorName = req.user.fullname || req.user.username;
 
-        if (req.body.fullname !== undefined && req.body.fullname.trim() === '') {
+        if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body)) {
+            return res.status(400).json({ message: 'Dữ liệu khách hàng phải là object.' });
+        }
+        if (req.body.fullname !== undefined && (typeof req.body.fullname !== 'string' || req.body.fullname.trim() === '')) {
             return res.status(400).json({ message: 'Họ và tên không được để trống' });
         }
-        if (req.body.phone_number !== undefined && req.body.phone_number.trim() === '') {
+        if (req.body.phone_number !== undefined && (typeof req.body.phone_number !== 'string' || req.body.phone_number.trim() === '')) {
             return res.status(400).json({ message: 'Số điện thoại không được để trống' });
         }
 

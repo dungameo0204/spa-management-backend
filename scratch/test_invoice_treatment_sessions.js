@@ -13,6 +13,7 @@ let nextId = 20;
 const connection = {
     async beginTransaction() {}, async commit() {}, async rollback() {}, release() {},
     async query(sql, params = []) {
+        if (sql.includes('SELECT t.id FROM `test_tenant`.treatments t')) return [[]];
         if (sql.includes('.invoices WHERE id = ? AND deleted_at IS NULL FOR UPDATE')) return [[{
             id: 20, branch_id: 1, customer_id: 7, created_at: new Date(), total_amount: 0,
             discount_percent: 0, discount_amount: 0, paid_amount: 0, wallet_used: 0, debt_amount: 0, payment_method: 'CASH', note: null

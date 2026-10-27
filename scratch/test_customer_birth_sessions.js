@@ -70,7 +70,9 @@ const treatments = require('../src/services/treatmentService');
         await assert.rejects(treatments.createTreatment(1, { ...base, remaining_sessions: value }, 'tester'));
         assert.equal(calls.length, before);
     }
-    for (const value of [undefined, null, '', false, [], 0, -1, 1.5, 2147483648]) {
+    await treatments.createTreatment(1, { ...base, total_sessions: null }, 'tester');
+    assert.equal(remaining, null);
+    for (const value of [undefined, '', false, [], 0, -1, 1.5, 2147483648]) {
         await assert.rejects(treatments.createTreatment(1, { ...base, total_sessions: value }, 'tester'));
     }
     await treatments.createTreatment(1, { ...base, remaining_sessions: 4 }, 'tester');

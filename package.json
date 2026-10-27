@@ -4,6 +4,20 @@
   "description": "",
   "main": "index.js",
   "scripts": {
+    "test:customer-bookings": "node scratch/test_customer_bookings.js",
+    "test:customer-bookings:mysql": "node --require dotenv/config scratch/test_customer_bookings_mysql.js",
+    "test:treatment-groups": "node scratch/test_treatment_groups.js && node scratch/test_treatment_history_metadata.js",
+    "test:treatment-groups:mysql": "node --require dotenv/config scratch/test_treatment_groups_mysql.js",
+    "test:product-components": "node scratch/test_product_components.js",
+    "test:product-components:mysql": "node --require dotenv/config scratch/test_product_components_mysql.js",
+    "test:skin-images": "node scratch/test_skin_image_storage.js",
+    "test:skin-images:mysql": "node --require dotenv/config scratch/test_skin_images_mysql.js",
+    "db:migrate:rosa-image-sessions": "node scripts/apply-rosa-image-sessions.js",
+    "test:rosa-image-sessions": "node scratch/test_rosa_image_sessions_migration.js",
+    "test:customer-profile": "node scratch/test_customer_profile.js",
+    "test:customer-profile:mysql": "node --require dotenv/config scratch/test_customer_profile_mysql.js",
+    "db:migrate:rosa": "node scripts/apply-rosa-schema.js",
+    "test:rosa:mysql": "node --require dotenv/config scratch/test_rosa_schema_mysql.js",
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
     "db:migrate:commission": "node scripts/apply-commission-migration.js",
@@ -26,6 +40,7 @@
     "dotenv": "^18.0.4",
     "express": "^5.2.1",
     "jsonwebtoken": "^9.0.3",
+    "multer": "2.5.0",
     "mysql2": "^3.24.4"
   },
   "devDependencies": {

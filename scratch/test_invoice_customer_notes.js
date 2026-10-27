@@ -21,6 +21,7 @@ const connection = {
     },
     release() {},
     async query(sql, params = []) {
+        if (sql.includes('SELECT t.id FROM `test_tenant`.treatments t')) return [[]];
         state.calls.push({ sql, params });
         if (sql.includes('SET note = CONCAT')) {
             assert.match(sql, /OCTET_LENGTH/);

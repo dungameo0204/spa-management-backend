@@ -1,3 +1,9 @@
+## Rosa schema branch
+
+- Read docs/ROSA_SCHEMA.md before modifying Rosa profiles, booking, image, parent-child or lifetime treatment behavior.
+- Schema applied only to template and tenant 7 on MySQL 3308; historical tenant schemas unchanged. Backend source now expects Rosa columns in these modules.
+- This phase prepares DB and existing-flow compatibility; profile/booking writes, uploads, hierarchy generation and signed closure endpoints remain follow-ups.
+
 ## Lịch sử ghi chú hóa đơn → customers.note
 
 - `src/services/customerNoteService.js` chuẩn hóa note string/null, định dạng `DD/MM/YYYY [HĐ #ID - sự kiện] nội dung` theo ngày local backend và nối nguyên tử bằng SQL CONCAT + CHAR(10).

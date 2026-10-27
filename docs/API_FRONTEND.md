@@ -1,3 +1,15 @@
+# Rosa treatment groups
+
+See `docs/ROSA_TREATMENT_GROUPS_API.md` for invoice `items[].treatment` creation, nested children/history, lifetime cards and signed group completion. Invoice creation already creates the cards atomically: **do not send a second POST /api/treatments**. Explicit configured lines require quantity=1; omitted configuration retains legacy behavior. Invoice detail exposes actual cards at `data.items[].treatment`.
+
+## Rosa: schema nền tảng (chưa phải toàn bộ API mới)
+
+Xem `docs/ROSA_SCHEMA.md`. POST thẻ thủ công chấp nhận `total_sessions: null` cho trọn đời, khi đó bỏ `remaining_sessions` hoặc gửi null; không nhận parent_treatment_id. Thẻ trọn đời hoạt động giữ số buổi NULL khi thực hiện; thẻ đóng/cha đóng bị chặn. Bộ lọc active bao gồm thẻ trọn đời còn mở.
+
+GET booking dùng arrival_date/time để lọc/sắp xếp. Các cột hồ sơ, ảnh, thành phần dịch vụ, chữ ký và kết thúc liệu trình đã có ở DB nhưng chưa có API ghi mới trong bước này. Frontend không gửi những trường mới vào API hiện tại với kỳ vọng chúng sẽ được lưu. Không triển khai frontend mới trước khi hoàn thiện API tương ứng.
+
+Hóa đơn có thẻ trọn đời/cha-con/đã đóng bị chặn sửa qua luồng hiện tại; hóa đơn có thẻ cha-con/đã đóng bị chặn xóa để tránh mất liên kết/chữ ký.
+
 ## Lịch sử ghi chú hóa đơn trong hồ sơ khách hàng
 
 - `customers.note` vẫn là chuỗi text, giữ ghi chú cũ và nối từng sự kiện bằng `\n`; không thay đổi schema/response khách hàng. Frontend render text với CSS `white-space: pre-wrap`, không dùng HTML injection.
@@ -113,7 +125,7 @@ Tại thời điểm hiện tại, `src/server.js` mount các endpoint hoạt đ
 | Expense | `POST/GET /api/expenses`, `GET /api/expenses/:id`, `PUT/DELETE /api/expenses/:id` |
 | Invoice | `POST/GET /api/invoices`, `GET /api/invoices/:id`, `PUT/DELETE /api/invoices/:id` |
 | Appointment | `POST/GET /api/appointments`, `GET /api/appointments/tomorrow`, `GET /api/appointments/not-arrived`, `GET /api/appointments/:id`, `PUT/DELETE /api/appointments/:id` |
-| Customer booking | `GET /api/customer-bookings`, `GET /api/customer-bookings/:id` |
+| Customer booking | `POST/GET /api/customer-bookings`, `GET/PUT/DELETE /api/customer-bookings/:id` |
 | Customer wallet log | `POST/GET /api/customer-wallet-logs`, `GET/PUT/DELETE /api/customer-wallet-logs/:id` |
 | Debt payment | `POST/GET /api/debt-payments`, `GET/PUT/DELETE /api/debt-payments/:id`, `GET /api/debt-payments/invoices/:invoiceId/remaining-debt` |
 | Treatment | `POST /api/treatments`, `POST /api/treatments/execute`, `DELETE /api/treatments/execute/:historyId`, `PUT /api/treatments/execute/:historyId/staffs`, `GET /api/treatments/commissions` |
@@ -491,7 +503,59 @@ Body có thể gửi một phần: `fullname`, `phone_number`, `address`, `role_
 
 ---
 
+## Rosa: quan hệ dịch vụ con trong products
+
+POST/PUT `/api/products` hỗ trợ `child_service_ids: [12, 15]` chỉ cho dịch vụ (`is_product: false`). GET danh sách/chi tiết trả thêm mảng ID này, sản phẩm bán lẻ/dịch vụ không có con trả `[]`. PUT bỏ field giữ nguyên; `[]` gỡ hết; null/ID trùng/ID không hợp lệ/vòng lặp bị từ chối. Quan hệ lưu trong `product_service_components`, không phải cột JSON mới. Chưa tự sinh thẻ con khi bán hóa đơn. Chi tiết payload, xóa/khôi phục và kiểm thử: `docs/ROSA_PRODUCT_COMPONENTS_API.md`.
+
 ## 11. Khách hàng `/api/customers`
+
+### Hồ sơ Rosa — bổ sung ngày 27/10/2026
+
+Chỉ dùng trên schema Rosa đã migrate (MySQL 3308, tenant 7 hiện tại). Các field dưới đây được hỗ trợ trong POST/PUT và trả về trong GET danh sách, chi tiết và `overview.data.customer`. Không thay đổi response envelope hoặc các trường ví/công nợ cũ. Không trả `password`.
+
+| Field | Kiểu và quy tắc |
+|---|---|
+| `profile_code` | Chuỗi tối đa 50 ký tự; mã hồ sơ tùy chọn, không tự sinh. Trim khoảng trắng, duy nhất trong tenant kể cả khách đã xóa mềm. |
+| `profile_date` | Ngày lập hồ sơ `YYYY-MM-DD` hoặc null; ngày có thật, năm >= 1000, không ở tương lai theo ngày máy backend. GET không có giờ/múi giờ. |
+| `gender` | `MALE`, `FEMALE`, `OTHER` hoặc null. |
+| `skin_types` | Mảng mã: `DRY` (khô), `OILY_ACNE` (dầu/mụn), `SENSITIVE_DAMAGED` (nhạy cảm/tổn thương), `AGING` (lão hóa), `COMBINATION` (hỗn hợp), `PIGMENTED` (tăng sắc tố), `OTHER` (khác); hoặc null. |
+| `referral_sources` | Mảng mã `TIKTOK`, `FACEBOOK`, `FRIEND`, `OTHER`; hoặc null. |
+| `referral_note` | Ghi chú nguồn giới thiệu. |
+| `previous_skin_treatments` | Các điều trị da trước đây. |
+| `peeling_products_history` | Lịch sử dùng sản phẩm peel. |
+| `current_skincare_products` | Sản phẩm chăm sóc da đang dùng. |
+| `skincare_routine` | Quy trình chăm sóc da. |
+| `pigmentation_onset` | Thời điểm/diễn biến xuất hiện sắc tố (text). |
+| `family_skin_history` | Tiền sử da gia đình. |
+| `pregnancy_and_medical_history` | Thai kỳ và tiền sử bệnh lý. |
+| `cosmetic_reaction_history` | Tiền sử phản ứng mỹ phẩm. |
+| `skin_assessment` | Đánh giá da. |
+| `consultation_note` | Nội dung tư vấn. |
+
+Các field text nhận chuỗi hoặc null, trim khoảng trắng; chuỗi rỗng thành null. Mỗi field TEXT giới hạn 65535 byte UTF-8. Mảng phải gửi dạng JSON array, không gửi chuỗi `"[\"DRY\"]"`; mã phân biệt hoa/thường, mã lặp được loại bỏ. `[]` là danh sách rỗng, khác với null (chưa ghi nhận). Không tự đoán hoặc tự chuyển mã không hợp lệ.
+
+POST bỏ các field tùy chọn thì lưu NULL. PUT bỏ field giữ nguyên, gửi null xóa field; `profile_date: ""` cũng xóa ngày. Dữ liệu sai hoặc trùng mã hồ sơ trả 400. Không ghi trực tiếp `wallet_balance`, `total_debt` qua API hồ sơ. Loại da/nguồn giới thiệu được lưu JSON trong MySQL và trả về dạng mảng, không phải chuỗi JSON.
+
+Ví dụ POST `/api/customers` (PUT dùng cùng các field, nhưng chỉ gửi phần cần sửa):
+
+```json
+{
+  "fullname": "Nguyễn Thị An",
+  "phone_number": "0912345678",
+  "date_of_birth": "1995-08-21",
+  "profile_code": "ROSA-000123",
+  "profile_date": "2026-10-27",
+  "gender": "FEMALE",
+  "skin_types": ["DRY", "SENSITIVE_DAMAGED"],
+  "referral_sources": ["FRIEND"],
+  "referral_note": "Bạn giới thiệu",
+  "current_skincare_products": "Sữa rửa mặt, kem chống nắng",
+  "skin_assessment": "Da khô, dễ kích ứng",
+  "consultation_note": "Ưu tiên phục hồi hàng rào bảo vệ da"
+}
+```
+
+Ảnh da tổ chức theo lần chụp: bảng cha `customer_skin_image_sessions` chứa khách/ngày chụp/ghi chú chung; bảng con `customer_skin_images` chứa từng đường dẫn ảnh và metadata, liên kết bằng `session_id`. Một lần chụp có nhiều ảnh. API upload nhiều file, đọc có Bearer token và xóa mềm đã có dưới `/api/customers/:customerId/skin-image-sessions`; xem `docs/ROSA_SKIN_IMAGES_API.md` để biết multipart fields, endpoint, response và ví dụ Postman/frontend.
 
 ### `POST /api/customers/reset-password` — Chỉ MANAGER
 
@@ -537,7 +601,7 @@ Triển khai phải migrate tenant và template trước khi bật code mới; x
 
 ### `GET /api/customers?search=<keyword>` — Cần token
 
-- `search` tìm `fullname` hoặc `phone_number`.
+- `search` tìm `fullname`, `phone_number` hoặc `profile_code` (Rosa).
 - Mỗi item trả: `id`, `fullname`, `phone_number`, `avatar`, `address`, `wallet_balance`, `total_debt`, `note`, `created_at`, `updated_at`.
 - Không bao giờ trả `password`.
 
@@ -560,7 +624,7 @@ Ví dụ một dòng trong `timeline`: `{ "type": "purchase", "date": "2026-10-1
 
 ### `PUT /api/customers/:id` — Cần token
 
-Body hỗ trợ: `fullname`, `phone_number`, `password`, `avatar`, `address`, `note`.
+Body hỗ trợ: `fullname`, `phone_number`, `password`, `avatar`, `address`, `note`, `date_of_birth` và các trường hồ sơ Rosa ở đầu mục 11.
 
 - `fullname`/`phone_number` nếu gửi không được là chuỗi rỗng.
 - `phone_number` mới được kiểm tra trùng trên **toàn bộ khách trong tenant, kể cả khách đã xóa mềm**; trùng trả `400`. Không kiểm tra theo cặp tên + SĐT.
@@ -936,22 +1000,24 @@ Xóa mềm lịch hẹn. MANAGER xóa được mọi branch; STAFF chỉ xóa đ
 
 ## 17. Booking do khách đặt `/api/customer-bookings`
 
-Đây là API quản trị **chỉ đọc** booking do khách tạo từ MiniApp. Backend quản trị không có `POST`, `PUT`, `DELETE` cho resource này; việc khách tạo/sửa/hủy booking thuộc MiniApp.
+API đặt lịch nội bộ do nhân viên tạo theo schema Rosa, dành cho MANAGER/STAFF; hỗ trợ POST/GET danh sách và GET/PUT/DELETE chi tiết. Cả hai vai trò xem được toàn bộ booking trong cùng spa; STAFF thêm/sửa/xóa vẫn giới hạn branch token. Không giới hạn ngày đến là hôm nay vì đây là ngày hẹn. MiniApp hiện không được mount. Chi tiết hợp đồng payload: `docs/ROSA_CUSTOMER_BOOKINGS_API.md`.
 
 ### `GET /api/customer-bookings`
 
-Query tùy chọn: `search`, `branchId`, `customerId`, `productId`, `status`, `startDate`, `endDate`.
+Query tùy chọn: `search`, `branchId`, `customerId`, `productId`, `status`, `startDate`, `endDate`, `startTime`, `endTime`.
 
 - `search`: tìm gần đúng theo `customer_name`, `customer_phone`, ghi chú hoặc tên dịch vụ đã chọn.
-- `branchId`: MANAGER có thể lọc branch; STAFF luôn bị khóa ở branch token.
+- `branchId`: cả MANAGER và STAFF đều có thể lọc branch; bỏ qua thì xem toàn spa, không xem chéo tenant.
 - `customerId`, `productId`, `status`: lọc khớp chính xác.
-- `startDate`, `endDate`: lọc theo `booking_time` dạng `YYYY-MM-DD`.
+- `startDate`, `endDate`: lọc theo `arrival_date` dạng `YYYY-MM-DD`, bao gồm hai đầu. Thứ tự `arrival_date`, `arrival_time`, `created_at`, `id` tăng dần.
+- `startTime`, `endTime`: lọc giờ hẹn `arrival_time`, nhận HH:mm/HH:mm:ss, bao gồm hai đầu; có thể gửi một đầu. Ví dụ 07:00–08:00 áp dụng cho mỗi ngày trong khoảng lọc, loại giờ NULL. Sai định dạng hoặc đầu > cuối trả 400, không hỗ trợ qua đêm.
+- `has_arrived`: boolean tính động ở list/detail, true nếu khách phát sinh hóa đơn hoặc thẻ liệu trình chưa xóa mềm từ 00:00 ngày tạo booking (`created_at`) đến hiện tại. Khách EXISTING ghép customer_id; NEW chưa có ID ghép số điện thoại trùng chính xác. Kiểm tra toàn spa, không dùng ngày hẹn; không tự đổi status hay thêm cột DB.
 - Kết quả trả thêm `branch_name`, `product_name`; nếu booking liên kết customer hệ thống thì có thêm `registered_customer_name`, `registered_customer_phone`.
 - Thành công `200`: `{ "message": "Lấy danh sách booking khách hàng thành công", "total": 1, "page": 1, "pageSize": 20, "totalPages": 1, "data": [ ... ] }`.
 
 ### `GET /api/customer-bookings/:id`
 
-Cần token; `200`: `{ "message": "Lấy chi tiết booking khách hàng thành công", "data": { ... } }`, cùng các field `customer_bookings` và thông tin join (`branch_name`, `product_name`, `registered_customer_name`, `registered_customer_phone`) như item danh sách; LEFT JOIN có thể trả `null`. STAFF chỉ xem branch token. ID không hợp lệ trả `400`; không tồn tại/đã xóa/khác branch trả `404`.
+Cần token MANAGER/STAFF; `200`: `{ "message": "Lấy chi tiết booking khách hàng thành công", "data": { ... } }`, cùng các field `customer_bookings`, `has_arrived` và thông tin join (`branch_name`, `product_name`, `registered_customer_name`, `registered_customer_phone`) như item danh sách; LEFT JOIN có thể trả `null`. STAFF xem được khác branch trong cùng spa. ID không hợp lệ trả `400`; không tồn tại/đã xóa trả `404`.
 
 ---
 
@@ -1113,13 +1179,13 @@ API này hỗ trợ query filter để tìm danh sách thẻ liệu trình. Tấ
 | `invoiceId` | number | Lọc các thẻ được sinh từ hóa đơn tương ứng (`treatments.invoice_id`). |
 | `customerSearch` | string | Tìm gần đúng theo tên hoặc số điện thoại khách hàng. |
 | `productSearch` | string | Tìm gần đúng theo tên sản phẩm/dịch vụ. Ví dụ: `productSearch=lông`. |
-| `status` | `active` / `completed` | `active`: còn buổi (`remaining_sessions > 0`); `completed`: đã hết buổi (`remaining_sessions = 0`). |
+| `status` | `active` / `exhausted` / `completed` | `active`: chưa ký kết thúc (`closed_at IS NULL`), gồm cả thẻ hết buổi; `exhausted`: chưa ký kết thúc và `remaining_sessions = 0`; `completed`: đã ký kết thúc (`closed_at IS NOT NULL`). |
 | `startDate` | `YYYY-MM-DD` | Lọc từ ngày tạo thẻ, theo `treatments.created_at`. |
 | `endDate` | `YYYY-MM-DD` | Lọc đến ngày tạo thẻ, theo `treatments.created_at`. |
 | `branchId` | number | Lọc theo branch của hóa đơn gốc. Thẻ tạo thủ công không có invoice vẫn được bao gồm theo logic hiện tại. |
 
 - `customerSearch` tìm theo tên/số điện thoại; `productSearch` tìm tên dịch vụ.
-- `status=active` lọc thẻ còn buổi; `status=completed` lọc thẻ hết buổi.
+- `status=active` lọc thẻ chưa ký kết thúc; `status=exhausted` lọc thẻ hết buổi nhưng chưa ký kết thúc; `status=completed` lọc thẻ đã ký kết thúc. Chữ ký từng buổi không làm thẻ chuyển sang completed.
 - `startDate`, `endDate`: lọc ngày tạo thẻ; `invoiceId` lọc toàn bộ thẻ liệu trình được sinh từ một hóa đơn, không phụ thuộc branch của hóa đơn; `branchId` lọc thẻ tạo từ hóa đơn của một cơ sở (thẻ thủ công không có invoice vẫn được bao gồm theo nghiệp vụ hiện tại).
 - Thành công `200`: `{ "message": "Lấy danh sách liệu trình thành công", "total": 1, "page": 1, "pageSize": 20, "totalPages": 1, "data": [ ... ] }`.
 
@@ -1146,7 +1212,7 @@ Authorization: Bearer <token>
 ```
 
 Lưu ý: endpoint này trả danh sách `data`. Muốn xem chi tiết một thẻ và toàn bộ lịch sử thực hiện, gọi `GET /api/treatments/:id`.
-Không gửi `status` thì API trả **cả thẻ đã hết buổi** (`remaining_sessions=0`); `status=active` chỉ lấy thẻ còn buổi, `status=completed` chỉ lấy thẻ hết buổi. Danh sách mặc định mới nhất trước theo `created_at`, rồi `id`.
+Không gửi `status` thì API trả cả thẻ chưa ký, đã hết buổi và đã ký kết thúc (trừ thẻ xóa mềm). `status=active` lấy thẻ chưa ký kết thúc, `status=exhausted` lấy thẻ hết buổi nhưng chưa ký kết thúc, `status=completed` lấy thẻ đã ký kết thúc. Danh sách ngoài và tổng phân trang chỉ tính thẻ gốc; `children` lồng bên trong vẫn hiển thị dù hết buổi/đã đóng. Danh sách mặc định mới nhất trước theo `created_at`, rồi `id`.
 
 ### `GET /api/treatments/:id`
 
@@ -1203,6 +1269,8 @@ Mỗi phần tử trong `histories[]` gồm các field của `treatment_history`
 
 - `id`, `treatment_id`, `branch_id`.
 - `execution_date`: Thời điểm thực hiện dịch vụ.
+- `note`: Ghi chú riêng của buổi, có thể `null`, khác ghi chú chung trên thẻ.
+- `customer_signature_svg`, `customer_signed_at`: Chữ ký xác nhận buổi và thời điểm server ghi nhận, có thể `null`; khác chữ ký kết thúc cả nhóm.
 - `created_at`, `updated_at`, `deleted_at`, `created_by`, `updated_by`, `deleted_by`.
 - `staffs`: Danh sách nhân viên được gán cho lần thực hiện đó.
 
@@ -1283,6 +1351,10 @@ Tạo thẻ thủ công.
 ### `POST /api/treatments/execute`
 
 Trừ một buổi tại cơ sở thực tế khách đến làm.
+
+Nhận thêm `note` và `customer_signature_svg` tùy chọn (MANAGER/STAFF theo quyền thực hiện hiện có). `note` là chuỗi tối đa 65535 byte UTF-8; bỏ qua/null/chuỗi trắng lưu NULL, chuỗi khác được trim hai đầu và giữ xuống dòng. `customer_signature_svg` bỏ qua/null là chưa ký; nếu gửi chuỗi thì phải là SVG nét vẽ hợp lệ theo validator chữ ký tại `docs/ROSA_TREATMENT_GROUPS_API.md` (tối đa 128 KiB); chuỗi rỗng hoặc SVG không hợp lệ trả 400. Khi có chữ ký hợp lệ server tự ghi `customer_signed_at=NOW()`, client **không gửi customer_signed_at** (gửi lên bị từ chối). Ghi chú/chữ ký được lưu cùng transaction trừ buổi/lịch sử/hoa hồng; request cũ không gửi các trường mới vẫn dùng được. Chưa có API sửa ghi chú hoặc ký bổ sung sau khi tạo buổi.
+
+Ví dụ phần bổ sung vào payload: `"note": "Da hơi đỏ, lưu ý theo dõi buổi sau", "customer_signature_svg": "<svg width=\"300\" height=\"100\"><path d=\"M 10 20 L 50 60\"/></svg>"`. Frontend render ghi chú dạng text và chữ ký qua image, không chèn HTML tùy ý. Ký từng buổi không đóng liệu trình; ký kết thúc dùng `POST /api/treatments/:id/close` tại thẻ cha để đóng cha và toàn bộ thẻ con.
 
 ```json
 {
@@ -1638,7 +1710,7 @@ Các GET danh sách trong bảng này sử dụng message theo controller: `/ten
 | `GET /customer-bookings` | 200 | Danh sách phân trang, `message: "Lấy danh sách booking khách hàng thành công"`; `data[]`: toàn bộ `customer_bookings` (`id`, `customer_id`, `customer_name`, `customer_phone`, `branch_id`, `product_id`, `booking_time`, `note`, `status`, audit) cộng `branch_name`, `product_name`, `registered_customer_name`, `registered_customer_phone`. Các field từ LEFT JOIN có thể `null`. |
 | `GET /customer-bookings/:id` | 200 | `{ message: "Lấy chi tiết booking khách hàng thành công", data: CustomerBooking }`; cùng field list, STAFF chỉ xem branch token. ID sai `400`, không tồn tại/đã xóa/khác branch `404`. |
 
-Ở `GET /invoices` và chi tiết, `payment_method` được bỏ hậu tố legacy `[WALLET:n]`; tiền ví đọc từ `wallet_used`. Booking quản trị chỉ có GET danh sách và GET chi tiết (không có POST/PUT/DELETE). Dữ liệu list/chi tiết không mặc nhiên cùng cấu trúc (đặc biệt `items`, `consultants` hóa đơn).
+Ở `GET /invoices` và chi tiết, `payment_method` được bỏ hậu tố legacy `[WALLET:n]`; tiền ví đọc từ `wallet_used`. Booking Rosa có POST/GET danh sách và GET/PUT/DELETE chi tiết; xem `docs/ROSA_CUSTOMER_BOOKINGS_API.md`. Dữ liệu list/chi tiết không mặc nhiên cùng cấu trúc (đặc biệt `items`, `consultants` hóa đơn).
 
 ### Nạp ví, thu nợ
 

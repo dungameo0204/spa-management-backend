@@ -30,8 +30,15 @@ const getDetail = async (req, res) => {
         res.status(200).json({ message: 'Lấy chi tiết liệu trình thành công', data: result });
     } catch (error) {
         if (error.message.includes('Không tìm thấy')) return res.status(404).json({ message: error.message });
-        res.status(500).json({ message: error.message });
+        res.status(error.status || 500).json({ message: error.message });
     }
+};
+
+const close = async (req, res) => {
+    try {
+        const result = await treatmentService.closeTreatment(req.user.tenant_id, req.params.id, req.body, req.user.fullname || req.user.username);
+        res.json({ message: 'Ký hoàn thành liệu trình thành công', ...result });
+    } catch (error) { res.status(error.status || 400).json({ message: error.message }); }
 };
 
 const executeSession = async (req, res) => {
@@ -89,6 +96,7 @@ const removeHistory = async (req, res) => {
 };
 
 module.exports = {
+    close,
     getList,
     getDetail, 
     createManualTreatment, 

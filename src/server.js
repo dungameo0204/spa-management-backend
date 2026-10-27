@@ -38,6 +38,7 @@ app.use('/api/roles', roleRoutes);
 app.use('/api/staffs',staffRoutes);
 app.use('/api/branches',branchesRoutes);
 app.use('/api/customers', customerRoures);
+app.use('/api/customers/:customerId/skin-image-sessions', require('./routes/skinImageRoutes'));
 app.use('/api/products', productRoutes);
 app.use('/api/inventory-imports', inventoryImportRoutes);
 app.use('/api/expenses', expenseRoutes);
@@ -50,6 +51,12 @@ app.use('/api/debt-payments', debtPaymentRoutes);
 app.use('/api/reports', reportRoutes);
 
 const start = async () => {
+    if (process.env.UPLOAD_ROOT) {
+        const storage = require('./utils/skinImageStorage');
+        await storage.cleanupStale();
+        const cleanupTimer = setInterval(() => storage.cleanupStale().catch(error => console.error('Skin temp cleanup failed:', error.code || error.message)), 60 * 60 * 1000);
+        cleanupTimer.unref();
+    }
     const connection = await masterPool.getConnection();
     connection.release();
     console.log('✅ Đã kết nối thành công vào MySQL (db_system_master)!');

@@ -13,6 +13,7 @@ const connection = {
     async rollback() { state.rollbacks++; },
     release() {},
     async query(sql, params = []) {
+        if (sql.includes('SELECT t.id FROM `test_tenant`.treatments t')) return [[]];
         state.queries.push({ sql, params });
         if (sql.includes('.invoices WHERE id = ? AND deleted_at IS NULL FOR UPDATE')) return [[{
             id: 20, branch_id: 1, customer_id: 7, created_at: createdAt, total_amount: 500,

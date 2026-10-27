@@ -1,9 +1,26 @@
 const { masterPool, getTenantDbName } = require('../config/database');
 const { paginateQuery } = require('../utils/pagination');
 const { normalizeDateOfBirth } = require('../utils/dateOfBirth');
+const { normalizeCustomerProfile, profileSqlValue, profileSelect } = require('../utils/customerProfile');
 const bcrypt = require('bcryptjs'); // Đừng quên import thư viện mã hóa
 
+const customerDuplicateError = error => new Error(
+    String(error.sqlMessage || error.message || '').includes('uq_customer_profile_code')
+        ? 'Mã hồ sơ đã được khách hàng khác sử dụng!'
+        : 'Số điện thoại đã được khách hàng khác sử dụng!'
+);
+
+const assertProfileCodeAvailable = async (dbName, code, excludeId) => {
+    if (!code) return;
+    const params = [code];
+    let sql = `SELECT id FROM \`${dbName}\`.customers WHERE profile_code = ?`;
+    if (excludeId !== undefined) { sql += ' AND id != ?'; params.push(excludeId); }
+    const [rows] = await masterPool.query(sql, params);
+    if (rows.length) throw new Error('Mã hồ sơ đã được khách hàng khác sử dụng!');
+};
+
 const createCustomer = async (tenantId, customerData, executorName) => {
+    const profile = normalizeCustomerProfile(customerData);
     const dateOfBirth = normalizeDateOfBirth(customerData.date_of_birth);
     const dbName = await getTenantDbName(tenantId);
     
@@ -19,6 +36,9 @@ const createCustomer = async (tenantId, customerData, executorName) => {
         throw new Error(`Khách hàng với số điện thoại '${phone_number}' đã tồn tại trong hệ thống!`);
     }
 
+    await assertProfileCodeAvailable(dbName, profile.profile_code);
+    const profileFields = Object.keys(profile);
+
     // Mã hóa mật khẩu nếu có (Khi khách tự đăng ký qua MiniApp)
     let hashedPassword = null;
     if (password) {
@@ -30,12 +50,12 @@ const createCustomer = async (tenantId, customerData, executorName) => {
     try {
         [result] = await masterPool.query(
             `INSERT INTO \`${dbName}\`.customers
-            (fullname, phone_number, password, avatar, address, note, created_by, date_of_birth)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-            [fullname, phone_number, hashedPassword, avatar || null, address || null, note || null, executorName, dateOfBirth]
+            (fullname, phone_number, password, avatar, address, note, created_by, date_of_birth${profileFields.length ? ', ' + profileFields.join(', ') : ''})
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?${profileFields.map(() => ', ?').join('')})`,
+            [fullname, phone_number, hashedPassword, avatar || null, address || null, note || null, executorName, dateOfBirth, ...profileFields.map(field => profileSqlValue(field, profile[field]))]
         );
     } catch (error) {
-        if (error.code === 'ER_DUP_ENTRY') throw new Error(`Khách hàng với số điện thoại '${phone_number}' đã tồn tại trong hệ thống!`);
+        if (error.code === 'ER_DUP_ENTRY') throw customerDuplicateError(error);
         throw error;
     }
 
@@ -47,15 +67,15 @@ const getCustomers = async (tenantId, searchKeyword = '', pagination) => {
     
     // Lưu ý: Tuyệt đối không Select trả về cột password cho Frontend
     let query = `
-        SELECT id, fullname, phone_number, DATE_FORMAT(date_of_birth, '%Y-%m-%d') AS date_of_birth, avatar, address, wallet_balance, total_debt, note, created_at, updated_at
+        SELECT id, fullname, phone_number, DATE_FORMAT(date_of_birth, '%Y-%m-%d') AS date_of_birth, avatar, address, wallet_balance, total_debt, note, created_at, updated_at, ${profileSelect()}
         FROM \`${dbName}\`.customers 
         WHERE deleted_at IS NULL
     `;
     const params = [];
 
     if (searchKeyword) {
-        query += ` AND (fullname LIKE ? OR phone_number LIKE ?)`;
-        params.push(`%${searchKeyword}%`, `%${searchKeyword}%`);
+        query += ` AND (fullname LIKE ? OR phone_number LIKE ? OR profile_code LIKE ?)`;
+        params.push(`%${searchKeyword}%`, `%${searchKeyword}%`, `%${searchKeyword}%`);
     }
     
     return paginateQuery(masterPool, query, params, 'created_at DESC, id DESC', pagination);
@@ -64,7 +84,7 @@ const getCustomers = async (tenantId, searchKeyword = '', pagination) => {
 const getCustomerById = async (tenantId, customerId) => {
     const dbName = await getTenantDbName(tenantId);
     const [rows] = await masterPool.query(
-        `SELECT id, fullname, phone_number, DATE_FORMAT(date_of_birth, '%Y-%m-%d') AS date_of_birth, avatar, address, wallet_balance, total_debt, note, created_at, updated_at, created_by, updated_by
+        `SELECT id, fullname, phone_number, DATE_FORMAT(date_of_birth, '%Y-%m-%d') AS date_of_birth, avatar, address, wallet_balance, total_debt, note, created_at, updated_at, created_by, updated_by, ${profileSelect()}
          FROM \`${dbName}\`.customers
          WHERE id = ? AND deleted_at IS NULL`,
         [customerId]
@@ -82,7 +102,7 @@ const getCustomerOverview = async (tenantId, customerId) => {
     const dbName = await getTenantDbName(tenantId);
     const [customers] = await masterPool.query(
         `SELECT id, fullname, phone_number, DATE_FORMAT(date_of_birth, '%Y-%m-%d') AS date_of_birth, avatar, address, wallet_balance, total_debt, note,
-                created_at, updated_at, deleted_at, created_by, updated_by, deleted_by
+                created_at, updated_at, deleted_at, created_by, updated_by, deleted_by, ${profileSelect()}
          FROM \`${dbName}\`.customers WHERE id = ? AND deleted_at IS NULL`, [id]);
     if (!customers.length) { const error = new Error('Khách hàng không tồn tại hoặc đã bị xóa.'); error.status = 404; throw error; }
 
@@ -118,30 +138,42 @@ const getCustomerOverview = async (tenantId, customerId) => {
             histories.forEach(history => { history.staffs = staffs.filter(staff => staff.treatment_history_id === history.id); });
         }
         cards.forEach(card => {
-            card.completed_sessions = card.total_sessions - card.remaining_sessions;
             card.histories = histories.filter(history => history.treatment_id === card.id);
+            card.completed_sessions = card.total_sessions === null || card.closed_at ? card.histories.length : card.total_sessions - card.remaining_sessions;
         });
     }
     const matchedCardIds = new Set();
+    const cardMap = new Map(cards.map(card => [Number(card.id), card]));
+    cards.forEach(card => { card.children = []; });
+    cards.forEach(card => {
+        if (card.parent_treatment_id != null) {
+            const parent = cardMap.get(Number(card.parent_treatment_id));
+            if (parent && Number(parent.customer_id) === Number(card.customer_id)) parent.children.push(card);
+        }
+    });
+    const rootCards = cards.filter(card => card.parent_treatment_id == null);
     const purchasesWithTreatments = purchases.map(item => {
-        const treatment = cards.find(card => card.invoice_item_id != null && Number(card.invoice_item_id) === Number(item.invoice_item_id)) || null;
+        const treatment = rootCards.find(card => card.invoice_item_id != null && Number(card.invoice_item_id) === Number(item.invoice_item_id)) || null;
         if (treatment) matchedCardIds.add(treatment.id);
         return { ...item, treatment };
     });
     const timeline = [
         ...purchasesWithTreatments.map(item => ({ type: 'purchase', date: item.purchase_date, item })),
-        ...cards.filter(card => !matchedCardIds.has(card.id))
+        ...rootCards.filter(card => !matchedCardIds.has(card.id))
             .map(treatment => ({ type: 'treatment', date: treatment.purchase_date || treatment.created_at, treatment }))
     ].sort((a, b) => new Date(b.date) - new Date(a.date) || a.type.localeCompare(b.type));
-    return { customer: customers[0], purchases: purchasesWithTreatments, treatments: cards, timeline };
+    return { customer: customers[0], purchases: purchasesWithTreatments, treatments: rootCards, timeline };
 };
 
 const updateCustomer = async (tenantId, customerId, updateData, executorName) => {
+    const profile = normalizeCustomerProfile(updateData);
     const dateOfBirth = updateData.date_of_birth !== undefined ? normalizeDateOfBirth(updateData.date_of_birth) : undefined;
     const dbName = await getTenantDbName(tenantId);
     
     const [check] = await masterPool.query(`SELECT id FROM \`${dbName}\`.customers WHERE id = ? AND deleted_at IS NULL`, [customerId]);
     if (check.length === 0) throw new Error('Khách hàng không tồn tại hoặc đã bị xóa!');
+
+    await assertProfileCodeAvailable(dbName, profile.profile_code, customerId);
 
     let updateFields = [];
     let params = [];
@@ -180,16 +212,21 @@ const updateCustomer = async (tenantId, customerId, updateData, executorName) =>
         }
     });
 
+    for (const [field, value] of Object.entries(profile)) {
+        updateFields.push(`${field} = ?`);
+        params.push(profileSqlValue(field, value));
+    }
+
     if (updateFields.length > 0) {
         updateFields.push('updated_by = ?'); 
         params.push(executorName);
         params.push(customerId);
 
-        const query = `UPDATE \`${dbName}\`.customers SET ${updateFields.join(', ')} WHERE id = ?`;
+        const query = `UPDATE \`${dbName}\`.customers SET ${updateFields.join(', ')} WHERE id = ? AND deleted_at IS NULL`;
         try {
             await masterPool.query(query, params);
         } catch (error) {
-            if (error.code === 'ER_DUP_ENTRY') throw new Error('Số điện thoại này đã được khách hàng khác sử dụng!');
+            if (error.code === 'ER_DUP_ENTRY') throw customerDuplicateError(error);
             throw error;
         }
     }

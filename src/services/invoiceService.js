@@ -2,6 +2,7 @@ const { masterPool, getTenantDbName } = require('../config/database');
 const { paginateQuery } = require('../utils/pagination');
 const { recalculateTreatmentCommissions } = require('./commissionService');
 const { normalizeInvoiceNote, appendInvoiceCustomerNote } = require('./customerNoteService');
+const groups = require('./treatmentGroupService');
 
 const toNumber = (value, fieldName, { min = 0, integer = false } = {}) => {
     const numberValue = Number(value);
@@ -113,6 +114,14 @@ const treatmentDetails = item => {
 };
 
 const createInvoiceTreatment = async (connection, dbName, customerId, invoiceId, invoiceItemId, item, executorName, createdAt) => {
+    if (item.treatmentConfig) {
+        const result = await groups.create(connection, dbName, {
+            customerId, productId: item.product_id, invoiceId, invoiceItemId,
+            basePrice: item.snapshot_price, quantity: item.quantity, createdAt
+        }, item.treatmentConfig, executorName);
+        item.createdChildren = result.children;
+        return result.treatmentId;
+    }
     const details = treatmentDetails(item);
     if (!details) return null;
     const { totalSessions, note } = details;
@@ -161,6 +170,7 @@ const createInvoice = async (tenantId, invoiceData, executorName, userRole, user
             const [products] = await connection.query(`SELECT name, price, unit, is_product, is_treatment_combo, default_sessions FROM \`${dbName}\`.products WHERE id = ? AND deleted_at IS NULL`, [productId]);
             if (products.length === 0) throw new Error(`Sản phẩm/Dịch vụ ID ${productId} không tồn tại.`);
             const product = products[0];
+            const treatmentConfig = item.treatment === undefined ? undefined : await groups.prepare(connection, dbName, productId, item.treatment, quantity);
             const unitPrice = item.unit_price !== undefined
                 ? toNumber(item.unit_price, 'unit_price')
                 : item.price !== undefined
@@ -176,6 +186,7 @@ const createInvoice = async (tenantId, invoiceData, executorName, userRole, user
 
             normalizedItems.push({
                 requestIndex,
+                treatmentConfig,
                 product_id: productId, snapshot_name: product.name, snapshot_price: unitPrice, quantity,
                 unit: product.unit, is_product: product.is_product, is_treatment_combo: product.is_treatment_combo, default_sessions: product.default_sessions,
                 discount_percent: itemDiscountPercent, discount_amount: itemDiscountAmount, final_price: itemFinalPrice, consultants
@@ -223,7 +234,8 @@ const createInvoice = async (tenantId, invoiceData, executorName, userRole, user
             }
 
             const treatmentId = await createInvoiceTreatment(connection, dbName, customerId, invoiceId, invoiceItemId, item, executorName);
-            itemMappings.push({ request_index: item.requestIndex, invoice_item_id: invoiceItemId, treatment_id: treatmentId });
+            itemMappings.push({ request_index: item.requestIndex, invoice_item_id: invoiceItemId, treatment_id: treatmentId,
+                ...(item.createdChildren ? { children: item.createdChildren } : {}) });
 
             if (item.is_product === 1) {
                 await adjustInventory(connection, dbName, branchId, item.product_id, -item.quantity, executorName);
@@ -342,11 +354,16 @@ const getInvoiceDetail = async (tenantId, invoiceId, userRole, userBranchId) => 
         items.forEach(item => { item.consultants = consultants.filter(c => c.invoice_item_id === item.id); });
     }
 
+    const [cards] = await masterPool.query(`SELECT t.*,p.name AS product_name FROM \`${dbName}\`.treatments t
+        JOIN \`${dbName}\`.products p ON p.id=t.product_id WHERE t.invoice_id=? AND t.parent_treatment_id IS NULL AND t.deleted_at IS NULL ORDER BY t.id`, [invoiceId]);
+    const roots = await groups.attach(masterPool, dbName, cards);
+    for (const item of items) item.treatment = roots.find(card => Number(card.invoice_item_id) === Number(item.id)) || null;
     invoice.items = items;
     return invoice;
 };
 
 const updateInvoice = async (tenantId, invoiceId, updateData, executorName, userRole, userBranchId) => {
+    if (Array.isArray(updateData.items) && updateData.items.some(item => item?.treatment !== undefined)) throw new Error('Không thay đổi cấu hình treatment qua PUT hóa đơn; tạo nhóm qua POST hóa đơn.');
     const dbName = await getTenantDbName(tenantId);
     const connection = await masterPool.getConnection();
 
@@ -362,6 +379,12 @@ const updateInvoice = async (tenantId, invoiceId, updateData, executorName, user
         const newNote = updateData.note === undefined ? oldNote : normalizeInvoiceNote(updateData.note);
         checkPermission(userRole, oldInvoice.created_at);
         await ensureInvoiceHasNoDebtPayments(connection, dbName, invoiceId, 'sửa');
+        // Rosa specialized cards must not be rebuilt by the legacy invoice reconciliation.
+        const [specialized] = await connection.query(
+            `SELECT t.id FROM \`${dbName}\`.treatments t WHERE t.invoice_id = ? AND t.deleted_at IS NULL
+             AND (t.total_sessions IS NULL OR t.parent_treatment_id IS NOT NULL OR t.closed_at IS NOT NULL
+                  OR EXISTS(SELECT 1 FROM \`${dbName}\`.treatments child WHERE child.parent_treatment_id = t.id AND child.deleted_at IS NULL)) LIMIT 1`, [invoiceId]);
+        if (specialized.length) throw new Error('Hóa đơn có liệu trình trọn đời, cha-con hoặc đã ký kết thúc; không được sửa bằng luồng hóa đơn thông thường.');
         const [oldTreatments] = await connection.query(
             `SELECT id, product_id, invoice_item_id, total_sessions, remaining_sessions, customer_id, note FROM \`${dbName}\`.treatments WHERE invoice_id = ? AND deleted_at IS NULL ORDER BY id FOR UPDATE`,
             [invoiceId]
@@ -581,6 +604,10 @@ const deleteInvoice = async (tenantId, invoiceId, executorName, userRole, userBr
         if (String(userRole).toUpperCase() !== 'MANAGER' && oldInvoice.branch_id !== userBranchId) throw new Error('Bạn không có quyền xóa hóa đơn của cơ sở khác.');
         checkPermission(userRole, oldInvoice.created_at);
         await ensureInvoiceHasNoDebtPayments(connection, dbName, invoiceId, 'xóa');
+        const [closedCards] = await connection.query(`SELECT t.id FROM \`${dbName}\`.treatments t WHERE t.invoice_id = ? AND t.deleted_at IS NULL
+            AND (t.total_sessions IS NULL OR t.closed_at IS NOT NULL OR t.parent_treatment_id IS NOT NULL
+                 OR EXISTS(SELECT 1 FROM \`${dbName}\`.treatments child WHERE child.parent_treatment_id = t.id AND child.deleted_at IS NULL)) LIMIT 1`, [invoiceId]);
+        if (closedCards.length) throw new Error('Không thể xóa hóa đơn có liệu trình trọn đời, cha-con hoặc đã ký kết thúc.');
         const [guardTreatments] = await connection.query(
             `SELECT id FROM \`${dbName}\`.treatments WHERE invoice_id = ? AND deleted_at IS NULL`,
             [invoiceId]

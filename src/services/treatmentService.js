@@ -2,6 +2,9 @@ const { masterPool, getTenantDbName } = require('../config/database');
 const { paginateQuery } = require('../utils/pagination');
 const { isToday } = require('../utils/staffDatePolicy');
 const { loadCommissionBase, calculateCommission } = require('./commissionService');
+const groups = require('./treatmentGroupService');
+const { normalizeClosureSignature } = require('../utils/treatmentSignature');
+const { normalizeSessionMetadata } = require('../utils/treatmentHistory');
 
 const toNumber = (value, fieldName, { min = 0, integer = false } = {}) => {
     const numberValue = Number(value);
@@ -16,6 +19,7 @@ const toNumber = (value, fieldName, { min = 0, integer = false } = {}) => {
 // ==========================
 
 const createTreatment = async (tenantId, treatmentData, executorName) => {
+    if (treatmentData.parent_treatment_id != null) throw new Error('Tạo thẻ con cần luồng gói dịch vụ riêng; không gán cha qua API thẻ thủ công hiện tại.');
     const dbName = await getTenantDbName(tenantId);
     const { customer_id, product_id, total_sessions, remaining_sessions, note, commission_base_price, commission_quantity } = treatmentData;
 
@@ -28,15 +32,31 @@ const createTreatment = async (tenantId, treatmentData, executorName) => {
         }
         return toNumber(value, field, { min, integer: true });
     };
-    const totalSessions = sessionCount(total_sessions, 'total_sessions', 1);
-    const remainingSessions = remaining_sessions !== undefined ? sessionCount(remaining_sessions, 'remaining_sessions', 0) : totalSessions;
+    const totalSessions = total_sessions === null ? null : sessionCount(total_sessions, 'total_sessions', 1);
+    const remainingSessions = remaining_sessions === undefined ? totalSessions :
+        remaining_sessions === null && totalSessions === null ? null : sessionCount(remaining_sessions, 'remaining_sessions', 0);
+    if (totalSessions === null && remainingSessions !== null) throw new Error('Thẻ trọn đời mới phải có remaining_sessions = null.');
     if (treatmentData.invoice_id != null) throw new Error('Thẻ thủ công không nhận invoice_id; thẻ từ hóa đơn phải tạo qua API hóa đơn.');
     if (commission_base_price === undefined || commission_base_price === null || commission_base_price === '') throw new Error('commission_base_price bắt buộc.');
     const basePrice = toNumber(commission_base_price, 'commission_base_price');
     const quantity = toNumber(commission_quantity ?? 1, 'commission_quantity', { min: 1, integer: true });
 
-    if (remainingSessions > totalSessions) {
+    if (totalSessions !== null && remainingSessions > totalSessions) {
         throw new Error('Số buổi còn lại không được lớn hơn tổng số buổi.');
+    }
+
+    if (treatmentData.children !== undefined) {
+        const connection = await masterPool.getConnection();
+        try {
+            await connection.beginTransaction();
+            const [customers] = await connection.query(`SELECT id FROM \`${dbName}\`.customers WHERE id=? AND deleted_at IS NULL FOR UPDATE`, [customerId]);
+            if (!customers.length) throw groups.invalid('Khách hàng không tồn tại hoặc đã bị xóa.');
+            const config = await groups.prepare(connection, dbName, productId, { total_sessions: totalSessions, children: treatmentData.children });
+            const result = await groups.create(connection, dbName, { customerId, productId, basePrice, quantity, remaining: remainingSessions, note }, config, executorName);
+            await connection.commit();
+            return result;
+        } catch (error) { await connection.rollback(); throw error; }
+        finally { connection.release(); }
     }
 
     const [result] = await masterPool.query(
@@ -54,6 +74,7 @@ const createTreatment = async (tenantId, treatmentData, executorName) => {
 // ==========================
 
 const executeTreatmentSession = async (tenantId, historyData, executorName, userRole, userBranchId) => {
+    const { note, signature } = normalizeSessionMetadata(historyData);
     const dbName = await getTenantDbName(tenantId);
     const connection = await masterPool.getConnection();
 
@@ -77,7 +98,9 @@ const executeTreatmentSession = async (tenantId, historyData, executorName, user
 
         // 1. Kiểm tra thẻ liệu trình & Lấy thông tin Dịch vụ (Để tính hoa hồng + Lịch hẹn)
         const [treatments] = await connection.query(
-            `SELECT t.customer_id, t.remaining_sessions, t.product_id, p.name AS product_name, p.price, p.next_appointment_days 
+            `SELECT t.customer_id, t.remaining_sessions, t.product_id, p.name AS product_name, p.price, p.next_appointment_days,
+                    t.closed_at, t.parent_treatment_id,
+                    EXISTS(SELECT 1 FROM \`${dbName}\`.treatments child WHERE child.parent_treatment_id = t.id AND child.deleted_at IS NULL) AS has_children
              FROM \`${dbName}\`.treatments t
              INNER JOIN \`${dbName}\`.products p ON t.product_id = p.id
              WHERE t.id = ? AND t.deleted_at IS NULL FOR UPDATE`, 
@@ -86,7 +109,12 @@ const executeTreatmentSession = async (tenantId, historyData, executorName, user
         if (treatments.length === 0) throw new Error('Thẻ liệu trình không tồn tại hoặc đã bị xóa.');
         
         const treatment = treatments[0];
-        if (treatment.remaining_sessions <= 0) throw new Error('Thẻ liệu trình này đã hết số buổi.');
+        if (Number(treatment.has_children)) throw new Error('Vui lòng thực hiện trên thẻ dịch vụ con, không thực hiện trên thẻ cha.');
+        if (treatment.closed_at || (treatment.remaining_sessions !== null && treatment.remaining_sessions <= 0)) throw new Error('Thẻ liệu trình này đã hết số buổi hoặc đã kết thúc.');
+        if (treatment.parent_treatment_id) {
+            const [parents] = await connection.query(`SELECT id, closed_at, deleted_at FROM \`${dbName}\`.treatments WHERE id = ? FOR UPDATE`, [treatment.parent_treatment_id]);
+            if (!parents.length || parents[0].closed_at || parents[0].deleted_at) throw new Error('Liệu trình cha đã kết thúc hoặc không còn tồn tại.');
+        }
 
         // 2. Trừ buổi
         await connection.query(
@@ -96,14 +124,15 @@ const executeTreatmentSession = async (tenantId, historyData, executorName, user
 
         // 3. Lưu lịch sử làm dịch vụ
         const [historyResult] = await connection.query(
-            `INSERT INTO \`${dbName}\`.treatment_history (treatment_id, branch_id, execution_date, created_by) VALUES (?, ?, COALESCE(?, NOW()), ?)`,
-            [treatmentId, branchId, execution_date || null, executorName]
+            `INSERT INTO \`${dbName}\`.treatment_history (treatment_id, branch_id, execution_date, created_by, note, customer_signature_svg, customer_signed_at)
+             VALUES (?, ?, COALESCE(?, NOW()), ?, ?, ?, IF(? IS NULL, NULL, NOW()))`,
+            [treatmentId, branchId, execution_date || null, executorName, note, signature, signature]
         );
         const treatmentHistoryId = historyResult.insertId;
 
         // 4. TỰ ĐỘNG TẠO LỊCH HẸN (Nếu dịch vụ có cài đặt số ngày quay lại và thẻ liệu trình vẫn còn buổi)
         const nextDays = Number(treatment.next_appointment_days || 0);
-        if (nextDays > 0 && treatment.remaining_sessions - 1 > 0) {
+        if (nextDays > 0 && (treatment.remaining_sessions === null || treatment.remaining_sessions - 1 > 0)) {
             // Tính toán ngày hẹn tiếp theo
             const baseDate = execution_date ? new Date(execution_date) : new Date();
             baseDate.setDate(baseDate.getDate() + nextDays);
@@ -283,7 +312,7 @@ const deleteTreatmentHistory = async (tenantId, historyId, executorName, userRol
 
         // Hoàn lại 1 buổi cho thẻ liệu trình
         await connection.query(
-            `UPDATE \`${dbName}\`.treatments SET remaining_sessions = remaining_sessions + 1, updated_by = ? WHERE id = ?`,
+            `UPDATE \`${dbName}\`.treatments SET remaining_sessions = remaining_sessions + 1, updated_by = ? WHERE id = ? AND closed_at IS NULL AND remaining_sessions IS NOT NULL`,
             [executorName, history.treatment_id]
         );
 
@@ -317,7 +346,7 @@ const getTreatments = async (tenantId, filters) => {
         JOIN \`${dbName}\`.customers c ON t.customer_id = c.id
         JOIN \`${dbName}\`.products p ON t.product_id = p.id
         LEFT JOIN \`${dbName}\`.invoices i ON t.invoice_id = i.id
-        WHERE t.deleted_at IS NULL
+        WHERE t.deleted_at IS NULL AND t.parent_treatment_id IS NULL
     `;
     const params = [];
 
@@ -338,9 +367,11 @@ const getTreatments = async (tenantId, filters) => {
         params.push(`%${filters.productSearch}%`);
     }
     if (filters.status === 'active') {
-        query += ' AND t.remaining_sessions > 0';
+        query += ' AND t.closed_at IS NULL';
     } else if (filters.status === 'completed') {
-        query += ' AND t.remaining_sessions = 0';
+        query += ' AND t.closed_at IS NOT NULL';
+    } else if (filters.status === 'exhausted') {
+        query += ' AND t.closed_at IS NULL AND t.remaining_sessions = 0';
     }
     
     if (filters.startDate) {
@@ -357,7 +388,9 @@ const getTreatments = async (tenantId, filters) => {
         params.push(filters.branchId);
     }
 
-    return paginateQuery(masterPool, query, params, 't.created_at DESC, t.id DESC', filters);
+    const page = await paginateQuery(masterPool, query, params, 't.created_at DESC, t.id DESC', filters);
+    page.data = await groups.attach(masterPool, dbName, page.data);
+    return page;
 };
 
 const getTreatmentDetail = async (tenantId, treatmentId) => {
@@ -378,28 +411,49 @@ const getTreatmentDetail = async (tenantId, treatmentId) => {
         throw new Error('Không tìm thấy thẻ liệu trình hoặc thẻ đã bị xóa');
     }
     
-    const treatment = treatments[0];
+    return (await groups.attach(masterPool, dbName, treatments, { histories: true }))[0];
+};
 
-    const [histories] = await masterPool.query(
-        `SELECT * FROM \`${dbName}\`.treatment_history WHERE treatment_id = ? AND deleted_at IS NULL ORDER BY execution_date DESC`,
-        [treatmentId]
-    );
-
-    for (let history of histories) {
-        const [staffs] = await masterPool.query(
-            `SELECT ths.*, s.fullname as staff_name FROM \`${dbName}\`.treatment_history_staffs ths 
-            JOIN \`${dbName}\`.staffs s ON ths.staff_id = s.id
-            WHERE ths.treatment_history_id = ? AND ths.deleted_at IS NULL`,
-            [history.id]
-        );
-        history.staffs = staffs;
-    }
-    
-    treatment.histories = histories;
-    return treatment;
+const closeTreatment = async (tenantId, treatmentId, body, actor) => {
+    const id = groups.count(treatmentId, 'treatmentId', 1);
+    if (id === null) throw groups.invalid('treatmentId không hợp lệ.');
+    if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).some(k => !['closure_note', 'closure_signature_svg'].includes(k))) throw groups.invalid('Chỉ nhận closure_note và closure_signature_svg.');
+    const signature = normalizeClosureSignature(body.closure_signature_svg);
+    if (body.closure_note != null && (typeof body.closure_note !== 'string' || Buffer.byteLength(body.closure_note, 'utf8') > 65535)) throw groups.invalid('closure_note phải là chuỗi tối đa 65535 byte hoặc null.');
+    const db = await getTenantDbName(tenantId);
+    const connection = await masterPool.getConnection();
+    try {
+        await connection.beginTransaction();
+        const [roots] = await connection.query(`SELECT * FROM \`${db}\`.treatments WHERE id=? AND deleted_at IS NULL FOR UPDATE`, [id]);
+        const root = roots[0];
+        if (!root) throw Object.assign(new Error('Không tìm thấy thẻ liệu trình.'), { status: 404 });
+        if (root.parent_treatment_id != null) throw groups.invalid('Chỉ ký hoàn thành tại thẻ gốc để đóng toàn bộ nhóm.');
+        if (root.closed_at) throw Object.assign(new Error('Liệu trình đã ký hoàn thành; không được ghi đè chữ ký.'), { status: 409 });
+        const ids = [id];
+        const seen = new Set(ids);
+        let frontier = ids;
+        while (frontier.length) {
+            const [children] = await connection.query(`SELECT id,customer_id,closed_at FROM \`${db}\`.treatments WHERE parent_treatment_id IN (?) AND deleted_at IS NULL ORDER BY id FOR UPDATE`, [frontier]);
+            frontier = [];
+            for (const child of children) {
+                if (seen.has(Number(child.id)) || Number(child.customer_id) !== Number(root.customer_id)) throw groups.invalid('Quan hệ thẻ con không hợp lệ.');
+                if (child.closed_at) throw groups.invalid('Thẻ con đã đóng riêng; cần đối soát nhóm trước khi ký.');
+                seen.add(Number(child.id));
+                ids.push(Number(child.id));
+                frontier.push(Number(child.id));
+            }
+            if (ids.length > 10000) throw groups.invalid('Nhóm liệu trình quá lớn.');
+        }
+        await connection.query(`UPDATE \`${db}\`.treatments SET remaining_sessions=0,closed_at=NOW(),closed_by=?,
+            closure_note=?,closure_signature_svg=?,updated_by=? WHERE id IN (?)`, [actor, body.closure_note?.trim() || null, signature, actor, ids]);
+        await connection.commit();
+        return { treatmentId: id, closedTreatmentIds: ids };
+    } catch (error) { await connection.rollback(); throw error; }
+    finally { connection.release(); }
 };
 
 module.exports = {
+    closeTreatment,
     getTreatments,
     getTreatmentDetail, 
     createTreatment, 
