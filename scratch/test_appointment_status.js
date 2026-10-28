@@ -5,6 +5,7 @@ const connection = {
     async beginTransaction() {}, async commit() {}, async rollback() {}, release() {},
     async query(sql, params = []) {
         calls.push({ sql, params });
+        if (sql.includes('.appointment_contact_notes')) return [[]];
         if (sql.includes('.customers WHERE id')) return [[{ id: 1 }]];
         if (sql.includes('.branches WHERE id')) return [[{ id: 2 }]];
         if (sql.includes('INSERT INTO `test_tenant`.appointments')) return [{ insertId: 7 }];
@@ -40,7 +41,7 @@ const service = require('../src/services/appointmentService');
     const tomorrow = await service.getAppointments(1, {}, 'STAFF', 2, 'tomorrow');
     assert.equal(tomorrow.data[0].status, 'Khách đã đến');
     assert.equal('calculated_status' in tomorrow.data[0], false);
-    let query = calls.at(-1);
+    let query = calls.findLast(call => call.sql.includes('SELECT a.*'));
     assert.match(query.sql, /a\.branch_id = \?/);
     assert.deepEqual(query.params, [2, 20, 0]);
     assert.match(query.sql, /CURDATE\(\) \+ INTERVAL 1 DAY/);
@@ -50,13 +51,13 @@ const service = require('../src/services/appointmentService');
     assert.match(query.sql, /next_a\.appointment_date <= event\.created_at/);
 
     await service.getAppointments(1, { branchId: 2, status: 'Khách chưa đến' }, 'MANAGER', null, 'not-arrived');
-    query = calls.at(-1);
+    query = calls.findLast(call => call.sql.includes('SELECT a.*'));
     assert.match(query.sql, /a\.appointment_date < CURDATE\(\) \+ INTERVAL 1 DAY/);
     assert.deepEqual(query.params, [2, 'Khách chưa đến', 'Khách chưa đến', 20, 0]);
     await assert.rejects(service.getAppointments(1, { status: 'Chờ xử lý' }, 'MANAGER'), /status không hợp lệ/);
 
     const detail = await service.getAppointmentDetail(1, 7, 'STAFF', 2);
     assert.equal(detail.status, 'Khách đã đến');
-    assert.deepEqual(calls.at(-1).params, [7, 2]);
+    assert.deepEqual(calls.findLast(call => call.sql.includes('SELECT a.*')).params, [7, 2]);
     console.log('PASS: appointment status, tomorrow/not-arrived filters and branch permissions');
 })().catch(error => { console.error(error); process.exitCode = 1; });

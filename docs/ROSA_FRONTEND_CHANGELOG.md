@@ -1,5 +1,13 @@
 # Rosa — hướng dẫn thay đổi cho frontend
 
+## Bổ sung: ghi chú liên hệ lịch hẹn
+
+- Resource `/api/appointments` (không phải customer-bookings) có thêm `extra_note` tổng hợp và `contact_notes` (mảng entry có ID/ngày/nội dung/metadata) ở các API đọc, tách riêng `note` nguồn lịch hẹn.
+- Nút “Thêm lần liên hệ” gửi `POST /api/appointments/:id/contact-notes` với `{ "content": "Đã liên hệ, khách hẹn gọi lại" }`. Backend tự thêm ngày Việt Nam DD/MM/YYYY và nối dòng, không ghi đè lịch sử.
+- Sửa từng entry: `PUT /api/appointments/:id/contact-notes/:noteId` body `{ "content": "Nội dung đúng" }`, giữ ngày tạo. Xóa mềm: `DELETE` cùng đường dẫn, không cần body. Lấy noteId từ `contact_notes[].id`.
+- Hiển thị text bằng `white-space: pre-wrap`. Sau thêm/sửa/xóa thay state bằng `data.contact_notes` và `data.extra_note`. Không gửi hai field này trong POST/PUT lịch hẹn thông thường. Chặn double-click khi gửi.
+- Chi tiết payload/response, quyền branch, giới hạn và lỗi: `ROSA_APPOINTMENT_CONTACT_NOTES_API.md`.
+
 **Chốt nội dung ngày 27/10/2026.** Tài liệu này dành cho việc phát triển frontend Rosa từ bản giao diện cũ: đọc phần thay đổi ở đây trước, sau đó mở đúng mục trong tài liệu API để lấy hợp đồng đầy đủ.
 
 Phạm vi là các thay đổi đã làm trong đợt tách môi trường Rosa và phát triển chức năng Rosa, **bao gồm code chưa commit**. Đây là tổng hợp từ implementation và tài liệu của đợt làm việc, không phải báo cáo đầy đủ mọi commit giữa main và rosa. Không mặc định tất cả API khác đều thay đổi.

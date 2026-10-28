@@ -59,6 +59,7 @@ DROP TABLE IF EXISTS `appointments`;
 /*!50503 SET character_set_client = utf8mb4 */;
 CREATE TABLE `appointments` (
   `id` int NOT NULL AUTO_INCREMENT,
+  `extra_note` text COLLATE utf8mb4_unicode_ci,
   `customer_id` int NOT NULL,
   `branch_id` int NOT NULL,
   `appointment_date` datetime NOT NULL,
@@ -86,6 +87,23 @@ LOCK TABLES `appointments` WRITE;
 /*!40000 ALTER TABLE `appointments` DISABLE KEYS */;
 /*!40000 ALTER TABLE `appointments` ENABLE KEYS */;
 UNLOCK TABLES;
+
+DROP TABLE IF EXISTS `appointment_contact_notes`;
+CREATE TABLE `appointment_contact_notes` (
+  `id` int NOT NULL AUTO_INCREMENT,
+  `appointment_id` int NOT NULL,
+  `content` text COLLATE utf8mb4_unicode_ci NOT NULL,
+  `contact_date` date DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  `created_by` varchar(100) DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `updated_by` varchar(100) DEFAULT NULL,
+  `deleted_at` datetime DEFAULT NULL,
+  `deleted_by` varchar(100) DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `appointment_contact_active` (`appointment_id`,`deleted_at`,`id`),
+  CONSTRAINT `appointment_contact_notes_appointment_fk` FOREIGN KEY (`appointment_id`) REFERENCES `appointments` (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 --
 -- Table structure for table `bank_transactions`

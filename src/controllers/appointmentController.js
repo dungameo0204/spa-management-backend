@@ -67,4 +67,28 @@ const remove = async (req, res) => {
     }
 };
 
-module.exports = { create, getList, getTomorrow, getNotArrived, getDetail, update, remove };
+const addContactNote = async (req, res) => {
+    try {
+        const executorName = req.user.fullname || req.user.username;
+        const result = await appointmentService.addContactNote(req.user.tenant_id, req.params.id, req.body, executorName, req.user.system_role, req.user.branch_id);
+        res.status(201).json(result);
+    } catch (error) {
+        res.status(400).json({ message: error.message });
+    }
+};
+
+const updateContactNote = async (req, res) => {
+    try {
+        const result = await appointmentService.updateContactNote(req.user.tenant_id, req.params.id, req.params.noteId, req.body, req.user.fullname || req.user.username, req.user.system_role, req.user.branch_id);
+        res.status(200).json(result);
+    } catch (error) { res.status(400).json({ message: error.message }); }
+};
+
+const deleteContactNote = async (req, res) => {
+    try {
+        const result = await appointmentService.deleteContactNote(req.user.tenant_id, req.params.id, req.params.noteId, req.user.fullname || req.user.username, req.user.system_role, req.user.branch_id);
+        res.status(200).json(result);
+    } catch (error) { res.status(400).json({ message: error.message }); }
+};
+
+module.exports = { create, getList, getTomorrow, getNotArrived, getDetail, update, remove, addContactNote, updateContactNote, deleteContactNote };

@@ -4,6 +4,8 @@
   "description": "",
   "main": "index.js",
   "scripts": {
+    "test:appointment-contact-notes": "node scratch/test_appointment_contact_notes.js && node scratch/test_appointment_status.js",
+    "test:appointment-contact-notes:mysql": "node --require dotenv/config scratch/test_appointment_contact_notes_mysql.js",
     "test:customer-bookings": "node scratch/test_customer_bookings.js",
     "test:customer-bookings:mysql": "node --require dotenv/config scratch/test_customer_bookings_mysql.js",
     "test:treatment-groups": "node scratch/test_treatment_groups.js && node scratch/test_treatment_history_metadata.js",

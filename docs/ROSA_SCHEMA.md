@@ -1,3 +1,7 @@
+# Bổ sung appointments.extra_note
+
+`appointments.extra_note TEXT NULL` là bản tổng hợp tương thích của ghi chú liên hệ, độc lập với `appointments.note`. Migration `2026-10-27_rosa_appointment_extra_note.sql` và runner `scripts/apply-rosa-appointment-extra-note.js` chỉ dùng Rosa 3308 với backup guard. Tiếp theo migration `2026-10-28_rosa_appointment_contact_notes.sql`/runner `scripts/apply-rosa-appointment-contact-notes.js` tạo bảng phụ `appointment_contact_notes`: id, appointment_id FK, content TEXT, contact_date DATE, metadata tạo/sửa/xóa mềm. Ngày server sinh theo Việt Nam, giữ nguyên khi sửa. GET dựng extra_note từ entry còn hoạt động và trả cả mảng contact_notes. Backfill text cũ thành nguyên khối contact_date NULL, không đoán ngày. API/giới hạn/UI xem `ROSA_APPOINTMENT_CONTACT_NOTES_API.md`.
+
 # Rosa schema — 2026-10-27
 
 ## Scope and migration

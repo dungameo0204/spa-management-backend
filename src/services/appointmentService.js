@@ -1,5 +1,7 @@
 const { masterPool, getTenantDbName } = require('../config/database');
 const { paginateQuery } = require('../utils/pagination');
+const { assertExtraNoteNotProvided } = require('../utils/appointmentContactNote');
+const { attachContactNotes, mutateContactNote } = require('./appointmentContactNoteService');
 
 const toNumber = (value, fieldName, { min = 0, integer = false } = {}) => {
     const numberValue = Number(value);
@@ -69,6 +71,7 @@ const ensureBranchExists = async (connection, dbName, branchId) => {
 };
 
 const createAppointment = async (tenantId, appointmentData, executorName, userRole, userBranchId) => {
+    assertExtraNoteNotProvided(appointmentData);
     const dbName = await getTenantDbName(tenantId);
     const connection = await masterPool.getConnection();
 
@@ -156,7 +159,7 @@ const getAppointments = async (tenantId, filters, userRole, userBranchId, view) 
     }
 
     const result = await paginateQuery(masterPool, query, params, 'a.appointment_date ASC, a.created_at ASC, a.id ASC', filters);
-    result.data = result.data.map(withCalculatedStatus);
+    result.data = await attachContactNotes(dbName, result.data.map(withCalculatedStatus));
     return result;
 };
 
@@ -180,10 +183,11 @@ const getAppointmentDetail = async (tenantId, appointmentId, userRole, userBranc
 
     const [rows] = await masterPool.query(query, params);
     if (rows.length === 0) throw new Error('Lịch hẹn không tồn tại, đã bị xóa hoặc bạn không có quyền xem.');
-    return withCalculatedStatus(rows[0]);
+    return (await attachContactNotes(dbName, [withCalculatedStatus(rows[0])]))[0];
 };
 
 const updateAppointment = async (tenantId, appointmentId, updateData, executorName, userRole, userBranchId) => {
+    assertExtraNoteNotProvided(updateData);
     assertStatusNotProvided(updateData);
     const dbName = await getTenantDbName(tenantId);
     const connection = await masterPool.getConnection();
@@ -267,4 +271,13 @@ const deleteAppointment = async (tenantId, appointmentId, executorName, userRole
     return { message: 'Xóa lịch hẹn thành công' };
 };
 
-module.exports = { createAppointment, getAppointments, getAppointmentDetail, updateAppointment, deleteAppointment };
+const addContactNote = async (tenantId, appointmentId, data, executorName, userRole, userBranchId) => {
+    return mutateContactNote('create', tenantId, appointmentId, null, data, executorName, userRole, userBranchId);
+};
+
+const updateContactNote = (tenantId, appointmentId, noteId, data, executorName, userRole, userBranchId) =>
+    mutateContactNote('update', tenantId, appointmentId, noteId, data, executorName, userRole, userBranchId);
+const deleteContactNote = (tenantId, appointmentId, noteId, executorName, userRole, userBranchId) =>
+    mutateContactNote('delete', tenantId, appointmentId, noteId, null, executorName, userRole, userBranchId);
+
+module.exports = { createAppointment, getAppointments, getAppointmentDetail, updateAppointment, deleteAppointment, addContactNote, updateContactNote, deleteContactNote };

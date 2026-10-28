@@ -1,3 +1,7 @@
+# Bổ sung Rosa: lịch sử liên hệ lịch hẹn
+
+Ghi chú liên hệ lưu riêng từng entry trong bảng phụ, không ghi đè `note` tự động từ liệu trình. Dùng `POST /api/appointments/:id/contact-notes` với `{ "content": "Đã liên hệ khách" }` để thêm một lần có ngày Việt Nam do backend sinh. Sửa nội dung bằng PUT và xóa mềm bằng DELETE `/api/appointments/:id/contact-notes/:noteId`. GET lịch hẹn trả `extra_note` tổng hợp và `contact_notes` có ID/ngày/metadata; POST/PUT lịch hẹn thông thường không nhận hai field này. Xem hợp đồng đầy đủ trong `ROSA_APPOINTMENT_CONTACT_NOTES_API.md`.
+
 # Hướng dẫn thay đổi frontend Rosa
 
 Đọc `docs/ROSA_FRONTEND_CHANGELOG.md` trước để biết màn hình/API nào thay đổi, ý nghĩa trường gửi/nhận, các quy tắc tích hợp và checklist frontend. Backend local Rosa hiện cấu hình cổng 5002 → MySQL 3308. Tài liệu này bên dưới là tham chiếu API đầy đủ.
