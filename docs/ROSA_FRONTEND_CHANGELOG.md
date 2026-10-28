@@ -1,5 +1,12 @@
 # Rosa — hướng dẫn thay đổi cho frontend
 
+## Bổ sung: sửa note buổi và khách ký lúc ra về
+
+- PUT `/api/treatments/execute/:historyId/note` body `{ "note": "Nội dung" }`, sửa cả trước/sau khi ký; null/trắng xóa note, không thay đổi chữ ký/thời điểm ký.
+- POST `/api/treatments/execute/:historyId/sign` body `{ "customer_signature_svg": "<svg ...>...</svg>" }` để ký vào buổi đã tạo, server ghi giờ ký. Không gọi execute lại, không trừ thêm buổi/hoa hồng.
+- Buổi đã ký vẫn sửa được note nhân viên, chỉ cấm ghi đè chữ ký. STAFF theo chi nhánh buổi; không bắt buộc cùng ngày. Thẻ hết buổi/đã đóng vẫn sửa note và ký được buổi cũ chưa ký, thẻ/buổi đã xóa không được.
+- Hợp đồng đầy đủ: `ROSA_TREATMENT_HISTORY_FOLLOWUP_API.md` (gửi thêm file này cho frontend).
+
 ## Bổ sung: ghi chú liên hệ lịch hẹn
 
 - Resource `/api/appointments` (không phải customer-bookings) có thêm `extra_note` tổng hợp và `contact_notes` (mảng entry có ID/ngày/nội dung/metadata) ở các API đọc, tách riêng `note` nguồn lịch hẹn.
@@ -175,7 +182,7 @@ POST /api/treatments/execute nhận treatment_id, branch_id theo quyền hiện 
 
 note tùy chọn, trim, <=65535 byte UTF-8; rỗng/null thành null. Chữ ký được lưu lúc tạo buổi, cùng transaction trừ buổi/history/hoa hồng. Request cũ không gửi vẫn hoạt động. Response create giữ treatmentHistoryId; metadata đọc lại trong histories của detail/overview.
 
-Chưa có API sửa ghi chú hoặc ký bổ sung sau khi tạo buổi. Frontend nên cho nhập/ký trong modal thực hiện trước khi submit, không hứa chức năng edit sau đó.
+Đã hỗ trợ sửa note cả trước/sau khi ký qua PUT /api/treatments/execute/:historyId/note và ký sau qua POST /api/treatments/execute/:historyId/sign. Sửa note giữ nguyên chữ ký/thời điểm ký; chỉ cấm ghi đè chữ ký. Xem ROSA_TREATMENT_HISTORY_FOLLOWUP_API.md.
 
 ### 8.2 Ký kết thúc cả nhóm
 
@@ -272,7 +279,7 @@ Các test backend đã chạy trong đợt triển khai gồm customer-profile, 
 
 ### Chưa có — không dựng UI như thể API đã hỗ trợ
 
-- Ký bổ sung/sửa ghi chú buổi sau khi tạo, ghi đè chữ ký kết thúc, mở lại nhóm đã ký.
+- Ghi đè chữ ký buổi/chữ ký kết thúc, mở lại nhóm đã ký.
 - Sửa cấu hình nhóm qua PUT invoice, quy trình amendment/refund chuyên biệt.
 - Restore/purge ảnh, đổi thứ tự ảnh, sửa ghi chú riêng từng ảnh.
 - MiniApp booking theo schema Rosa, check-in vật lý, tự đổi status theo has_arrived.

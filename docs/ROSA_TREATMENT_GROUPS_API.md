@@ -79,7 +79,7 @@ No new schema migration. Uses existing treatment hierarchy, lifetime, closure an
 
 `note`: string, max 65535 UTF-8 bytes, trimmed; absent/null/whitespace becomes NULL. Signature: absent/null means unsigned; any supplied string must pass the same narrow SVG validator and 128 KiB limit as completion signatures. Empty strings and malformed SVG are rejected. Server sets `customer_signed_at` when a signature exists; client-supplied `customer_signed_at` is rejected. Existing payloads without these fields remain valid. Metadata is stored atomically with history/session decrement/commissions; errors roll everything back.
 
-Root/child treatment detail and customer overview expose these fields in each card's `histories[]`. Session signatures never set `closed_at` or complete a group, even when a finite card reaches zero sessions. Group completion still requires the separate root `/close` operation. No post-creation note-edit or supplemental-signature endpoint is provided. Render notes as text and signatures via images, not arbitrary HTML.
+Root/child treatment detail and customer overview expose these fields in each card's `histories[]`. Session signatures never set `closed_at` or complete a group, even when a finite card reaches zero sessions. Group completion still requires the separate root `/close` operation. Post-creation note edits (both unsigned and signed sessions; existing signature and signing time remain unchanged) and supplemental signing are supported; see ROSA_TREATMENT_HISTORY_FOLLOWUP_API.md. Render notes as text and signatures via images, not arbitrary HTML.
 
 ## Verification commands
 

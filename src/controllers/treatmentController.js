@@ -1,5 +1,14 @@
 const treatmentService = require('../services/treatmentService');
 const { respondListError } = require('../utils/pagination');
+const { updateHistoryMetadata } = require('../services/treatmentHistoryMetadataService');
+
+const historyMetadata = action => async (req, res) => {
+    try {
+        const result = await updateHistoryMetadata(action, req.user.tenant_id, req.params.historyId, req.body,
+            req.user.fullname || req.user.username, req.user.system_role, req.user.branch_id);
+        res.status(200).json(result);
+    } catch (error) { res.status(error.status || 400).json({ message: error.message }); }
+};
 
 const createManualTreatment = async (req, res) => {
     try {
@@ -96,6 +105,8 @@ const removeHistory = async (req, res) => {
 };
 
 module.exports = {
+    updateHistoryNote: historyMetadata('note'),
+    signHistory: historyMetadata('sign'),
     close,
     getList,
     getDetail, 

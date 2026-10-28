@@ -19,6 +19,15 @@ router.post('/:id/close', (req, res, next) => {
 
 // 2. Lịch sử thực hiện phải khai báo trước '/:id' để Express không hiểu 'execute' là ID thẻ.
 router.post('/execute', treatmentController.executeSession);
+const verifyHistoryActor = (req, res, next) => {
+    if (req.user.customer_id !== undefined || !['MANAGER', 'STAFF'].includes(req.user.system_role) ||
+        !Number.isSafeInteger(req.user.tenant_id) || req.user.tenant_id <= 0) {
+        return res.status(403).json({ message: 'Chỉ MANAGER/STAFF của Spa được cập nhật buổi thực hiện.' });
+    }
+    next();
+};
+router.put('/execute/:historyId/note', verifyHistoryActor, treatmentController.updateHistoryNote);
+router.post('/execute/:historyId/sign', verifyHistoryActor, treatmentController.signHistory);
 router.delete('/execute/:historyId', treatmentController.removeHistory);
 router.put('/execute/:historyId/staffs', treatmentController.assignStaffs);
 
