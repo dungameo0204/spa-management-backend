@@ -1,3 +1,24 @@
+## Thu nợ cũ không có hóa đơn (29/10/2026)
+
+- `GET /api/customers/:id` trả thêm `data.invoice_debt`, `data.legacy_debt`; `GET /api/customers/:id/overview` trả tại `data.customer`. Hai trường mới là number; `total_debt` giữ kiểu hiện tại. `invoice_debt` là nợ hóa đơn còn lại toàn khách trong tenant; `legacy_debt = max(0, total_debt - invoice_debt)`. Không phụ thuộc phân trang/bộ lọc cơ sở hoặc ngày. Form dùng `legacy_debt` làm giới hạn thu nợ cũ, tải lại sau thu/sửa/xóa; backend vẫn kiểm tra số dư khi ghi. Không cần migration mới cho response này.
+- API mới: `POST /api/debt-payments/legacy` với `customer_id`, `amount`, `collection_branch_id` (MANAGER); STAFF dùng cơ sở từ token. Không yêu cầu hóa đơn.
+- Giảm `total_debt` trong transaction, chỉ thu phần nợ không được bao phủ bởi nợ còn lại của hóa đơn.
+- Dòng tiền và doanh thu thuộc cơ sở thực thu. Báo cáo tổng kỳ/ngày thêm `legacyDebtRevenue`; `totalRevenue = serviceRevenue + productRevenue + legacyDebtRevenue`. Các công thức hai thành phần ở ví dụ cũ bên dưới chỉ áp dụng khi `legacyDebtRevenue = 0`.
+- `receipts.debtPayments` đã bao gồm tiền thu nợ cũ, không cộng thêm lần hai vào dòng tiền. Phiếu có hóa đơn không cộng lại doanh thu.
+- Chi tiết payload, sửa/xóa, migration và lưu ý triển khai: xem tài liệu thu nợ cũ `docs/LEGACY_DEBT_PAYMENTS_API.md`.
+
+## Lịch sử ghi chú hóa đơn trong hồ sơ khách hàng
+
+- `customers.note` vẫn là chuỗi text, giữ ghi chú cũ và nối từng sự kiện bằng `\n`; không thay đổi schema/response khách hàng. Frontend render text với CSS `white-space: pre-wrap`, không dùng HTML injection.
+- Dòng mới có dạng `27/10/2026 [HĐ #123 - Tạo] Khách đổi 1 buổi nặn mụn thành 1 buổi peel`. Ngày là ngày thao tác thực tế theo timezone local backend, không lấy `invoice_date`.
+- POST hóa đơn: `note` không rỗng sau trim thì nối dòng `Tạo`; không có nội dung thì không nối.
+- PUT hóa đơn: không gửi `note` giữ nội dung hiện tại; gửi cùng nội dung sau trim không nối trùng; thay đổi nội dung nối dòng `Sửa ghi chú`. Gửi null/chuỗi rỗng/khoảng trắng sẽ xóa `invoices.note` và nối dòng `Đã xóa ghi chú` nếu trước đó có nội dung.
+- DELETE hóa đơn thành công: luôn nối dòng `[HĐ #123 - Đã xóa]`, không xóa các ghi chú cũ trong hồ sơ khách.
+- Đổi khách trên hóa đơn: khách cũ nhận dòng `Chuyển sang khách #ID`; khách mới nhận dòng `Chuyển từ khách #ID` cùng ghi chú hiện tại. Lịch sử cũ không di chuyển/xóa.
+- `note` chỉ nhận string/null, không nhận object/array/boolean/number. Nếu ghi chú vượt dung lượng TEXT (65535 byte UTF-8), API trả HTTP 400 và rollback toàn bộ thao tác hóa đơn, không cắt nội dung.
+- Không tự bổ sung ghi chú cho hóa đơn cũ khi triển khai; API sửa hồ sơ khách vẫn có thể thay thế toàn bộ `customers.note`, nên đây không phải audit log bất biến.
+- Sau khi tạo/sửa/xóa hóa đơn, frontend cần tải lại dữ liệu khách để thấy ghi chú mới; response hóa đơn không đổi.
+
 # STAFF: giới hạn ngày phiếu và xóa lịch sử liệu trình
 
 - `POST /api/inventory-imports`, `PUT /api/inventory-imports/:id`: STAFF không được gửi `import_date` hoặc `created_at` (kể cả null/rỗng); vi phạm trả HTTP 400. Khi tạo, ngày được ghi tự động bằng thời gian hiện tại của database.

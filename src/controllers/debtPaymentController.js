@@ -11,6 +11,16 @@ const create = async (req, res) => {
     }
 };
 
+const createLegacy = async (req, res) => {
+    try {
+        const executorName = req.user.fullname || req.user.username;
+        const result = await debtPaymentService.createLegacyDebtPayment(req.user.tenant_id, req.body, executorName, req.user.system_role, req.user.branch_id);
+        res.status(201).json({ message: 'Ghi nhận thu nợ cũ thành công', ...result });
+    } catch (error) {
+        res.status(400).json({ message: error.message });
+    }
+};
+
 const getList = async (req, res) => {
     try {
         const data = await debtPaymentService.getDebtPayments(req.user.tenant_id, req.query, req.user.system_role, req.user.branch_id);
@@ -58,4 +68,4 @@ const remove = async (req, res) => {
     }
 };
 
-module.exports = { create, getList, getDetail, getInvoiceRemainingDebt, update, remove };
+module.exports = { create, createLegacy, getList, getDetail, getInvoiceRemainingDebt, update, remove };

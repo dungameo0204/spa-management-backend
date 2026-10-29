@@ -1,3 +1,11 @@
+## Lịch sử ghi chú hóa đơn → customers.note
+
+- `src/services/customerNoteService.js` chuẩn hóa note string/null, định dạng `DD/MM/YYYY [HĐ #ID - sự kiện] nội dung` theo ngày local backend và nối nguyên tử bằng SQL CONCAT + CHAR(10).
+- Tạo có note thì nối; sửa chỉ nối khi note thay đổi; undefined giữ nguyên, null/rỗng xóa note hóa đơn và ghi sự kiện xóa ghi chú; xóa hóa đơn nối thông báo đã xóa. Đổi khách ghi thông báo ở cả khách cũ/mới, khách mới kèm note hiện tại.
+- Thực hiện cùng transaction hóa đơn; WHERE OCTET_LENGTH kiểm tra tổng <=65535 byte trước khi ghi TEXT, không cắt mất lịch sử. Không cần migration/backfill.
+- `customers.note` vẫn là text editable qua API khách, không phải audit log bất biến. Frontend hiển thị text bằng white-space: pre-wrap và tải lại khách sau thao tác hóa đơn.
+- Test mock DB: `npm run test:invoice-notes`. Chưa kiểm chứng khóa đồng thời trên MySQL thật.
+
 # Bổ sung chính sách ngày cho STAFF
 
 - `src/utils/staffDatePolicy.js`: so sánh ngày lịch local backend; chặn STAFF gửi ngày nghiệp vụ/created_at khi tạo hoặc cập nhật nhập kho, phiếu chi.

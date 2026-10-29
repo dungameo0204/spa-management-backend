@@ -1,5 +1,6 @@
 const { masterPool, getTenantDbName } = require('../config/database');
 const { paginateQuery } = require('../utils/pagination');
+const { invoiceDebtSql } = require('../utils/customerDebt');
 
 const toNumber = (value, fieldName, { min = 0, integer = false } = {}) => {
     const numberValue = Number(value);
@@ -162,6 +163,59 @@ const createDebtPayment = async (tenantId, paymentData, executorName, userRole, 
     }
 };
 
+// Call after locking the customer and before any consistent (nonlocking) read.
+// This keeps the aggregate snapshot current after waiting for concurrent customer writes.
+const ensureLegacyPaymentDoesNotExceedDebt = async (connection, dbName, customerId, totalDebt, amount) => {
+    const [rows] = await connection.query(
+        invoiceDebtSql(dbName, '?'), [customerId]
+    );
+    const available = toMoneyCents(totalDebt, 'total_debt') - toMoneyCents(rows[0].invoice_debt, 'invoice_debt');
+    if (toMoneyCents(amount, 'amount') > available) {
+        throw new Error('Số tiền thu vượt quá phần nợ cũ không gắn hóa đơn của khách hàng.');
+    }
+};
+
+const validateLegacyInput = (data, userRole, userBranchId) => {
+    if (!['MANAGER', 'STAFF'].includes(String(userRole).toUpperCase())) throw new Error('Bạn không có quyền thu nợ cũ.');
+    if (hasValue(data.invoice_id)) throw new Error('Phiếu thu nợ cũ không được gắn invoice_id.');
+    if (String(userRole).toUpperCase() === 'STAFF' && hasValue(data.collection_branch_id) && Number(data.collection_branch_id) !== Number(userBranchId)) {
+        throw new Error('Bạn không có quyền thu nợ tại cơ sở khác.');
+    }
+};
+
+const createLegacyDebtPayment = async (tenantId, paymentData, executorName, userRole, userBranchId) => {
+    validateLegacyInput(paymentData, userRole, userBranchId);
+    const customerId = toNumber(paymentData.customer_id, 'customer_id', { min: 1, integer: true });
+    const collectionBranchId = getCollectionBranchId(paymentData.collection_branch_id, userRole, userBranchId);
+    if (hasValue(paymentData.branch_id) && Number(paymentData.branch_id) !== collectionBranchId) throw new Error('branch_id phải là cơ sở thu nợ cũ.');
+    const amount = toMoneyCents(paymentData.amount, 'amount') / 100;
+    if (amount <= 0) throw new Error('amount phải lớn hơn 0.');
+    const paymentMethod = normalizePaymentMethod(paymentData.payment_method);
+    const dbName = await getTenantDbName(tenantId);
+    const connection = await masterPool.getConnection();
+    try {
+        await connection.beginTransaction();
+        const customers = await getLockedCustomers(connection, dbName, [customerId]);
+        const customer = customers.get(customerId);
+        await ensureLegacyPaymentDoesNotExceedDebt(connection, dbName, customerId, customer.total_debt, amount);
+        await ensureBranchExists(connection, dbName, collectionBranchId);
+        const [result] = await connection.query(
+            `INSERT INTO \`${dbName}\`.debt_payments
+             (customer_id, branch_id, collection_branch_id, invoice_id, amount, payment_method, payment_date, note, created_by)
+             VALUES (?, ?, ?, ?, ?, ?, COALESCE(?, NOW()), ?, ?)`,
+            [customerId, collectionBranchId, collectionBranchId, null, amount, paymentMethod, paymentData.payment_date || null, paymentData.note || null, executorName]
+        );
+        await connection.query(`UPDATE \`${dbName}\`.customers SET total_debt = total_debt - ?, updated_by = ? WHERE id = ?`, [amount, executorName, customerId]);
+        await connection.commit();
+        return { debtPaymentId: result.insertId, customerId, branchId: collectionBranchId, collectionBranchId, invoiceId: null, amount, totalDebt: (toMoneyCents(customer.total_debt, 'total_debt') - toMoneyCents(amount, 'amount')) / 100 };
+    } catch (error) {
+        await connection.rollback();
+        throw error;
+    } finally {
+        connection.release();
+    }
+};
+
 const getDebtPayments = async (tenantId, filters, userRole, userBranchId) => {
     const dbName = await getTenantDbName(tenantId);
     let query = `
@@ -240,25 +294,34 @@ const updateDebtPayment = async (tenantId, paymentId, updateData, executorName, 
         if (normalizedRole === 'STAFF' && Number(oldPayment.collection_branch_id) !== Number(userBranchId)) throw new Error('Bạn không có quyền sửa phiếu thu nợ của cơ sở khác.');
 
         const invoiceInput = Object.prototype.hasOwnProperty.call(updateData, 'invoice_id') ? updateData.invoice_id : oldPayment.invoice_id;
-        const invoice = await validateInvoice(connection, dbName, invoiceInput, normalizedPaymentId);
-        ensureDerivedFieldsMatch(updateData, invoice);
-        const { customerId, branchId } = invoice;
+        const isLegacy = oldPayment.invoice_id === null;
+        if (isLegacy) validateLegacyInput(updateData, userRole, userBranchId);
+        const invoice = isLegacy
+            ? { invoiceId: null, customerId: toNumber(updateData.customer_id === undefined ? oldPayment.customer_id : updateData.customer_id, 'customer_id', { min: 1, integer: true }), branchId: Number(oldPayment.branch_id) }
+            : await validateInvoice(connection, dbName, invoiceInput, normalizedPaymentId);
+        if (!isLegacy) ensureDerivedFieldsMatch(updateData, invoice);
+        const { customerId } = invoice;
         const collectionBranchId = normalizedRole === 'STAFF'
             ? getCollectionBranchId(null, userRole, userBranchId)
             : hasValue(updateData.collection_branch_id)
                 ? getCollectionBranchId(updateData.collection_branch_id, userRole, userBranchId)
                 : Number(oldPayment.collection_branch_id);
+        const branchId = isLegacy ? collectionBranchId : invoice.branchId;
+        if (isLegacy && hasValue(updateData.branch_id) && Number(updateData.branch_id) !== branchId) throw new Error('branch_id phải là cơ sở thu nợ cũ.');
         const amount = hasValue(updateData.amount) ? toMoneyCents(updateData.amount, 'amount') / 100 : Number(oldPayment.amount);
         if (amount <= 0) throw new Error('amount phải lớn hơn 0.');
         const paymentMethod = hasValue(updateData.payment_method) ? normalizePaymentMethod(updateData.payment_method) : oldPayment.payment_method;
         const paymentDate = Object.prototype.hasOwnProperty.call(updateData, 'payment_date') ? updateData.payment_date : oldPayment.payment_date;
         const note = Object.prototype.hasOwnProperty.call(updateData, 'note') ? (updateData.note || null) : oldPayment.note;
 
-        await ensureBranchExists(connection, dbName, collectionBranchId);
+        if (!isLegacy) await ensureBranchExists(connection, dbName, collectionBranchId);
         const customersById = await getLockedCustomers(connection, dbName, [Number(oldPayment.customer_id), customerId]);
         const newCustomer = customersById.get(customerId);
         const debtAvailableForNewPayment = Number(oldPayment.customer_id) === customerId ? Number(newCustomer.total_debt) + Number(oldPayment.amount) : Number(newCustomer.total_debt);
-        ensureInvoicePaymentDoesNotExceedDebt(invoice, amount);
+        if (isLegacy) {
+            await ensureLegacyPaymentDoesNotExceedDebt(connection, dbName, customerId, debtAvailableForNewPayment, amount);
+            await ensureBranchExists(connection, dbName, collectionBranchId);
+        } else ensureInvoicePaymentDoesNotExceedDebt(invoice, amount);
         if (debtAvailableForNewPayment + 0.000001 < amount) throw new Error('Số tiền thu nợ vượt quá tổng công nợ hiện tại của khách hàng.');
 
         if (Number(oldPayment.customer_id) === customerId) {
@@ -307,4 +370,4 @@ const deleteDebtPayment = async (tenantId, paymentId, executorName, userRole, us
     }
 };
 
-module.exports = { createDebtPayment, getDebtPayments, getDebtPaymentDetail, getInvoiceRemainingDebt, updateDebtPayment, deleteDebtPayment };
+module.exports = { createDebtPayment, createLegacyDebtPayment, getDebtPayments, getDebtPaymentDetail, getInvoiceRemainingDebt, updateDebtPayment, deleteDebtPayment };
