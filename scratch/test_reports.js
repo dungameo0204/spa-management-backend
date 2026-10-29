@@ -1,10 +1,18 @@
 const assert = require('node:assert/strict');
 const calls = [];
 let emptyReport = false;
+let legacyAmount = 0;
 const configPath = require.resolve('../src/config/database');
 require.cache[configPath] = { id: configPath, filename: configPath, loaded: true, exports: {
     getTenantDbName: async () => 'test_tenant', masterPool: { query: async (sql, params = []) => {
         calls.push({ sql, params });
+        if (sql.includes('dp.invoice_id IS NULL')) {
+            assert.ok(sql.includes('dp.deleted_at IS NULL'));
+            if (params.length === 3) assert.ok(sql.includes('dp.branch_id = ?'));
+            return sql.includes('GROUP BY DATE_FORMAT(')
+                ? [[{ date: '2026-10-02', value: String(legacyAmount) }]]
+                : [[{ value: String(legacyAmount) }]];
+        }
         if (sql.includes("DATE_FORMAT(i.invoice_date, '%Y-%m-%d') AS date")) return [[
             { date: '2026-10-01', service_revenue: '0.00', product_revenue: '2500000.00', invoice_cash: '100.00', wallet_used: '30.00' }
         ]];
@@ -38,6 +46,7 @@ const jwt = require('jsonwebtoken');
     const summary = await service.getRevenue(1, filters);
     assert.equal(summary.productRevenue, 2500000);
     assert.equal(summary.serviceRevenue, 0);
+    assert.equal(summary.legacyDebtRevenue, 0);
     assert.equal(summary.receipts.total, 170);
     assert.equal(summary.receipts.walletUsedExcluded, 30);
     assert.equal(summary.expenses.total, 50);
@@ -204,5 +213,17 @@ const jwt = require('jsonwebtoken');
     } finally {
         await new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
     }
-    console.log('PASS: report summary, detail totals across pages, staff grouping, filters');
+    legacyAmount = 15;
+    const legacySummary = await service.getRevenue(1, filters);
+    assert.equal(legacySummary.legacyDebtRevenue, 15);
+    assert.equal(legacySummary.totalRevenue, 2500015);
+    assert.equal(legacySummary.receipts.total, 170, 'legacy receipts must not be added to cash twice');
+    assert.equal(legacySummary.netCashFlow, 120);
+    assert.equal(legacySummary.daily[1].legacyDebtRevenue, 15);
+    assert.equal(legacySummary.daily[1].totalRevenue, 15);
+    assert.equal(legacySummary.daily[1].receipts.total, 70);
+    assert.equal(legacySummary.daily.reduce((sum, day) => sum + day.totalRevenue, 0), legacySummary.totalRevenue);
+    legacyAmount = 0;
+    assert.equal((await service.getRevenue(1, filters)).legacyDebtRevenue, 0);
+    console.log('PASS: report summary, legacy debt revenue without double cash, detail totals across pages, staff grouping, filters');
 })().catch(error => { console.error(error); process.exitCode = 1; });

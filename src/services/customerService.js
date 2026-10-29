@@ -1,6 +1,7 @@
 const { masterPool, getTenantDbName } = require('../config/database');
 const { paginateQuery } = require('../utils/pagination');
 const { normalizeDateOfBirth } = require('../utils/dateOfBirth');
+const { invoiceDebtSql, withDebtBalances } = require('../utils/customerDebt');
 const bcrypt = require('bcryptjs'); // Đừng quên import thư viện mã hóa
 
 const createCustomer = async (tenantId, customerData, executorName) => {
@@ -64,13 +65,14 @@ const getCustomers = async (tenantId, searchKeyword = '', pagination) => {
 const getCustomerById = async (tenantId, customerId) => {
     const dbName = await getTenantDbName(tenantId);
     const [rows] = await masterPool.query(
-        `SELECT id, fullname, phone_number, DATE_FORMAT(date_of_birth, '%Y-%m-%d') AS date_of_birth, avatar, address, wallet_balance, total_debt, note, created_at, updated_at, created_by, updated_by
+        `SELECT id, fullname, phone_number, DATE_FORMAT(date_of_birth, '%Y-%m-%d') AS date_of_birth, avatar, address, wallet_balance, total_debt, note, created_at, updated_at, created_by, updated_by,
+                (${invoiceDebtSql(dbName, 'customers.id')}) AS invoice_debt
          FROM \`${dbName}\`.customers
          WHERE id = ? AND deleted_at IS NULL`,
         [customerId]
     );
     if (rows.length === 0) throw new Error('Khách hàng không tồn tại hoặc đã bị xóa.');
-    return rows[0];
+    return withDebtBalances(rows[0]);
 };
 
 // One customer, all sold lines and all non-deleted cards, including exhausted cards.
@@ -82,7 +84,8 @@ const getCustomerOverview = async (tenantId, customerId) => {
     const dbName = await getTenantDbName(tenantId);
     const [customers] = await masterPool.query(
         `SELECT id, fullname, phone_number, DATE_FORMAT(date_of_birth, '%Y-%m-%d') AS date_of_birth, avatar, address, wallet_balance, total_debt, note,
-                created_at, updated_at, deleted_at, created_by, updated_by, deleted_by
+                created_at, updated_at, deleted_at, created_by, updated_by, deleted_by,
+                (${invoiceDebtSql(dbName, 'customers.id')}) AS invoice_debt
          FROM \`${dbName}\`.customers WHERE id = ? AND deleted_at IS NULL`, [id]);
     if (!customers.length) { const error = new Error('Khách hàng không tồn tại hoặc đã bị xóa.'); error.status = 404; throw error; }
 
@@ -133,7 +136,7 @@ const getCustomerOverview = async (tenantId, customerId) => {
         ...cards.filter(card => !matchedCardIds.has(card.id))
             .map(treatment => ({ type: 'treatment', date: treatment.purchase_date || treatment.created_at, treatment }))
     ].sort((a, b) => new Date(b.date) - new Date(a.date) || a.type.localeCompare(b.type));
-    return { customer: customers[0], purchases: purchasesWithTreatments, treatments: cards, timeline };
+    return { customer: withDebtBalances(customers[0]), purchases: purchasesWithTreatments, treatments: cards, timeline };
 };
 
 const updateCustomer = async (tenantId, customerId, updateData, executorName) => {

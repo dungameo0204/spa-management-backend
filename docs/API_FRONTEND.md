@@ -1,3 +1,12 @@
+## Thu nợ cũ không có hóa đơn (29/10/2026)
+
+- `GET /api/customers/:id` trả thêm `data.invoice_debt`, `data.legacy_debt`; `GET /api/customers/:id/overview` trả tại `data.customer`. Hai trường mới là number; `total_debt` giữ kiểu hiện tại. `invoice_debt` là nợ hóa đơn còn lại toàn khách trong tenant; `legacy_debt = max(0, total_debt - invoice_debt)`. Không phụ thuộc phân trang/bộ lọc cơ sở hoặc ngày. Form dùng `legacy_debt` làm giới hạn thu nợ cũ, tải lại sau thu/sửa/xóa; backend vẫn kiểm tra số dư khi ghi. Không cần migration mới cho response này.
+- API mới: `POST /api/debt-payments/legacy` với `customer_id`, `amount`, `collection_branch_id` (MANAGER); STAFF dùng cơ sở từ token. Không yêu cầu hóa đơn.
+- Giảm `total_debt` trong transaction, chỉ thu phần nợ không được bao phủ bởi nợ còn lại của hóa đơn.
+- Dòng tiền và doanh thu thuộc cơ sở thực thu. Báo cáo tổng kỳ/ngày thêm `legacyDebtRevenue`; `totalRevenue = serviceRevenue + productRevenue + legacyDebtRevenue`. Các công thức hai thành phần ở ví dụ cũ bên dưới chỉ áp dụng khi `legacyDebtRevenue = 0`.
+- `receipts.debtPayments` đã bao gồm tiền thu nợ cũ, không cộng thêm lần hai vào dòng tiền. Phiếu có hóa đơn không cộng lại doanh thu.
+- Chi tiết payload, sửa/xóa, migration và lưu ý triển khai: xem tài liệu thu nợ cũ `docs/LEGACY_DEBT_PAYMENTS_API.md`.
+
 ## Lịch sử ghi chú hóa đơn trong hồ sơ khách hàng
 
 - `customers.note` vẫn là chuỗi text, giữ ghi chú cũ và nối từng sự kiện bằng `\n`; không thay đổi schema/response khách hàng. Frontend render text với CSS `white-space: pre-wrap`, không dùng HTML injection.

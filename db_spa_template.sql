@@ -293,7 +293,7 @@ CREATE TABLE `debt_payments` (
   `customer_id` int NOT NULL,
   `branch_id` int NOT NULL,
   `collection_branch_id` int NOT NULL,
-  `invoice_id` int NOT NULL,
+  `invoice_id` int DEFAULT NULL,
   `amount` decimal(15,2) NOT NULL DEFAULT '0.00',
   `payment_method` enum('CASH','TRANSFER','CARD') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'CASH',
   `payment_date` datetime NOT NULL,
