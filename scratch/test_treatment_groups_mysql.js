@@ -71,8 +71,7 @@ async function main() {
         assert.equal(response.body.data[0].children.length, 2);
         response = await request('GET', `/invoices/${invoiceId}`);
         assert.equal(response.body.data.items[0].treatment.children.length, 2);
-        assert.equal((await request('PUT', `/invoices/${invoiceId}`, { items: invoiceBody.items })).status, 400);
-        assert.equal((await request('DELETE', `/invoices/${invoiceId}`)).status, 400);
+        assert.equal((await request('PUT', `/invoices/${invoiceId}`, { items: invoiceBody.items })).status, 200);
         const sessionSignature = '<svg width="300" height="100"><path d="M 10 20 L 50 60"/></svg>';
         const sessionNote = 'Da hơi đỏ\nLưu ý theo dõi ở buổi tiếp theo.';
         const execute = (treatment_id, extra = {}, role = 'MANAGER') => request('POST', '/treatments/execute', { treatment_id, branch_id: branch.id,
@@ -168,7 +167,7 @@ async function main() {
         response = await request('POST', '/invoices', { ...invoiceBody, items: [{ ...invoiceBody.items[0], treatment: { total_sessions: null } }] });
         assert.equal(response.status, 201, JSON.stringify(response.body));
         assert.equal((await request('GET', `/treatments/${response.body.itemMappings[0].treatment_id}`)).body.data.total_sessions, null);
-        assert.equal((await request('DELETE', `/invoices/${response.body.invoiceId}`)).status, 400);
+        assert.equal((await request('DELETE', `/invoices/${response.body.invoiceId}`)).status, 200);
         response = await request('POST', '/invoices', { ...invoiceBody, items: [{ ...invoiceBody.items[0], treatment: { total_sessions: 3, children: [{ product_id: products[1], total_sessions: 0 }] } }] });
         assert.equal(response.status, 201, JSON.stringify(response.body));
         assert.deepEqual(response.body.itemMappings[0].children, []);
@@ -190,6 +189,73 @@ async function main() {
         assert.equal((await request('GET', `/treatments?customerId=${customerId}&status=completed`)).body.data.some(card => card.id === finiteRoot), true);
         assert.equal((await request('GET', `/treatments?customerId=${customerId}&status=exhausted`)).body.data.some(card => card.id === finiteRoot), false);
         assert.equal((await request('POST', '/invoices', { ...invoiceBody, items: [{ ...invoiceBody.items[0], quantity: 2 }] })).status, 400);
+        // Invoice amendments preserve group IDs/history/snapshots and reconcile each child's own usage.
+        const amendment = await request('POST', '/invoices', { ...invoiceBody, items: [{ ...invoiceBody.items[0], treatment: {
+            total_sessions: null, children: [{ product_id: products[1], total_sessions: 5 }, { product_id: products[2], total_sessions: null }]
+        } }] });
+        assert.equal(amendment.status, 201);
+        const amendInvoice = amendment.body.invoiceId;
+        const amendRoot = amendment.body.itemMappings[0].treatment_id;
+        let amendDetail = (await request('GET', `/treatments/${amendRoot}`)).body.data;
+        const amendFinite = amendDetail.children[0].id, amendLifetime = amendDetail.children[1].id;
+        for (const id of [amendFinite, amendFinite, amendLifetime, amendLifetime]) assert.equal((await execute(id)).status, 201);
+        const amendBody = async (finiteCount, lifetimeCount = null, children = true) => {
+            const detail = (await request('GET', `/invoices/${amendInvoice}`)).body.data;
+            return { items: [{ product_id: products[0], invoice_item_id: detail.items[0].id, quantity: 1, unit_price: 900,
+                treatment: { total_sessions: null, ...(children ? { children: [{ product_id: products[1], total_sessions: finiteCount }, { product_id: products[2], total_sessions: lifetimeCount }] } : {}) } }] };
+        };
+        let amended = await request('PUT', `/invoices/${amendInvoice}`, await amendBody(3, 3));
+        assert.equal(amended.status, 200, JSON.stringify(amended.body));
+        amendDetail = (await request('GET', `/treatments/${amendRoot}`)).body.data;
+        assert.deepEqual(amendDetail.children.map(card => card.id), [amendFinite, amendLifetime]);
+        assert.deepEqual(amendDetail.children.map(card => card.remaining_sessions), [1, 1]);
+        assert.equal(amendDetail.remaining_sessions, null);
+        for (const count of [1]) {
+            assert.equal((await request('PUT', `/invoices/${amendInvoice}`, await amendBody(count, 3))).status, 400);
+            assert.equal((await request('PUT', `/invoices/${amendInvoice}`, await amendBody(3, count))).status, 400);
+        }
+        assert.equal((await request('PUT', `/invoices/${amendInvoice}`, await amendBody(0, 3))).status, 400);
+        assert.equal((await request('DELETE', `/invoices/${amendInvoice}`)).status, 400);
+        const deniedBody = await amendBody(3, 3);
+        assert.equal((await request('PUT', `/invoices/${amendInvoice}`, deniedBody, 'STAFF', { branch_id: 2147483647 })).status, 400);
+        // A later invoice failure must roll back balances already changed on child cards.
+        assert.equal((await request('PUT', `/invoices/${amendInvoice}`, { ...await amendBody(4, 4), paid_amount: 901 })).status, 400);
+        assert.deepEqual((await request('GET', `/treatments/${amendRoot}`)).body.data.children.map(card => card.remaining_sessions), [1, 1]);
+        amended = await request('PUT', `/invoices/${amendInvoice}`, await amendBody(2, null));
+        assert.equal(amended.status, 200, JSON.stringify(amended.body));
+        amendDetail = (await request('GET', `/treatments/${amendRoot}`)).body.data;
+        assert.deepEqual(amendDetail.children.map(card => card.remaining_sessions), [0, null]);
+        assert.deepEqual(amendDetail.children.map(card => card.histories.length), [2, 2]);
+        assert.equal((await request('POST', `/treatments/${amendRoot}/close`, closeBody)).status, 200);
+        const closedSignature = (await request('GET', `/treatments/${amendRoot}`)).body.data.closure_signature_svg;
+        assert.equal((await request('PUT', `/invoices/${amendInvoice}`, await amendBody(5, 5))).status, 200);
+        amendDetail = (await request('GET', `/treatments/${amendRoot}`)).body.data;
+        assert.deepEqual(amendDetail.children.map(card => card.total_sessions), [5, 5]);
+        for (const card of [amendDetail, ...amendDetail.children]) {
+            assert.equal(card.remaining_sessions, 0); assert.ok(card.closed_at); assert.equal(card.closure_signature_svg, closedSignature);
+        }
+        assert.equal((await request('PUT', `/invoices/${amendInvoice}`, await amendBody(1, 5))).status, 400);
+        assert.equal((await request('DELETE', `/invoices/${amendInvoice}`)).status, 400);
+        // Omitted treatment preserves the sold configuration, not today's catalog defaults.
+        const currentItem = (await request('GET', `/invoices/${amendInvoice}`)).body.data.items[0];
+        assert.equal((await request('PUT', `/invoices/${amendInvoice}`, { items: [{ product_id: products[0], invoice_item_id: currentItem.id, quantity: 1, unit_price: 900 }] })).status, 200);
+        assert.deepEqual((await request('GET', `/treatments/${amendRoot}`)).body.data.children.map(card => card.total_sessions), [5, 5]);
+        // An unused group (including lifetime child) can be deleted without orphaning cards.
+        const unused = await request('POST', '/invoices', invoiceBody);
+        assert.equal(unused.status, 201);
+        const unusedDetail = (await request('GET', `/invoices/${unused.body.invoiceId}`)).body.data;
+        const unusedRoot = unused.body.itemMappings[0].treatment_id;
+        const unusedEdit = { items: [{ ...invoiceBody.items[0], invoice_item_id: unusedDetail.items[0].id, treatment: {
+            total_sessions: null, children: [{ product_id: products[1], total_sessions: 0 }, { product_id: products[2], total_sessions: null }, { product_id: products[3], total_sessions: 4 }]
+        } }] };
+        const unusedUpdated = await request('PUT', `/invoices/${unused.body.invoiceId}`, unusedEdit);
+        assert.equal(unusedUpdated.status, 200, JSON.stringify(unusedUpdated.body));
+        const unusedCards = (await request('GET', `/treatments/${unusedRoot}`)).body.data.children;
+        assert.deepEqual(unusedCards.map(card => card.product_id), [products[2], products[3]]);
+        assert.equal(unusedCards[1].remaining_sessions, 4);
+        assert.equal(Number(unusedCards[1].commission_base_price), 1300);
+        assert.equal((await request('DELETE', `/invoices/${unused.body.invoiceId}`)).status, 200);
+        assert.equal((await connection.query(`SELECT COUNT(*) n FROM \`${db}\`.treatments WHERE invoice_id=? AND deleted_at IS NULL`, [unused.body.invoiceId]))[0][0].n, 0);
         await connection.rollback();
         assert.equal((await connection.query(`SELECT COUNT(*) AS total FROM \`${db}\`.customers WHERE id=?`, [customerId]))[0][0].total, 0);
         console.log('PASS: invoice atomic groups/price snapshots, root pagination, exhausted children/history, overview, signature closure, lifetime, auth, edit/delete protection and rollback on Rosa 3308.');

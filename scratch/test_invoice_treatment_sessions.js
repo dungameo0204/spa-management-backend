@@ -1,6 +1,7 @@
 const assert = require('node:assert/strict');
 
 const inserts = [];
+const billedItems = [];
 const products = new Map([
     [1, { name: 'Tẩy nốt ruồi', price: '100000.00', unit: ' nốt ', is_product: 0, is_treatment_combo: 0, default_sessions: 10 }],
     [2, { name: 'Combo chăm sóc', price: '200000.00', unit: 'gói', is_product: 0, is_treatment_combo: 1, default_sessions: 3 }],
@@ -13,6 +14,9 @@ let nextId = 20;
 const connection = {
     async beginTransaction() {}, async commit() {}, async rollback() {}, release() {},
     async query(sql, params = []) {
+        if (sql.includes('SELECT id,is_product FROM `test_tenant`.products')) return [[{ id:params[0], is_product:0 }]];
+        if (sql.includes('product_service_components')) return [[]];
+        if (sql.includes('INSERT INTO `test_tenant`.invoice_items')) billedItems.push(params);
         if (sql.includes('SELECT t.id FROM `test_tenant`.treatments t')) return [[]];
         if (sql.includes('.invoices WHERE id = ? AND deleted_at IS NULL FOR UPDATE')) return [[{
             id: 20, branch_id: 1, customer_id: 7, created_at: new Date(), total_amount: 0,
@@ -72,5 +76,14 @@ const assertTreatments = () => {
     assert.deepEqual(result.itemMappings.map(mapping => mapping.treatment_id), [inserts[0].insertId, inserts[1].insertId, null, null]);
     assert.deepEqual(inserts.map(entry => entry.params[3]), result.itemMappings.slice(0, 2).map(mapping => mapping.invoice_item_id));
     assert.equal(inserts[0].params[1], inserts[1].params[1], 'same service must receive two distinct cards');
+    inserts.length = 0;
+    billedItems.length = 0;
+    await service.createInvoice(1, { customer_id:7, branch_id:1, paid_amount:18000000, items:[{
+        product_id:1, quantity:10, unit_price:2000000, discount_percent:10,
+        treatment:{ total_sessions:10, children:[] }
+    }] }, 'tester', 'MANAGER');
+    assert.equal(inserts.length, 1, 'ten sessions create one treatment card, not ten cards');
+    assert.deepEqual(inserts[0].params.slice(4, 6), [10, 10]);
+    assert.ok(billedItems[0].includes(18000000), 'persisted invoice item final price must be 18 million');
     console.log('PASS: POST/PUT invoice creates one session for ordinary services, combo quantity × default_sessions, correct note, no product card');
 })().catch(error => { console.error(error); process.exitCode = 1; });

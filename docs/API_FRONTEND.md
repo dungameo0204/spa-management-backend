@@ -16,7 +16,7 @@ Xem `docs/ROSA_SCHEMA.md`. POST thẻ thủ công chấp nhận `total_sessions:
 
 GET booking dùng arrival_date/time để lọc/sắp xếp, hỗ trợ khoảng giờ và has_arrived; booking có CRUD nội bộ. API hồ sơ, ảnh nhiều file, cấu hình dịch vụ con, tạo nhóm từ invoice, chữ ký từng buổi và ký kết thúc đã triển khai. Xem các tài liệu chuyên đề được liệt kê trong ROSA_FRONTEND_CHANGELOG.md; không áp dụng ghi chú schema-only cũ như giới hạn của API hiện tại.
 
-Hóa đơn có thẻ trọn đời/cha-con/đã đóng bị chặn sửa và xóa qua luồng hiện tại để tránh mất liên kết/chữ ký.
+PUT hóa đơn hỗ trợ sửa thẻ trọn đời/cha-con/đã đóng, giữ ID/lịch sử/chữ ký và kiểm tra tổng mới không nhỏ hơn số đã dùng của từng thẻ. Xem `ROSA_INVOICE_AMENDMENTS_API.md`. DELETE chỉ cho thẻ chưa dùng và chưa ký, kể cả nhóm/trọn đời.
 
 ## Lịch sử ghi chú hóa đơn trong hồ sơ khách hàng
 

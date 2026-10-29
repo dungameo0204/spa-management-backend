@@ -27,6 +27,7 @@ const verifyHistoryActor = (req, res, next) => {
     next();
 };
 router.put('/execute/:historyId/note', verifyHistoryActor, treatmentController.updateHistoryNote);
+router.put('/:id/note', verifyHistoryActor, treatmentController.updateGroupNote);
 router.post('/execute/:historyId/sign', verifyHistoryActor, treatmentController.signHistory);
 router.delete('/execute/:historyId', treatmentController.removeHistory);
 router.put('/execute/:historyId/staffs', treatmentController.assignStaffs);

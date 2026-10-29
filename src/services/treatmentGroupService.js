@@ -21,9 +21,13 @@ const normalizeConfig = config => {
     }
     return { total_sessions: total, children };
 };
+const validateInvoiceQuantity = (config, quantity) => {
+    const perSession = !config.children?.length && config.total_sessions !== null && quantity === config.total_sessions;
+    if (quantity !== 1 && !perSession) throw invalid('Dòng hóa đơn có cấu hình treatment phải có quantity=1 hoặc bằng total_sessions đối với dịch vụ đơn lẻ hữu hạn.');
+};
 const prepare = async (connection, db, productId, config, quantity = 1) => {
     const normalized = normalizeConfig(config);
-    if (quantity !== 1) throw invalid('Dòng hóa đơn có cấu hình treatment phải có quantity=1; muốn bán nhiều gói hãy tách dòng.');
+    validateInvoiceQuantity(normalized, quantity);
     const [parents] = await connection.query(`SELECT id,is_product FROM \`${db}\`.products WHERE id=? AND deleted_at IS NULL FOR SHARE`, [productId]);
     if (!parents.length || Number(parents[0].is_product) !== 0) throw invalid('Chỉ dịch vụ còn hoạt động được tạo liệu trình.');
     if (!normalized.children) return normalized;
@@ -85,4 +89,4 @@ const attach = async (executor, db, roots, { histories = false } = {}) => {
     }
     return roots.map(root => all.get(Number(root.id)));
 };
-module.exports = { count, normalizeConfig, prepare, create, attach, invalid };
+module.exports = { count, normalizeConfig, validateInvoiceQuantity, prepare, create, attach, invalid };

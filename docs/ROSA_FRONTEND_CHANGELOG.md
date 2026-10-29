@@ -1,5 +1,9 @@
 # Rosa — hướng dẫn thay đổi cho frontend
 
+## Bổ sung: sửa hóa đơn có nhóm/trọn đời/đã ký
+
+PUT hóa đơn đã nhận `items[].treatment`, giữ nguyên ID thẻ/lịch sử. Từng thẻ con: còn lại = tổng mới − đã dùng; tổng mới không được nhỏ hơn đã dùng. Thẻ đã đóng vẫn đóng và còn 0, giữ chữ ký. Không gửi treatment thì giữ cấu hình nhóm/trọn đời đã bán. Gửi `invoice_item_id` từ GET hóa đơn để giữ đúng dòng, sau save phải GET lại vì ID dòng hóa đơn thay đổi. DELETE cho nhóm/trọn đời chưa dùng/chưa ký, chặn nếu đã dùng hoặc ký. Xem `ROSA_INVOICE_AMENDMENTS_API.md`.
+
 ## Bổ sung: sửa note buổi và khách ký lúc ra về
 
 - PUT `/api/treatments/execute/:historyId/note` body `{ "note": "Nội dung" }`, sửa cả trước/sau khi ký; null/trắng xóa note, không thay đổi chữ ký/thời điểm ký.
@@ -280,7 +284,7 @@ Các test backend đã chạy trong đợt triển khai gồm customer-profile, 
 ### Chưa có — không dựng UI như thể API đã hỗ trợ
 
 - Ghi đè chữ ký buổi/chữ ký kết thúc, mở lại nhóm đã ký.
-- Sửa cấu hình nhóm qua PUT invoice, quy trình amendment/refund chuyên biệt.
+- Quy trình hoàn tiền/refund chuyên biệt và mở lại nhóm đã ký.
 - Restore/purge ảnh, đổi thứ tự ảnh, sửa ghi chú riêng từng ảnh.
 - MiniApp booking theo schema Rosa, check-in vật lý, tự đổi status theo has_arrived.
 - Tự sửa thẻ đã bán khi danh mục child_service_ids thay đổi.

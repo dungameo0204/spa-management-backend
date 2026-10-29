@@ -23,6 +23,7 @@ const connection = {
         if (sql.includes('.customers WHERE id = ? AND deleted_at IS NULL FOR UPDATE')) return [[{ id: params[0], wallet_balance: 0 }]];
         if (sql.includes('.products WHERE id = ?')) return [products.has(params[0]) ? [products.get(params[0])] : []];
         if (sql.includes('.debt_payments WHERE invoice_id = ?')) return [[]];
+        if (sql.includes('.treatment_history WHERE treatment_id=?')) return [[]];
         if (sql.includes('FROM `test_tenant`.treatments WHERE invoice_id = ?') && sql.includes('FOR UPDATE')) return [state.cards.map(card => ({ ...card }))];
         if (sql.includes('SELECT id, product_id, quantity FROM `test_tenant`.invoice_items')) return [[{ id: 12, product_id: 1, quantity: 5 }]];
         if (sql.includes('FROM `test_tenant`.treatments t') && sql.includes('commission_base_price')) return [[{

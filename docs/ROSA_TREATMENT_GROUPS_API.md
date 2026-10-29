@@ -62,7 +62,7 @@ No new schema migration. Uses existing treatment hierarchy, lifetime, closure an
 - Locks root and descendants, checks customer consistency, atomically stores closure note/signature/actor/time and sets remaining sessions to 0. Original totals/history/commission rows remain unchanged by closure. Open lifetime totals stay NULL after closure; remaining becomes 0.
 - Empty/malformed signature or child-ID closure: 400; missing card: 404; repeated closure: 409; unauthenticated: 401; roles other than MANAGER/STAFF, customer tokens or invalid tenant claims: 403. Existing closed child inside an open group requires reconciliation rather than overwriting its signature.
 - Finite cards do not auto-close when exhausted. Parents with children cannot execute. Closed groups cannot execute. Undo history retains existing soft-delete behavior but cannot increment a closed card or reopen it; it does not erase the completion signature.
-- Invoice PUT rejects treatment configuration and protects lifetime/hierarchical/closed cards from legacy reconciliation. Invoice DELETE also rejects lifetime/hierarchical/closed cards. Dedicated amendment/refund/reopening workflows are not part of this API.
+- Invoice PUT supports treatment configuration amendments while preserving card IDs, histories, child price snapshots and closure signatures. See `ROSA_INVOICE_AMENDMENTS_API.md`. Invoice DELETE permits unused/open groups and lifetime cards but rejects any used or signed card. Refund/reopening workflows remain out of scope.
 
 ## Per-session note and signature
 

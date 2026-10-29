@@ -1,6 +1,7 @@
 const treatmentService = require('../services/treatmentService');
 const { respondListError } = require('../utils/pagination');
 const { updateHistoryMetadata } = require('../services/treatmentHistoryMetadataService');
+const { updateGroupNote } = require('../services/treatmentGroupNoteService');
 
 const historyMetadata = action => async (req, res) => {
     try {
@@ -105,6 +106,12 @@ const removeHistory = async (req, res) => {
 };
 
 module.exports = {
+    updateGroupNote: async (req, res) => {
+        try {
+            res.json(await updateGroupNote(req.user.tenant_id, req.params.id, req.body,
+                req.user.fullname || req.user.username, req.user.system_role, req.user.branch_id));
+        } catch (error) { res.status(error.status || 400).json({ message: error.message }); }
+    },
     updateHistoryNote: historyMetadata('note'),
     signHistory: historyMetadata('sign'),
     close,
