@@ -4,6 +4,7 @@ const debtPaymentController = require('../controllers/debtPaymentController');
 const { verifyToken } = require('../middlewares/auth');
 
 router.use(verifyToken);
+router.post('/legacy', debtPaymentController.createLegacy);
 router.post('/', debtPaymentController.create);
 router.get('/', debtPaymentController.getList);
 router.get('/invoices/:invoiceId/remaining-debt', debtPaymentController.getInvoiceRemainingDebt);
