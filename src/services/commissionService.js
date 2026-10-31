@@ -2,7 +2,7 @@
 const loadCommissionBase = async (connection, dbName, treatmentId) => {
     const [rows] = await connection.query(
         `SELECT t.product_id, t.invoice_id, t.invoice_item_id, t.commission_base_price, t.commission_quantity,
-                p.is_treatment_combo, ii.snapshot_price, ii.quantity
+                p.is_treatment_combo, p.price AS product_price, ii.snapshot_price, ii.quantity
          FROM \`${dbName}\`.treatments t
          JOIN \`${dbName}\`.products p ON p.id = t.product_id
          LEFT JOIN \`${dbName}\`.invoice_items ii ON ii.id = t.invoice_item_id AND ii.deleted_at IS NULL
@@ -12,10 +12,10 @@ const loadCommissionBase = async (connection, dbName, treatmentId) => {
     if (!rows.length) throw new Error('Thẻ liệu trình không tồn tại.');
     const row = rows[0];
     if (row.invoice_id != null && row.snapshot_price == null) throw new Error('Thẻ chưa liên kết dòng hóa đơn; cần đối soát invoice_item_id.');
-    if (row.invoice_id == null && row.commission_base_price == null) throw new Error('Thẻ thủ công chưa có commission_base_price.');
     return {
         productId: row.product_id,
-        unitPrice: Number(row.invoice_id == null ? row.commission_base_price : row.snapshot_price),
+        // Legacy manual cards without a base price use the current product price.
+        unitPrice: Number(row.invoice_id == null ? (row.commission_base_price ?? row.product_price) : row.snapshot_price),
         multiplier: Number(row.is_treatment_combo) === 1 ? 1 : Number(row.invoice_id == null ? row.commission_quantity : row.quantity)
     };
 };

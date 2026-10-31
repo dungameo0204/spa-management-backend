@@ -70,6 +70,7 @@ Read this before exploring code. Snapshot, not live deployment proof. First chec
 
 
 ## Handoff and maintenance
+- Xuly commission fallback: manual cards with NULL commission_base_price use current products.price via commissionService.loadCommissionBase (execute/assign/recalculate). Explicit prices including 0 and invoice snapshot rules stay unchanged; no DB backfill or automatic historical recalculation. Regression: node scratch/test_commission_tiers.js.
 - No new business-code/DB change in this documentation task. Ask user for next goal; do not resume historical test-data writes. Recheck runtime/env/migration state.
 - Maintain whole-project map AND branch identity when adding domains, rules, schema or deployment changes. Recent work is only the branch section, not a replacement for architecture.
 - On merge preserve target branch environment/features and incorporate verified shared changes; never accept incoming identity blindly. docs/CONTEXT.md contains older history; current source wins.
