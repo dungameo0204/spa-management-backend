@@ -36,7 +36,7 @@ const getList = async (req, res) => {
 const getDetail = async (req, res) => {
     try {
         const tenantId = req.user.tenant_id;
-        const result = await treatmentService.getTreatmentDetail(tenantId, req.params.id);
+        const result = await treatmentService.getTreatmentDetail(tenantId, req.params.id, req.query);
         res.status(200).json({ message: 'Lấy chi tiết liệu trình thành công', data: result });
     } catch (error) {
         if (error.message.includes('Không tìm thấy')) return res.status(404).json({ message: error.message });

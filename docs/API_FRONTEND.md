@@ -987,7 +987,7 @@ Query tùy chọn: `search`, `branchId`, `status`, `startDate`, `endDate`.
 - `status`: chỉ nhận `Khách chưa đến` hoặc `Khách đã đến`, lọc theo trạng thái **tính lúc đọc**, không theo giá trị lưu trong bảng.
 - `startDate`, `endDate`: lọc theo ngày hẹn `appointment_date` dạng `YYYY-MM-DD`.
 - Dữ liệu trả thêm `customer_name`, `phone_number`, `branch_name`; sắp xếp theo ngày hẹn tăng dần.
-- `status` trả về được tính tự động: `Khách đã đến` nếu khách có hóa đơn hoặc lịch sử thực hiện liệu trình còn hiệu lực tại **cùng cơ sở**, được ghi nhận sau khi tạo lịch, từ đầu ngày hẹn đến hiện tại và trước lịch hẹn tiếp theo của cùng khách/cơ sở; còn lại `Khách chưa đến`. Không cần sửa luồng hóa đơn/liệu trình, nhưng đây là trạng thái suy ra khi GET, không ghi ngược vào cột `appointments.status`. `created_at` được dùng thay ngày nghiệp vụ có thể nhập lùi; chỉ ghi nhận hoạt động đã lưu và không thể phân biệt chắc chắn hai lần hẹn cùng ngày.
+- `status` trả về được tính tự động: `Khách đã đến` nếu khách có hóa đơn hoặc lịch sử thực hiện liệu trình còn hiệu lực tại **cùng cơ sở**, được ghi nhận sau khi tạo lịch, từ đầu ngày hẹn đến hiện tại; còn lại `Khách chưa đến`. Một lần quay lại có thể đáp ứng nhiều lịch cũ, không bị chặn bởi lịch hẹn tiếp theo. Không cần sửa luồng hóa đơn/liệu trình, nhưng đây là trạng thái suy ra khi GET, không ghi ngược vào cột `appointments.status`. `created_at` được dùng thay ngày nghiệp vụ có thể nhập lùi; chỉ ghi nhận hoạt động đã lưu và không thể phân biệt chắc chắn hai lần hẹn cùng ngày.
 
 ### `GET /api/appointments/tomorrow`
 
@@ -1027,8 +1027,8 @@ Query tùy chọn: `search`, `branchId`, `customerId`, `productId`, `status`, `s
 - `branchId`: cả MANAGER và STAFF đều có thể lọc branch; bỏ qua thì xem toàn spa, không xem chéo tenant.
 - `customerId`, `productId`, `status`: lọc khớp chính xác.
 - `startDate`, `endDate`: lọc theo `arrival_date` dạng `YYYY-MM-DD`, bao gồm hai đầu. Thứ tự `arrival_date`, `arrival_time`, `created_at`, `id` tăng dần.
-- `startTime`, `endTime`: lọc giờ hẹn `arrival_time`, nhận HH:mm/HH:mm:ss, bao gồm hai đầu; có thể gửi một đầu. Ví dụ 07:00–08:00 áp dụng cho mỗi ngày trong khoảng lọc, loại giờ NULL. Sai định dạng hoặc đầu > cuối trả 400, không hỗ trợ qua đêm.
-- `has_arrived`: boolean tính động ở list/detail, true nếu khách phát sinh hóa đơn hoặc thẻ liệu trình chưa xóa mềm từ 00:00 ngày tạo booking (`created_at`) đến hiện tại. Khách EXISTING ghép customer_id; NEW chưa có ID ghép số điện thoại trùng chính xác. Kiểm tra toàn spa, không dùng ngày hẹn; không tự đổi status hay thêm cột DB.
+- `startTime`, `endTime`: lọc giờ hẹn `arrival_time`, nhận HH:mm/HH:mm:ss, bao gồm hai đầu; có thể gửi một đầu. Ví dụ 07:00–08:00 áp dụng cho mỗi ngày trong khoảng lọc, bao gồm cả giờ NULL (chưa xác nhận giờ). Khi lọc giờ, nhóm có giờ nằm trong khoảng được xếp trước toàn bộ nhóm giờ NULL, kể cả khi lọc nhiều ngày; trong mỗi nhóm giữ thứ tự ngày/giờ, created_at, id. Các bộ lọc khác vẫn áp dụng cho cả hai nhóm; total/phân trang bao gồm cả hai. Sai định dạng hoặc đầu > cuối trả 400, không hỗ trợ qua đêm.
+- `has_arrived`: boolean tính động ở list/detail, true nếu hóa đơn hoặc thẻ liệu trình chưa xóa mềm của khách có `created_at` từ 00:00 **ngày hẹn (`arrival_date`)** đến hiện tại. Không lấy ngày tạo booking làm mốc; lịch hẹn ngày mai không được tính bằng giao dịch hôm nay. Không xét giờ hẹn, invoice_date hay lịch sử thực hiện. Khách EXISTING ghép customer_id; NEW chưa có ID ghép số điện thoại trùng chính xác. Kiểm tra toàn spa; không tự đổi status hay thêm cột DB.
 - Kết quả trả thêm `branch_name`, `product_name`; nếu booking liên kết customer hệ thống thì có thêm `registered_customer_name`, `registered_customer_phone`.
 - Thành công `200`: `{ "message": "Lấy danh sách booking khách hàng thành công", "total": 1, "page": 1, "pageSize": 20, "totalPages": 1, "data": [ ... ] }`.
 
@@ -1199,11 +1199,14 @@ API này hỗ trợ query filter để tìm danh sách thẻ liệu trình. Tấ
 | `status` | `active` / `exhausted` / `completed` | `active`: chưa ký kết thúc (`closed_at IS NULL`), gồm cả thẻ hết buổi; `exhausted`: chưa ký kết thúc và `remaining_sessions = 0`; `completed`: đã ký kết thúc (`closed_at IS NOT NULL`). |
 | `startDate` | `YYYY-MM-DD` | Lọc từ ngày tạo thẻ, theo `treatments.created_at`. |
 | `endDate` | `YYYY-MM-DD` | Lọc đến ngày tạo thẻ, theo `treatments.created_at`. |
+| `executionStartDate` | `YYYY-MM-DD` | Lọc từ ngày thực hiện, theo `treatment_history.execution_date`. |
+| `executionEndDate` | `YYYY-MM-DD` | Lọc đến ngày thực hiện, theo `treatment_history.execution_date`. |
 | `branchId` | number | Lọc theo branch của hóa đơn gốc. Thẻ tạo thủ công không có invoice vẫn được bao gồm theo logic hiện tại. |
 
 - `customerSearch` tìm theo tên/số điện thoại; `productSearch` tìm tên dịch vụ.
 - `status=active` lọc thẻ chưa ký kết thúc; `status=exhausted` lọc thẻ hết buổi nhưng chưa ký kết thúc; `status=completed` lọc thẻ đã ký kết thúc. Chữ ký từng buổi không làm thẻ chuyển sang completed.
 - `startDate`, `endDate`: lọc ngày tạo thẻ; `invoiceId` lọc toàn bộ thẻ liệu trình được sinh từ một hóa đơn, không phụ thuộc branch của hóa đơn; `branchId` lọc thẻ tạo từ hóa đơn của một cơ sở (thẻ thủ công không có invoice vẫn được bao gồm theo nghiệp vụ hiện tại).
+- `executionStartDate`, `executionEndDate`: lọc theo ngày thực hiện, bao gồm hai đầu ngày. Thẻ gốc được trả nếu chính thẻ đó **hoặc bất kỳ thẻ con nào** có ít nhất một `treatment_history` chưa xóa với `execution_date` trong khoảng. Hai param có thể dùng độc lập hoặc kết hợp với `startDate`/`endDate`; `executionStartDate` sau `executionEndDate`, định dạng không hợp lệ trả `400`. Filter được áp dụng trong SQL trước khi tính `total`/phân trang.
 - Thành công `200`: `{ "message": "Lấy danh sách liệu trình thành công", "total": 1, "page": 1, "pageSize": 20, "totalPages": 1, "data": [ ... ] }`.
 
 Ví dụ tìm các thẻ liệu trình có tên dịch vụ chứa `lông`:
@@ -1224,7 +1227,7 @@ curl -G "http://localhost:5000/api/treatments" \
 Ví dụ kết hợp nhiều điều kiện:
 
 ```http
-GET /api/treatments?customerId=1&productSearch=lông&status=active&startDate=2026-10-01&endDate=2026-10-31
+GET /api/treatments?customerId=1&productSearch=lông&status=active&executionStartDate=2026-10-01&executionEndDate=2026-10-31
 Authorization: Bearer <token>
 ```
 
@@ -1263,7 +1266,7 @@ const response = await fetch('http://localhost:5000/api/treatments/17', {
 const result = await response.json();
 ```
 
-Endpoint này **không hỗ trợ query parameter**. Không truyền `customerId`, `invoiceId`, `branchId`, `status`, `startDate` hoặc `endDate` cho endpoint detail. Các bộ lọc đó chỉ dùng với `GET /api/treatments`.
+Detail chỉ nhận tùy chọn `executionStartDate`, `executionEndDate` với cùng validate/ý nghĩa khoảng ngày như list. Khi có ít nhất một trong hai param, `histories[]` tại thẻ gốc và mọi thẻ con chỉ chứa history chưa xóa có `execution_date` khớp khoảng; không có param thì trả toàn bộ history như trước. Không truyền `customerId`, `invoiceId`, `branchId`, `status`, `startDate` hoặc `endDate` cho endpoint detail.
 
 #### Các field trả về
 

@@ -14,6 +14,42 @@ const toNumber = (value, fieldName, { min = 0, integer = false } = {}) => {
     return numberValue;
 };
 
+const optionalDate = (value, fieldName) => {
+    if (value === undefined) return undefined;
+    if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+        const error = new Error(`${fieldName} phải là ngày YYYY-MM-DD hợp lệ.`); error.status = 400; throw error;
+    }
+    const parsed = new Date(`${value}T00:00:00.000Z`);
+    if (!Number.isFinite(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== value) {
+        const error = new Error(`${fieldName} phải là ngày YYYY-MM-DD hợp lệ.`); error.status = 400; throw error;
+    }
+    return value;
+};
+
+const executionDateFilters = filters => {
+    const start = optionalDate(filters.executionStartDate, 'executionStartDate');
+    const end = optionalDate(filters.executionEndDate, 'executionEndDate');
+    if (start && end && start > end) {
+        const error = new Error('executionStartDate không được sau executionEndDate.'); error.status = 400; throw error;
+    }
+    return { start, end };
+};
+
+const matchingExecutionSql = (dbName, rootAlias, dates) => {
+    const conditions = ['th.deleted_at IS NULL'];
+    const params = [];
+    if (dates.start) { conditions.push('th.execution_date >= ?'); params.push(dates.start); }
+    if (dates.end) { conditions.push('th.execution_date < DATE_ADD(?, INTERVAL 1 DAY)'); params.push(dates.end); }
+    return {
+        sql: `EXISTS (
+            SELECT 1 FROM \`${dbName}\`.treatment_history th
+            INNER JOIN treatment_tree tree ON tree.id = th.treatment_id
+            WHERE tree.root_id = ${rootAlias}.id AND ${conditions.join(' AND ')}
+        )`,
+        params
+    };
+};
+
 // ==========================
 // 1. QUẢN LÝ THẺ LIỆU TRÌNH
 // ==========================
@@ -340,7 +376,16 @@ const deleteTreatmentHistory = async (tenantId, historyId, executorName, userRol
 
 const getTreatments = async (tenantId, filters) => {
     const dbName = await getTenantDbName(tenantId);
-    let query = `
+    const executionDates = executionDateFilters(filters);
+    const executionFilterActive = executionDates.start || executionDates.end;
+    let query = `${executionFilterActive ? `WITH RECURSIVE treatment_tree AS (
+        SELECT root_t.id AS root_id, root_t.id FROM \`${dbName}\`.treatments root_t
+        WHERE root_t.parent_treatment_id IS NULL AND root_t.deleted_at IS NULL
+        UNION ALL
+        SELECT tree.root_id, child_t.id FROM \`${dbName}\`.treatments child_t
+        INNER JOIN treatment_tree tree ON child_t.parent_treatment_id = tree.id
+        WHERE child_t.deleted_at IS NULL
+    )` : ''}
         SELECT t.*, c.fullname as customer_name, c.phone_number, p.name as product_name, i.branch_id
         FROM \`${dbName}\`.treatments t
         JOIN \`${dbName}\`.customers c ON t.customer_id = c.id
@@ -383,6 +428,12 @@ const getTreatments = async (tenantId, filters) => {
         params.push(filters.endDate);
     }
 
+    if (executionDates.start || executionDates.end) {
+        const matching = matchingExecutionSql(dbName, 't', executionDates);
+        query += ` AND ${matching.sql}`;
+        params.push(...matching.params);
+    }
+
     if (filters.branchId) {
         query += ' AND (i.branch_id = ? OR t.invoice_id IS NULL)';
         params.push(filters.branchId);
@@ -393,8 +444,9 @@ const getTreatments = async (tenantId, filters) => {
     return page;
 };
 
-const getTreatmentDetail = async (tenantId, treatmentId) => {
+const getTreatmentDetail = async (tenantId, treatmentId, filters = {}) => {
     const dbName = await getTenantDbName(tenantId);
+    const executionDates = executionDateFilters(filters);
     
     let query = `
         SELECT t.*, c.fullname as customer_name, c.phone_number, p.name as product_name, i.branch_id
@@ -411,7 +463,11 @@ const getTreatmentDetail = async (tenantId, treatmentId) => {
         throw new Error('Không tìm thấy thẻ liệu trình hoặc thẻ đã bị xóa');
     }
     
-    return (await groups.attach(masterPool, dbName, treatments, { histories: true }))[0];
+    return (await groups.attach(masterPool, dbName, treatments, {
+        histories: true,
+        executionStartDate: executionDates.start,
+        executionEndDate: executionDates.end
+    }))[0];
 };
 
 const closeTreatment = async (tenantId, treatmentId, body, actor) => {

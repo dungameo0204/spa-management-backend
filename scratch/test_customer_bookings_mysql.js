@@ -60,7 +60,7 @@ async function main() {
         for (const filters of ['startTime=24:00', 'endTime=bad', 'startTime=08:00&endTime=07:00', 'startTime=']) {
             assert.equal((await request('GET', `?${filters}`)).status, 400);
         }
-        assert.equal((await request('GET', `${scope}&startTime=07:00&endTime=08:00`)).body.total, 0, 'unknown time excluded');
+        assert.equal((await request('GET', `${scope}&startTime=07:00&endTime=08:00`)).body.total, 1, 'unknown time included');
         for (const clock of ['07:00', '08:00', '08:00:01']) {
             assert.equal((await request('PUT', `/${existingId}`, { arrival_time: clock })).status, 200);
             const page = await request('GET', `${scope}&startTime=07:00&endTime=08:00&pageSize=1`);
@@ -71,8 +71,8 @@ async function main() {
         assert.equal((await request('GET', `${scope}&search=Booking`)).body.total, 1);
         assert.equal((await request('GET', `${scope}&search=T`)).body.total, 1);
         assert.equal((await request('GET', `/${existingId}`)).body.data.has_arrived, false);
-        // Use deterministic historical booking day; include activity before booking time, not before midnight.
-        await c.query(`UPDATE \`${db}\`.customer_bookings SET created_at='2026-01-02 18:00:00' WHERE id=?`, [existingId]);
+        // Booking created the previous day: only activity from arrival_date midnight counts.
+        await c.query(`UPDATE \`${db}\`.customer_bookings SET created_at='2026-01-01 18:00:00',arrival_date='2026-01-02' WHERE id=?`, [existingId]);
         const [invoice] = await c.query(`INSERT INTO \`${db}\`.invoices (customer_id,branch_id,total_amount,paid_amount,invoice_date,created_at)
             VALUES (?,?,0,0,'2026-01-03','2026-01-01 23:59:59')`, [customer.insertId, branch.id]);
         assert.equal((await request('GET', `/${existingId}`)).body.data.has_arrived, false);
@@ -90,7 +90,7 @@ async function main() {
         const newBooking = await request('POST', '', { ...base, customer_phone: phone });
         assert.equal(newBooking.status, 201);
         const newId = newBooking.body.bookingId;
-        await c.query(`UPDATE \`${db}\`.customer_bookings SET created_at='2026-01-02 18:00:00' WHERE id=?`, [newId]);
+        await c.query(`UPDATE \`${db}\`.customer_bookings SET created_at='2026-01-01 18:00:00',arrival_date='2026-01-02' WHERE id=?`, [newId]);
         assert.equal((await request('GET', `/${newId}`)).body.data.has_arrived, true, 'NEW exact phone match');
         await request('PUT', `/${newId}`, { customer_phone: `${phone}0` });
         assert.equal((await request('GET', `/${newId}`)).body.data.has_arrived, false, 'no partial phone matching');

@@ -2,7 +2,7 @@ const { masterPool, getTenantDbName } = require('../config/database');
 const { paginateQuery } = require('../utils/pagination');
 const booking = require('../utils/customerBooking');
 
-// Same tenant, all branches. Use creation timestamps, not scheduled/business dates.
+// Same tenant, all branches. Activity must be recorded on/after the scheduled arrival day.
 const arrivedSql = db => `EXISTS (
     SELECT 1 FROM \`${db}\`.customers ac
     WHERE ((cb.customer_id IS NOT NULL AND ac.id=cb.customer_id)
@@ -10,9 +10,9 @@ const arrivedSql = db => `EXISTS (
             AND ac.phone_number=cb.customer_phone AND BINARY ac.phone_number=BINARY cb.customer_phone))
     AND (
         EXISTS (SELECT 1 FROM \`${db}\`.invoices ai WHERE ai.customer_id=ac.id AND ai.deleted_at IS NULL
-            AND ai.created_at >= DATE(cb.created_at) AND ai.created_at <= NOW())
+            AND ai.created_at >= cb.arrival_date AND ai.created_at <= NOW())
         OR EXISTS (SELECT 1 FROM \`${db}\`.treatments atc WHERE atc.customer_id=ac.id AND atc.deleted_at IS NULL
-            AND atc.created_at >= DATE(cb.created_at) AND atc.created_at <= NOW())
+            AND atc.created_at >= cb.arrival_date AND atc.created_at <= NOW())
     )
 ) AS has_arrived`;
 const withArrival = row => ({ ...row, has_arrived: Number(row.has_arrived) === 1 });
@@ -72,9 +72,14 @@ const getCustomerBookings = async (tenantId, filters, userRole, userBranchId) =>
     const startTime = filters.startTime === undefined ? null : booking.time(filters.startTime, 'startTime');
     const endTime = filters.endTime === undefined ? null : booking.time(filters.endTime, 'endTime');
     if (startTime && endTime && startTime > endTime) throw booking.fail('startTime không được lớn hơn endTime; không hỗ trợ khoảng qua đêm.');
-    if (startTime) { query += ' AND cb.arrival_time >= ?'; params.push(startTime); }
-    if (endTime) { query += ' AND cb.arrival_time <= ?'; params.push(endTime); }
-    const result = await paginateQuery(masterPool, query, params, 'cb.arrival_date ASC, cb.arrival_time ASC, cb.created_at ASC, cb.id ASC', filters);
+    const timeConditions = [];
+    if (startTime) { timeConditions.push('cb.arrival_time >= ?'); params.push(startTime); }
+    if (endTime) { timeConditions.push('cb.arrival_time <= ?'); params.push(endTime); }
+    if (timeConditions.length) {
+        query += ` AND (cb.arrival_time IS NULL OR (${timeConditions.join(' AND ')}))`;
+    }
+    const orderBy = `${timeConditions.length ? '(cb.arrival_time IS NULL) ASC, ' : ''}cb.arrival_date ASC, cb.arrival_time ASC, cb.created_at ASC, cb.id ASC`;
+    const result = await paginateQuery(masterPool, query, params, orderBy, filters);
     result.data = result.data.map(withArrival);
     return result;
 };

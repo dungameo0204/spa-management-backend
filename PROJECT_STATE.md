@@ -73,6 +73,10 @@ Read this before exploring code. Snapshot, not live deployment proof. First chec
 
 
 ## Handoff and maintenance
+- Rosa treatment execution-date filtering: GET /treatments accepts executionStartDate/executionEndDate without changing legacy startDate/endDate created-card semantics. Recursive root/child history EXISTS happens before count/page; detail accepts the same params and returns only matching histories. Regression: npm run test:treatment-groups.
+- Rosa booking has_arrived uses invoice/card created_at from scheduled arrival_date midnight through NOW(), not booking created_at. Future scheduled days remain false; list/detail share the rule. No data migration.
+- Rosa booking time filters include NULL arrival_time, after all known-time matches (before pagination). Other filters apply to both groups; no-time-filter ordering unchanged. Regression: node scratch/test_customer_booking_time_filters.js.
+- Rosa appointment status: a valid invoice/treatment history at the same branch satisfies all earlier eligible appointments; subsequent appointments no longer block older ones. Existing created_at/day/deletion guards remain. Read-time calculation only, no DB migration. Regression: node scratch/test_appointment_status.js.
 - No new business-code/DB change in this documentation task. Ask user for next goal; do not resume historical test-data writes. Recheck runtime/env/migration state.
 - Maintain whole-project map AND branch identity when adding domains, rules, schema or deployment changes. Recent work is only the branch section, not a replacement for architecture.
 - On merge preserve target branch environment/features and incorporate verified shared changes; never accept incoming identity blindly. docs/CONTEXT.md contains older history; current source wins.

@@ -48,7 +48,7 @@ const service = require('../src/services/appointmentService');
     assert.match(query.sql, /event\.deleted_at IS NULL AND event\.created_at >= DATE\(a\.appointment_date\)/);
     assert.match(query.sql, /event\.created_at >= a\.created_at/);
     assert.match(query.sql, /t\.deleted_at IS NULL/);
-    assert.match(query.sql, /next_a\.appointment_date <= event\.created_at/);
+    assert.doesNotMatch(query.sql, /next_a|NOT EXISTS/);
 
     await service.getAppointments(1, { branchId: 2, status: 'Khách chưa đến' }, 'MANAGER', null, 'not-arrived');
     query = calls.findLast(call => call.sql.includes('SELECT a.*'));
@@ -59,5 +59,15 @@ const service = require('../src/services/appointmentService');
     const detail = await service.getAppointmentDetail(1, 7, 'STAFF', 2);
     assert.equal(detail.status, 'Khách đã đến');
     assert.deepEqual(calls.findLast(call => call.sql.includes('SELECT a.*')).params, [7, 2]);
+    // All read/filter paths must allow one return visit to satisfy multiple old appointments.
+    for (const call of calls.filter(call => call.sql.includes('CASE WHEN'))) {
+        assert.doesNotMatch(call.sql, /next_a|NOT EXISTS/);
+        assert.match(call.sql, /event\.created_at >= DATE\(a\.appointment_date\)/);
+        assert.match(call.sql, /event\.created_at >= a\.created_at/);
+        assert.match(call.sql, /event\.created_at <= NOW\(\)/);
+        assert.match(call.sql, /event\.customer_id = a\.customer_id AND event\.branch_id = a\.branch_id/);
+        assert.match(call.sql, /t\.customer_id = a\.customer_id AND event\.branch_id = a\.branch_id/);
+        assert.match(call.sql, /event\.deleted_at IS NULL/);
+    }
     console.log('PASS: appointment status, tomorrow/not-arrived filters and branch permissions');
 })().catch(error => { console.error(error); process.exitCode = 1; });

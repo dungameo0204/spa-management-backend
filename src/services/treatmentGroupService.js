@@ -60,7 +60,7 @@ const create = async (connection, db, data, config, actor) => {
 };
 
 // Load all descendants in batches; do not apply remaining-session/status filters to children.
-const attach = async (executor, db, roots, { histories = false } = {}) => {
+const attach = async (executor, db, roots, { histories = false, executionStartDate, executionEndDate } = {}) => {
     if (!roots.length) return roots;
     const all = new Map(roots.map(root => [Number(root.id), { ...root, children: [] }]));
     let frontier = [...all.keys()];
@@ -80,7 +80,12 @@ const attach = async (executor, db, roots, { histories = false } = {}) => {
         if (all.size > 10000) throw invalid('Nhóm liệu trình quá lớn.');
     }
     if (histories) {
-        const [rows] = await executor.query(`SELECT * FROM \`${db}\`.treatment_history WHERE treatment_id IN (?) AND deleted_at IS NULL ORDER BY execution_date DESC,id DESC`, [[...all.keys()]]);
+        let historyQuery = `SELECT th.*, b.name AS branch_name FROM \`${db}\`.treatment_history th LEFT JOIN \`${db}\`.branches b ON b.id = th.branch_id WHERE th.treatment_id IN (?) AND th.deleted_at IS NULL`;
+        const historyParams = [[...all.keys()]];
+        if (executionStartDate) { historyQuery += ' AND th.execution_date >= ?'; historyParams.push(executionStartDate); }
+        if (executionEndDate) { historyQuery += ' AND th.execution_date < DATE_ADD(?, INTERVAL 1 DAY)'; historyParams.push(executionEndDate); }
+        historyQuery += ' ORDER BY th.execution_date DESC, th.id DESC';
+        const [rows] = await executor.query(historyQuery, historyParams);
         let staffs = [];
         if (rows.length) [staffs] = await executor.query(`SELECT ths.*,s.fullname AS staff_name FROM \`${db}\`.treatment_history_staffs ths
             JOIN \`${db}\`.staffs s ON s.id=ths.staff_id WHERE ths.treatment_history_id IN (?) AND ths.deleted_at IS NULL ORDER BY ths.id`, [rows.map(h => h.id)]);
