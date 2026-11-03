@@ -4,7 +4,7 @@ Base local: `http://localhost:5002/api/customers/:customerId/skin-image-sessions
 
 ## Cấu hình và phạm vi
 
-- Chỉ bật khi `SKIN_IMAGES_ENABLED=true`, `DB_HOST=127.0.0.1` và `SKIN_IMAGES_TENANT_DATABASE` là tên database tenant Rosa đã migrate. Cổng MySQL được lấy từ `DB_PORT`; không dùng cổng để nhận diện Rosa. Tenant database khác bị từ chối, kể cả khi JWT hợp lệ.
+- Chỉ bật khi `SKIN_IMAGES_ENABLED=true` và `DB_HOST=127.0.0.1`. Cổng MySQL được lấy từ `DB_PORT`; không dùng cổng để nhận diện Rosa. Database được resolve từ `db_system_master.tenants.database_name` theo `tenant_id` trong JWT và chỉ chấp nhận tên dạng `db_spa_*`; không cấu hình database tenant riêng trong `.env`.
 - `UPLOAD_ROOT` phải là thư mục tuyệt đối bên ngoài Git. Ví dụ Rosa test Windows dùng `C:/SpaBackend/uploads`; Rosa local có thể dùng `D:/SpaRosa/storage`.
 - JWT Bearer của MANAGER hoặc STAFF có tenant_id hợp lệ; token khách hàng/SUPER_ADMIN bị từ chối. Không nhận tenant_id từ request body.
 - Khách, lần chụp, ảnh phải thuộc đúng quan hệ trong tenant lấy từ JWT và chưa xóa mềm. Không có phân quyền theo branch vì ảnh thuộc hồ sơ khách chung của tenant.
@@ -111,12 +111,12 @@ API trả Content-Type ảnh, Cache-Control private/no-store, nosniff. Ảnh/l�
 
 - 400: ID/ngày/metadata/file/multipart sai, thiếu ảnh, quá số file/field.
 - 401: token thiếu hoặc không hợp lệ.
-- 403: sai loại tài khoản/phạm vi tenant claim.
+- 403: sai loại tài khoản/phạm vi tenant claim hoặc database được đăng ký cho tenant không có tên `db_spa_*` hợp lệ.
 - 404: khách/lần chụp/ảnh không thuộc quan hệ yêu cầu, bị xóa hoặc thiếu file vật lý.
 - 413: ảnh quá 10 MiB.
 - 415: POST upload không dùng multipart/form-data.
 - 429: đã có 4 upload đang xử lý trong process.
-- 503: chưa bật API ảnh, cấu hình database tenant/storage không hợp lệ hoặc MySQL không chạy qua loopback.
+- 503: chưa bật API ảnh, UPLOAD_ROOT không hợp lệ hoặc MySQL không chạy qua loopback.
 - 500: lỗi lưu file/database; response không lộ chi tiết SQL/đường dẫn.
 
 Upload dùng staging riêng mỗi request rồi transaction DB + move file. Lỗi thông thường rollback và dọn file của request trước khi response. Commit mất kết nối có thể không rõ kết quả: chỉ xóa file nếu kiểm tra không còn bản ghi tham chiếu; khi không xác định được thì giữ file và log để đối chiếu. Không có atomic transaction giữa filesystem và MySQL. Process bị kill có thể để lại file chính không có bản ghi; chưa có job tự xóa file chính mồ côi (cần đối chiếu có backup trước).

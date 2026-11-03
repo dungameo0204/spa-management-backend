@@ -7,7 +7,7 @@
 | Giá trị | Nội dung |
 | --- | --- |
 | ServerId | `spatestrosa` |
-| Backend tag | `backend-spatestrosa-v1.0.1` |
+| Backend tag | `backend-spatestrosa-v1.0.2` |
 | Tag pattern | `backend-spatestrosa-v*` |
 | API hostname | `api-spa-testrosa.infinityhavocx.men` |
 | Frontend origin | `https://app-spa-testrosa.infinityhavocx.men` |
@@ -20,7 +20,7 @@
 - Port `5000`, service `SpaBackend` và thư mục `C:\SpaBackend` chưa thuộc ứng dụng khác.
 - Có Node.js, Git, MySQL 8.x và WinSW x64 trên máy.
 - Tài khoản MySQL có quyền tạo database/user và import schema.
-- Máy có thể đọc repository Git tag `backend-spatestrosa-v1.0.1`.
+- Máy có thể đọc repository Git tag `backend-spatestrosa-v1.0.2`.
 
 Kiểm tra nhanh:
 
@@ -92,12 +92,12 @@ Copy-Item -LiteralPath "$bootstrap\.env.example" -Destination "$root\config\.env
 notepad "$root\config\.env"
 ```
 
-Trong `.env`, thay `DB_PASSWORD` và `JWT_SECRET` bằng giá trị bí mật mạnh tại máy test; giữ nguyên `CORS_ORIGINS=https://app-spa-testrosa.infinityhavocx.men`, `DB_PORT=3306`, `SKIN_IMAGES_ENABLED=true`, `SKIN_IMAGES_TENANT_DATABASE=db_spa_1791039769068_e185` và `UPLOAD_ROOT=C:/SpaBackend/uploads`. Không đổi `DB_PORT` sang `3308`: cổng MySQL không dùng để nhận diện tính năng ảnh.
+Trong `.env`, thay `DB_PASSWORD` và `JWT_SECRET` bằng giá trị bí mật mạnh tại máy test; giữ nguyên `CORS_ORIGINS=https://app-spa-testrosa.infinityhavocx.men`, `DB_PORT=3306`, `SKIN_IMAGES_ENABLED=true` và `UPLOAD_ROOT=C:/SpaBackend/uploads`. Không đặt `SKIN_IMAGES_TENANT_DATABASE`: API resolve database từ tenant hợp lệ trong `db_system_master.tenants`, nên các tenant mới clone từ `db_spa_template` cũng upload được. Không đổi `DB_PORT` sang `3308`: cổng MySQL không dùng để nhận diện tính năng ảnh.
 
 ```powershell
 Set-ExecutionPolicy -Scope Process Bypass
 & 'C:\SpaBackend\scripts\Deploy-SpaBackend.ps1' `
-  -Version 'backend-spatestrosa-v1.0.1' `
+  -Version 'backend-spatestrosa-v1.0.2' `
   -ServerId 'spatestrosa'
 ```
 
@@ -123,7 +123,7 @@ Invoke-RestMethod 'http://127.0.0.1:5000/health'
 Get-Content 'C:\SpaBackend\logs\SpaBackend.err.log' -Tail 100
 ```
 
-Đăng nhập frontend Rosa bằng MANAGER/STAFF của tenant test và upload một ảnh JPEG/PNG/WebP. Request `skin-image-sessions` không được trả `503`. Các bản ghi ảnh cũ trong SQL dump cần file vật lý tương ứng trong `C:\SpaBackend\uploads`; nếu không được copy từ máy cũ, ảnh cũ có thể trả `404`, nhưng upload mới vẫn hoạt động.
+Đăng nhập frontend Rosa bằng MANAGER/STAFF của tenant test và upload một ảnh JPEG/PNG/WebP. Request `skin-image-sessions` không được trả `503`. Tenant mới được Superadmin tạo sau đó (database `db_spa_*` clone từ `db_spa_template`) cũng dùng cùng cấu hình và lưu file tại `C:\SpaBackend\uploads\tenants\<tenantId>\...`. Các bản ghi ảnh cũ trong SQL dump cần file vật lý tương ứng trong `C:\SpaBackend\uploads`; nếu không được copy từ máy cũ, ảnh cũ có thể trả `404`, nhưng upload mới vẫn hoạt động.
 
 ## 6. Cloudflare Tunnel và frontend
 

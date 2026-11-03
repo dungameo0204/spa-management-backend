@@ -3,7 +3,7 @@ param(
     [string]$RepositoryRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path,
     [string]$OutputDirectory = (Join-Path (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path 'artifacts'),
     [string]$PackageName = 'SpaBackendBootstrap_SpaTestRosa',
-    [string]$BackendTag = 'backend-spatestrosa-v1.0.1'
+    [string]$BackendTag = 'backend-spatestrosa-v1.0.2'
 )
 
 Set-StrictMode -Version Latest

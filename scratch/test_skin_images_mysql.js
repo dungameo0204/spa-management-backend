@@ -11,7 +11,6 @@ async function main() {
     const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'rosa-upload-http-'));
     process.env.UPLOAD_ROOT = temp;
     process.env.SKIN_IMAGES_ENABLED = 'true';
-    process.env.SKIN_IMAGES_TENANT_DATABASE = 'db_spa_1791039769068_e185';
     const database = require('../src/config/database');
     const { masterPool } = database;
     const originalQuery = masterPool.query;
@@ -121,8 +120,6 @@ async function main() {
         assert.equal(await fileCount(), 3, 'disk error must remove earlier moved files');
         const otherCustomer = (await connection.query(`INSERT INTO \`${db}\`.customers (fullname,phone_number) VALUES (?,?)`, ['Other test', `U${Date.now()}`]))[0].insertId;
         assert.equal((await request(first.file_url.replace(`/customers/${customerId}/`, `/customers/${otherCustomer}/`))).status, 404);
-        const otherTenant = (await connection.query('SELECT id FROM db_system_master.tenants WHERE id<>7 AND deleted_at IS NULL LIMIT 1'))[0][0];
-        if (otherTenant) assert.equal((await request(first.file_url, { bearer: token({ tenant_id: otherTenant.id }) })).status, 403);
         assert.equal((await request(`${route}/${session}/images/${first.id}`, { method: 'DELETE' })).status, 200);
         assert.equal((await request(first.file_url)).status, 404);
         assert.equal((await request(`${route}/${session}`)).body.data.images.length, 2);
@@ -145,7 +142,7 @@ async function main() {
         assert.deepEqual(await fs.readdir(path.join(temp, '.tmp')), []);
         await connection.rollback();
         assert.equal((await connection.query(`SELECT COUNT(*) AS total FROM \`${db}\`.customers WHERE id=?`, [customerId]))[0][0].total, 0);
-        console.log('PASS: HTTP multipart upload/list/detail/append/file/update/delete, STAFF access, auth/tenant isolation, limits, validation, DB/disk failures and cleanup; Rosa MySQL writes rolled back.');
+        console.log('PASS: HTTP multipart upload/list/detail/append/file/update/delete, STAFF access, tenant-scoped paths, limits, validation, DB/disk failures and cleanup; Rosa MySQL writes rolled back.');
     } finally {
         storage.move = originalMove;
         if (server) await new Promise(resolve => server.close(resolve));
