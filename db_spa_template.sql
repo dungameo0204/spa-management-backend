@@ -25,16 +25,16 @@ DROP TABLE IF EXISTS `app_contents`;
 CREATE TABLE `app_contents` (
   `id` int NOT NULL AUTO_INCREMENT,
   `branch_id` int DEFAULT NULL COMMENT 'Nếu NULL thì áp dụng cho toàn hệ thống',
-  `name` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
-  `type` enum('BANNER','NOTIFICATION') COLLATE utf8mb4_unicode_ci NOT NULL,
-  `template` varchar(100) COLLATE utf8mb4_unicode_ci NOT NULL COMMENT 'Mã template Frontend cần render',
+  `name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `type` enum('BANNER','NOTIFICATION') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `template` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT 'Mã template Frontend cần render',
   `content` json NOT NULL COMMENT 'Chứa các data động như title, body, links, images...',
   `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   `deleted_at` timestamp NULL DEFAULT NULL,
-  `created_by` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `updated_by` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `deleted_by` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `created_by` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `updated_by` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `deleted_by` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `fk_app_contents_branch` (`branch_id`),
   CONSTRAINT `fk_app_contents_branch` FOREIGN KEY (`branch_id`) REFERENCES `branches` (`id`)
@@ -51,6 +51,39 @@ LOCK TABLES `app_contents` WRITE;
 UNLOCK TABLES;
 
 --
+-- Table structure for table `appointment_contact_notes`
+--
+
+DROP TABLE IF EXISTS `appointment_contact_notes`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `appointment_contact_notes` (
+  `id` int NOT NULL AUTO_INCREMENT,
+  `appointment_id` int NOT NULL,
+  `content` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `contact_date` date DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  `created_by` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `updated_by` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `deleted_at` datetime DEFAULT NULL,
+  `deleted_by` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `appointment_contact_active` (`appointment_id`,`deleted_at`,`id`),
+  CONSTRAINT `appointment_contact_notes_appointment_fk` FOREIGN KEY (`appointment_id`) REFERENCES `appointments` (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `appointment_contact_notes`
+--
+
+LOCK TABLES `appointment_contact_notes` WRITE;
+/*!40000 ALTER TABLE `appointment_contact_notes` DISABLE KEYS */;
+/*!40000 ALTER TABLE `appointment_contact_notes` ENABLE KEYS */;
+UNLOCK TABLES;
+
+--
 -- Table structure for table `appointments`
 --
 
@@ -59,18 +92,18 @@ DROP TABLE IF EXISTS `appointments`;
 /*!50503 SET character_set_client = utf8mb4 */;
 CREATE TABLE `appointments` (
   `id` int NOT NULL AUTO_INCREMENT,
-  `extra_note` text COLLATE utf8mb4_unicode_ci,
   `customer_id` int NOT NULL,
   `branch_id` int NOT NULL,
   `appointment_date` datetime NOT NULL,
-  `note` text COLLATE utf8mb4_unicode_ci,
-  `status` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT 'PENDING',
+  `note` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+  `status` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT 'PENDING',
   `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  `created_by` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `updated_by` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `deleted_by` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `created_by` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `updated_by` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `deleted_by` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `deleted_at` datetime DEFAULT NULL,
+  `extra_note` text COLLATE utf8mb4_unicode_ci,
   PRIMARY KEY (`id`),
   KEY `customer_id` (`customer_id`),
   KEY `branch_id` (`branch_id`),
@@ -88,23 +121,6 @@ LOCK TABLES `appointments` WRITE;
 /*!40000 ALTER TABLE `appointments` ENABLE KEYS */;
 UNLOCK TABLES;
 
-DROP TABLE IF EXISTS `appointment_contact_notes`;
-CREATE TABLE `appointment_contact_notes` (
-  `id` int NOT NULL AUTO_INCREMENT,
-  `appointment_id` int NOT NULL,
-  `content` text COLLATE utf8mb4_unicode_ci NOT NULL,
-  `contact_date` date DEFAULT NULL,
-  `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
-  `created_by` varchar(100) DEFAULT NULL,
-  `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  `updated_by` varchar(100) DEFAULT NULL,
-  `deleted_at` datetime DEFAULT NULL,
-  `deleted_by` varchar(100) DEFAULT NULL,
-  PRIMARY KEY (`id`),
-  KEY `appointment_contact_active` (`appointment_id`,`deleted_at`,`id`),
-  CONSTRAINT `appointment_contact_notes_appointment_fk` FOREIGN KEY (`appointment_id`) REFERENCES `appointments` (`id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
 --
 -- Table structure for table `bank_transactions`
 --
@@ -115,17 +131,17 @@ DROP TABLE IF EXISTS `bank_transactions`;
 CREATE TABLE `bank_transactions` (
   `id` int NOT NULL AUTO_INCREMENT,
   `branch_id` int NOT NULL,
-  `transaction_code` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `transaction_code` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `amount` decimal(15,2) NOT NULL,
-  `content` text COLLATE utf8mb4_unicode_ci NOT NULL,
+  `content` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `transaction_date` datetime NOT NULL,
-  `status` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT 'PENDING',
+  `status` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT 'PENDING',
   `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   `deleted_at` timestamp NULL DEFAULT NULL,
-  `created_by` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `updated_by` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `deleted_by` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `created_by` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `updated_by` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `deleted_by` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `transaction_code` (`transaction_code`),
   KEY `fk_bt_branch` (`branch_id`),
@@ -151,21 +167,21 @@ DROP TABLE IF EXISTS `branches`;
 /*!50503 SET character_set_client = utf8mb4 */;
 CREATE TABLE `branches` (
   `id` int NOT NULL AUTO_INCREMENT,
-  `name` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
-  `address` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `bank_name` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `bank_account_no` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `bank_account_name` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `address` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `bank_name` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `bank_account_no` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `bank_account_name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   `deleted_at` datetime DEFAULT NULL,
-  `created_by` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `updated_by` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `deleted_by` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `bank_code` varchar(20) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT 'Mã ngân hàng (VD: VCB, MB, TCB)',
-  `payment_provider` enum('PAYOS','CASSO','SEPAY','MANUAL') COLLATE utf8mb4_unicode_ci DEFAULT 'MANUAL' COMMENT 'Đơn vị xử lý webhook',
-  `payment_api_key` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT 'API Key để kết nối Webhook',
-  `payment_client_id` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT 'Client ID (nếu bên trung gian yêu cầu)',
+  `created_by` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `updated_by` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `deleted_by` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `bank_code` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT 'Mã ngân hàng (VD: VCB, MB, TCB)',
+  `payment_provider` enum('PAYOS','CASSO','SEPAY','MANUAL') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT 'MANUAL' COMMENT 'Đơn vị xử lý webhook',
+  `payment_api_key` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT 'API Key để kết nối Webhook',
+  `payment_client_id` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT 'Client ID (nếu bên trung gian yêu cầu)',
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
@@ -231,6 +247,76 @@ LOCK TABLES `customer_bookings` WRITE;
 UNLOCK TABLES;
 
 --
+-- Table structure for table `customer_skin_image_sessions`
+--
+
+DROP TABLE IF EXISTS `customer_skin_image_sessions`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `customer_skin_image_sessions` (
+  `id` int NOT NULL AUTO_INCREMENT,
+  `customer_id` int NOT NULL,
+  `captured_date` date NOT NULL,
+  `note` text COLLATE utf8mb4_unicode_ci,
+  `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `deleted_at` datetime DEFAULT NULL,
+  `created_by` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `updated_by` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `deleted_by` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_skin_session_customer_date` (`customer_id`,`captured_date`,`id`),
+  CONSTRAINT `fk_skin_session_customer` FOREIGN KEY (`customer_id`) REFERENCES `customers` (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `customer_skin_image_sessions`
+--
+
+LOCK TABLES `customer_skin_image_sessions` WRITE;
+/*!40000 ALTER TABLE `customer_skin_image_sessions` DISABLE KEYS */;
+/*!40000 ALTER TABLE `customer_skin_image_sessions` ENABLE KEYS */;
+UNLOCK TABLES;
+
+--
+-- Table structure for table `customer_skin_images`
+--
+
+DROP TABLE IF EXISTS `customer_skin_images`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `customer_skin_images` (
+  `id` int NOT NULL AUTO_INCREMENT,
+  `session_id` int NOT NULL,
+  `file_path` varchar(1000) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `original_filename` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `mime_type` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `file_size` bigint unsigned DEFAULT NULL,
+  `sort_order` int unsigned NOT NULL DEFAULT '0',
+  `note` text COLLATE utf8mb4_unicode_ci,
+  `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `deleted_at` datetime DEFAULT NULL,
+  `created_by` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `updated_by` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `deleted_by` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_skin_image_session_order` (`session_id`,`sort_order`,`id`),
+  CONSTRAINT `fk_skin_image_session` FOREIGN KEY (`session_id`) REFERENCES `customer_skin_image_sessions` (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `customer_skin_images`
+--
+
+LOCK TABLES `customer_skin_images` WRITE;
+/*!40000 ALTER TABLE `customer_skin_images` DISABLE KEYS */;
+/*!40000 ALTER TABLE `customer_skin_images` ENABLE KEYS */;
+UNLOCK TABLES;
+
+--
 -- Table structure for table `customer_wallet_logs`
 --
 
@@ -245,14 +331,14 @@ CREATE TABLE `customer_wallet_logs` (
   `bonus_percent` decimal(7,2) DEFAULT NULL,
   `bonus_amount` decimal(15,2) NOT NULL DEFAULT '0.00',
   `total_received` decimal(15,2) NOT NULL,
-  `payment_method` enum('CASH','TRANSFER','CARD') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'CASH',
-  `note` text COLLATE utf8mb4_unicode_ci,
+  `payment_method` enum('CASH','TRANSFER','CARD') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'CASH',
+  `note` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
   `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   `deleted_at` timestamp NULL DEFAULT NULL,
-  `created_by` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `updated_by` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `deleted_by` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `created_by` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `updated_by` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `deleted_by` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `fk_cwl_customer` (`customer_id`),
   KEY `fk_cwl_branch` (`branch_id`),
@@ -337,17 +423,17 @@ CREATE TABLE `debt_payments` (
   `customer_id` int NOT NULL,
   `branch_id` int NOT NULL,
   `collection_branch_id` int NOT NULL,
-  `invoice_id` int DEFAULT NULL,
+  `invoice_id` int NOT NULL,
   `amount` decimal(15,2) NOT NULL DEFAULT '0.00',
-  `payment_method` enum('CASH','TRANSFER','CARD') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'CASH',
+  `payment_method` enum('CASH','TRANSFER','CARD') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'CASH',
   `payment_date` datetime NOT NULL,
-  `note` text COLLATE utf8mb4_unicode_ci,
+  `note` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
   `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   `deleted_at` timestamp NULL DEFAULT NULL,
-  `created_by` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `updated_by` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `deleted_by` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `created_by` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `updated_by` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `deleted_by` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `fk_dp_customer` (`customer_id`),
   KEY `fk_dp_branch` (`branch_id`),
@@ -380,15 +466,15 @@ CREATE TABLE `expense_vouchers` (
   `id` int NOT NULL AUTO_INCREMENT,
   `branch_id` int NOT NULL,
   `amount` decimal(15,2) NOT NULL,
-  `expense_type` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
-  `note` text COLLATE utf8mb4_unicode_ci,
+  `expense_type` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `note` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
   `expense_date` datetime NOT NULL,
   `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   `deleted_at` timestamp NULL DEFAULT NULL,
-  `created_by` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `updated_by` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `deleted_by` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `created_by` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `updated_by` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `deleted_by` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `fk_ev_branch` (`branch_id`),
   CONSTRAINT `fk_ev_branch` FOREIGN KEY (`branch_id`) REFERENCES `branches` (`id`)
@@ -444,8 +530,8 @@ CREATE TABLE `inventory` (
   `product_id` int NOT NULL,
   `quantity` int DEFAULT '0',
   `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  `created_by` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `updated_by` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `created_by` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `updated_by` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   UNIQUE KEY `uniq_inventory_branch_product` (`branch_id`,`product_id`),
@@ -475,7 +561,7 @@ CREATE TABLE `inventory_import_items` (
   `id` int NOT NULL AUTO_INCREMENT,
   `inventory_import_id` int NOT NULL,
   `product_id` int NOT NULL,
-  `product_name` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL COMMENT 'Tên sản phẩm lúc nhập',
+  `product_name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT 'Tên sản phẩm lúc nhập',
   `quantity` int NOT NULL COMMENT 'Số lượng nhập',
   `unit_price` decimal(15,2) NOT NULL COMMENT 'Giá nhập gốc của 1 sản phẩm',
   `discount_percent` int DEFAULT '0' COMMENT 'Phần trăm chiết khấu từ nhà cung cấp',
@@ -484,9 +570,9 @@ CREATE TABLE `inventory_import_items` (
   `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   `deleted_at` timestamp NULL DEFAULT NULL,
-  `created_by` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `updated_by` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `deleted_by` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `created_by` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `updated_by` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `deleted_by` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `fk_iii_import` (`inventory_import_id`),
   KEY `fk_iii_product` (`product_id`),
@@ -514,17 +600,17 @@ DROP TABLE IF EXISTS `inventory_imports`;
 CREATE TABLE `inventory_imports` (
   `id` int NOT NULL AUTO_INCREMENT,
   `branch_id` int NOT NULL COMMENT 'Nhập vào cơ sở nào',
-  `import_code` varchar(50) COLLATE utf8mb4_unicode_ci NOT NULL COMMENT 'Mã phiếu nhập (VD: PN20261003001)',
+  `import_code` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT 'Mã phiếu nhập (VD: PN20261003001)',
   `import_date` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Ngày giờ nhập hàng thực tế',
-  `supplier_name` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT 'Tên nhà cung cấp / Hãng mỹ phẩm',
+  `supplier_name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT 'Tên nhà cung cấp / Hãng mỹ phẩm',
   `total_amount` decimal(15,2) NOT NULL DEFAULT '0.00' COMMENT 'Tổng tiền thanh toán cho nhà cung cấp',
-  `note` text COLLATE utf8mb4_unicode_ci COMMENT 'Ghi chú đơn hàng nhập',
+  `note` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci COMMENT 'Ghi chú đơn hàng nhập',
   `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   `deleted_at` timestamp NULL DEFAULT NULL,
-  `created_by` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `updated_by` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `deleted_by` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `created_by` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `updated_by` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `deleted_by` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `import_code` (`import_code`),
   KEY `fk_ii_branch` (`branch_id`),
@@ -553,11 +639,11 @@ CREATE TABLE `invoice_item_consultants` (
   `invoice_item_id` int NOT NULL,
   `staff_id` int NOT NULL,
   `revenue_amount` decimal(15,2) NOT NULL,
-  `role_type` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT 'CONSULTANT',
+  `role_type` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT 'CONSULTANT',
   `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
-  `created_by` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `updated_by` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `deleted_by` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `created_by` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `updated_by` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `deleted_by` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `deleted_at` datetime DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `invoice_item_id` (`invoice_item_id`),
@@ -587,7 +673,7 @@ CREATE TABLE `invoice_items` (
   `id` int NOT NULL AUTO_INCREMENT,
   `invoice_id` int NOT NULL,
   `product_id` int NOT NULL,
-  `snapshot_name` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `snapshot_name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `snapshot_price` decimal(15,2) NOT NULL,
   `quantity` int NOT NULL,
   `consultant_staff_id` int DEFAULT NULL,
@@ -596,9 +682,9 @@ CREATE TABLE `invoice_items` (
   `final_price` decimal(15,2) NOT NULL,
   `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   `deleted_at` datetime DEFAULT NULL,
-  `created_by` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `updated_by` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `deleted_by` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `created_by` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `updated_by` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `deleted_by` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   KEY `invoice_id` (`invoice_id`),
@@ -636,15 +722,15 @@ CREATE TABLE `invoices` (
   `paid_amount` decimal(15,2) NOT NULL,
   `wallet_used` decimal(15,2) NOT NULL DEFAULT '0.00',
   `debt_amount` decimal(15,2) DEFAULT '0.00',
-  `payment_method` varchar(50) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'CASH',
-  `note` text COLLATE utf8mb4_unicode_ci,
+  `payment_method` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'CASH',
+  `note` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
   `invoice_date` datetime NOT NULL,
   `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   `deleted_at` datetime DEFAULT NULL,
-  `created_by` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `updated_by` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `deleted_by` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `created_by` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `updated_by` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `deleted_by` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `customer_id` (`customer_id`),
   KEY `branch_id` (`branch_id`),
@@ -673,7 +759,7 @@ CREATE TABLE `order_items` (
   `id` int NOT NULL AUTO_INCREMENT,
   `order_id` int NOT NULL,
   `product_id` int NOT NULL,
-  `product_name` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `product_name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `unit_price` decimal(15,2) NOT NULL,
   `quantity` int NOT NULL,
   `discount_percent` int DEFAULT '0',
@@ -682,9 +768,9 @@ CREATE TABLE `order_items` (
   `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   `deleted_at` timestamp NULL DEFAULT NULL,
-  `created_by` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `updated_by` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `deleted_by` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `created_by` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `updated_by` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `deleted_by` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `fk_oi_order` (`order_id`),
   KEY `fk_oi_product` (`product_id`),
@@ -712,21 +798,21 @@ DROP TABLE IF EXISTS `orders`;
 CREATE TABLE `orders` (
   `id` int NOT NULL AUTO_INCREMENT,
   `customer_id` int DEFAULT NULL,
-  `customer_name` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
-  `customer_phone` varchar(50) COLLATE utf8mb4_unicode_ci NOT NULL,
-  `shipping_address` text COLLATE utf8mb4_unicode_ci NOT NULL,
-  `order_code` varchar(50) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `customer_name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `customer_phone` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `shipping_address` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `order_code` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `total_amount` decimal(15,2) NOT NULL,
-  `payment_method` varchar(50) COLLATE utf8mb4_unicode_ci NOT NULL,
-  `shipping_service` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `status` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT 'PENDING',
+  `payment_method` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `shipping_service` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `status` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT 'PENDING',
   `invoice_id` int DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   `deleted_at` timestamp NULL DEFAULT NULL,
-  `created_by` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `updated_by` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `deleted_by` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `created_by` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `updated_by` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `deleted_by` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `order_code` (`order_code`),
   KEY `fk_od_customer` (`customer_id`),
@@ -758,11 +844,11 @@ CREATE TABLE `product_commission_tiers` (
   `role_id` int NOT NULL,
   `min_price` decimal(15,2) NOT NULL,
   `max_price` decimal(15,2) DEFAULT NULL,
-  `calculation_type` enum('FIXED','PERCENT') COLLATE utf8mb4_unicode_ci NOT NULL,
+  `calculation_type` enum('FIXED','PERCENT') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `fixed_amount` decimal(15,2) NOT NULL DEFAULT '0.00',
   `percent` decimal(5,2) NOT NULL DEFAULT '0.00',
   `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
-  `created_by` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `created_by` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `product_role_min` (`product_id`,`role_id`,`min_price`),
   KEY `role_id` (`role_id`),
@@ -794,9 +880,9 @@ CREATE TABLE `product_commissions` (
   `commission_percent` decimal(5,2) DEFAULT '0.00',
   `commission_fixed_amount` decimal(15,2) DEFAULT '0.00',
   `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  `created_by` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `updated_by` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `deleted_by` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `created_by` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `updated_by` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `deleted_by` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
   `deleted_at` datetime DEFAULT NULL,
   PRIMARY KEY (`id`),
@@ -817,6 +903,42 @@ LOCK TABLES `product_commissions` WRITE;
 UNLOCK TABLES;
 
 --
+-- Table structure for table `product_service_components`
+--
+
+DROP TABLE IF EXISTS `product_service_components`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `product_service_components` (
+  `id` int NOT NULL AUTO_INCREMENT,
+  `parent_product_id` int NOT NULL,
+  `child_product_id` int NOT NULL,
+  `sort_order` int NOT NULL DEFAULT '0',
+  `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `deleted_at` datetime DEFAULT NULL,
+  `created_by` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `updated_by` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `deleted_by` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_product_component` (`parent_product_id`,`child_product_id`),
+  KEY `fk_component_child` (`child_product_id`),
+  CONSTRAINT `fk_component_child` FOREIGN KEY (`child_product_id`) REFERENCES `products` (`id`),
+  CONSTRAINT `fk_component_parent` FOREIGN KEY (`parent_product_id`) REFERENCES `products` (`id`),
+  CONSTRAINT `chk_component_not_self` CHECK ((`parent_product_id` <> `child_product_id`))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `product_service_components`
+--
+
+LOCK TABLES `product_service_components` WRITE;
+/*!40000 ALTER TABLE `product_service_components` DISABLE KEYS */;
+/*!40000 ALTER TABLE `product_service_components` ENABLE KEYS */;
+UNLOCK TABLES;
+
+--
 -- Table structure for table `products`
 --
 
@@ -825,25 +947,25 @@ DROP TABLE IF EXISTS `products`;
 /*!50503 SET character_set_client = utf8mb4 */;
 CREATE TABLE `products` (
   `id` int NOT NULL AUTO_INCREMENT,
-  `name` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `images` json DEFAULT NULL,
-  `description` text COLLATE utf8mb4_unicode_ci,
-  `benefits` text COLLATE utf8mb4_unicode_ci,
+  `description` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+  `benefits` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
   `price` decimal(15,2) NOT NULL,
   `sale_price` decimal(15,2) NOT NULL,
-  `unit` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `unit` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `is_product` tinyint(1) NOT NULL,
   `is_treatment_combo` tinyint(1) DEFAULT '0',
   `default_sessions` int DEFAULT '1',
-  `session_unit` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT 'buổi',
+  `session_unit` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT 'buổi',
   `next_appointment_days` int DEFAULT '0' COMMENT 'Số ngày tự động hẹn lại sau khi làm (0 = không tự động hẹn)',
   `is_active` tinyint(1) DEFAULT '1',
   `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   `deleted_at` datetime DEFAULT NULL,
-  `created_by` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `updated_by` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `deleted_by` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `created_by` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `updated_by` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `deleted_by` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
@@ -868,8 +990,8 @@ CREATE TABLE `promotions` (
   `id` int NOT NULL AUTO_INCREMENT,
   `branch_id` int DEFAULT NULL COMMENT 'NULL nếu khuyến mãi áp dụng toàn hệ thống',
   `product_id` int NOT NULL,
-  `title` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
-  `note` text COLLATE utf8mb4_unicode_ci NOT NULL,
+  `title` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `note` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `discount_percent` int DEFAULT '0' COMMENT 'Phần trăm giảm giá',
   `discount_amount` decimal(15,2) DEFAULT '0.00' COMMENT 'Số tiền giảm giá (VNĐ)',
   `start_date` datetime DEFAULT NULL,
@@ -878,9 +1000,9 @@ CREATE TABLE `promotions` (
   `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   `deleted_at` timestamp NULL DEFAULT NULL,
-  `created_by` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `updated_by` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `deleted_by` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `created_by` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `updated_by` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `deleted_by` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `fk_promo_product` (`product_id`),
   KEY `fk_promo_branch` (`branch_id`),
@@ -907,14 +1029,14 @@ DROP TABLE IF EXISTS `roles`;
 /*!50503 SET character_set_client = utf8mb4 */;
 CREATE TABLE `roles` (
   `id` int NOT NULL AUTO_INCREMENT,
-  `name` varchar(100) COLLATE utf8mb4_unicode_ci NOT NULL,
-  `description` text COLLATE utf8mb4_unicode_ci,
+  `name` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `description` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
   `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   `deleted_at` datetime DEFAULT NULL,
-  `created_by` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `updated_by` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `deleted_by` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `created_by` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `updated_by` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `deleted_by` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
@@ -929,6 +1051,31 @@ LOCK TABLES `roles` WRITE;
 UNLOCK TABLES;
 
 --
+-- Table structure for table `rosa_schema_migrations`
+--
+
+DROP TABLE IF EXISTS `rosa_schema_migrations`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `rosa_schema_migrations` (
+  `step_id` varchar(100) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `checksum` char(64) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `applied_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`step_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `rosa_schema_migrations`
+--
+
+LOCK TABLES `rosa_schema_migrations` WRITE;
+/*!40000 ALTER TABLE `rosa_schema_migrations` DISABLE KEYS */;
+INSERT INTO `rosa_schema_migrations` VALUES ('2026-10-27-rosa-appointment-extra-note:1','d9c37c55f0ef908560f5424cb03c046b58a69895d9b2bc40511456f7da9c9085','2026-10-28 03:53:22'),('2026-10-27-rosa-image-sessions:1','1da358520316816b9ca118fe45fba52916b4dc15109689160827c0b6ea734e59','2026-10-27 13:46:00'),('2026-10-27-rosa-image-sessions:2','92f573e9113f236543005fe3dc69ce6a3295ac74c689356e736afc2d71b276d8','2026-10-27 13:46:00'),('2026-10-27-rosa-image-sessions:3','5308e7ffdcff6eeefdf567b547ca6dcea92947b6d0bdce480a2f431bdf9de333','2026-10-27 13:46:00'),('2026-10-27-rosa-image-sessions:4','37bdc52251eef857756c7e165bef1cc7ec87db2230e0b2b72b86ebd2c7c0f31f','2026-10-27 13:46:00'),('2026-10-27-rosa-image-sessions:5','4715d9cdce84bb2ed4122f9b8c893a5d13d6d822fb8fe2892a553ad8156d852e','2026-10-27 13:46:00'),('2026-10-27-rosa-treatment-history-note:1','41b1afba38548bf222f152053b56805cdfb4c1b5f6d736517f4622cdfdc3523e','2026-10-27 15:15:48'),('2026-10-27-rosa:1','60905f1b3d89c35f6055eb7b05741da407f450a2369fdc1531baa87ccd562c25','2026-10-27 10:04:44'),('2026-10-27-rosa:2','f334b03a19719c0a5f73822c7ac3a73c6e0f35f058d114cf3720098c60e45252','2026-10-27 10:04:44'),('2026-10-27-rosa:3','8b4862a9efd169465cec0ab7783e29eb8b4ddb6fc9e5593c4f3d298282e8063c','2026-10-27 10:04:45'),('2026-10-27-rosa:4','331389e3ef544ba73f0555ad77ae7e288fb063b8ef6546c399340dd1cf99e340','2026-10-27 10:04:45'),('2026-10-27-rosa:5','f7bf4e16ec459bb39ec77dfa0a9669632816785649760542de648d447cf8a213','2026-10-27 10:04:45'),('2026-10-27-rosa:6','f4bcdb98236ea517dedb6da30ab82119e3b1897a4d761820f43129af95ed9da5','2026-10-27 10:04:45'),('2026-10-27-rosa:7','3b2bcd9de3cdc2f632d9ce9899b28d4f4a75d93ad505b8ad8449abeeced7fa13','2026-10-27 10:04:45'),('2026-10-27-rosa:8','0d7db5a333110e704a79c4a57be6f9a396924182d0acc60c791514ba42be9ab9','2026-10-27 10:04:45'),('2026-10-28-rosa-appointment-contact-notes:1','58ba8af39f3a53bb46d473d904686da3a72f7d1f234e32a424f9f2f75ce68606','2026-10-28 04:09:58'),('2026-10-28-rosa-appointment-contact-notes:2','1c9969c787ce98357b21d5c2bf5c0853023bd7a3125eace9fd26fbddedb86237','2026-10-28 04:09:58');
+/*!40000 ALTER TABLE `rosa_schema_migrations` ENABLE KEYS */;
+UNLOCK TABLES;
+
+--
 -- Table structure for table `staffs`
 --
 
@@ -939,15 +1086,15 @@ CREATE TABLE `staffs` (
   `id` int NOT NULL AUTO_INCREMENT,
   `branch_id` int DEFAULT NULL,
   `role_id` int DEFAULT NULL,
-  `fullname` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
-  `phone_number` varchar(15) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `address` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `fullname` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `phone_number` varchar(15) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `address` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   `deleted_at` datetime DEFAULT NULL,
-  `created_by` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `updated_by` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `deleted_by` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `created_by` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `updated_by` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `deleted_by` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `branch_id` (`branch_id`),
   KEY `fk_staff_role` (`role_id`),
@@ -975,7 +1122,6 @@ DROP TABLE IF EXISTS `treatment_history`;
 CREATE TABLE `treatment_history` (
   `id` int NOT NULL AUTO_INCREMENT,
   `treatment_id` int NOT NULL,
-  `note` text COLLATE utf8mb4_unicode_ci,
   `branch_id` int NOT NULL,
   `appointment_id` int DEFAULT NULL,
   `execution_date` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
@@ -987,6 +1133,7 @@ CREATE TABLE `treatment_history` (
   `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
   `customer_signature_svg` mediumtext COLLATE utf8mb4_unicode_ci,
   `customer_signed_at` datetime DEFAULT NULL,
+  `note` text COLLATE utf8mb4_unicode_ci,
   PRIMARY KEY (`id`),
   KEY `treatment_id` (`treatment_id`),
   KEY `branch_id` (`branch_id`),
@@ -1020,9 +1167,9 @@ CREATE TABLE `treatment_history_staffs` (
   `commission_amount_snapshot` decimal(15,2) NOT NULL,
   `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   `deleted_at` datetime DEFAULT NULL,
-  `created_by` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `updated_by` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `deleted_by` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `created_by` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `updated_by` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `deleted_by` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   KEY `treatment_history_id` (`treatment_history_id`),
@@ -1104,61 +1251,4 @@ UNLOCK TABLES;
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
--- Dump completed on 2026-10-25 16:08:12
-
--- ROSA schema
-CREATE TABLE `customer_skin_image_sessions` (
-  `id` int NOT NULL AUTO_INCREMENT,
-  `customer_id` int NOT NULL,
-  `captured_date` date NOT NULL,
-  `note` text COLLATE utf8mb4_unicode_ci,
-  `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
-  `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  `deleted_at` datetime DEFAULT NULL,
-  `created_by` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `updated_by` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `deleted_by` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  PRIMARY KEY (`id`),
-  KEY `idx_skin_session_customer_date` (`customer_id`,`captured_date`,`id`),
-  CONSTRAINT `fk_skin_session_customer` FOREIGN KEY (`customer_id`) REFERENCES `customers` (`id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
-CREATE TABLE `customer_skin_images` (
-  `id` int NOT NULL AUTO_INCREMENT,
-  `session_id` int NOT NULL,
-  `file_path` varchar(1000) COLLATE utf8mb4_unicode_ci NOT NULL,
-  `original_filename` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `mime_type` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `file_size` bigint unsigned DEFAULT NULL,
-  `sort_order` int unsigned NOT NULL DEFAULT '0',
-  `note` text COLLATE utf8mb4_unicode_ci,
-  `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
-  `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  `deleted_at` datetime DEFAULT NULL,
-  `created_by` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `updated_by` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `deleted_by` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  PRIMARY KEY (`id`),
-  KEY `idx_skin_image_session_order` (`session_id`,`sort_order`,`id`),
-  CONSTRAINT `fk_skin_image_session` FOREIGN KEY (`session_id`) REFERENCES `customer_skin_image_sessions` (`id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
--- ROSA schema
-CREATE TABLE `product_service_components` (
-  `id` int NOT NULL AUTO_INCREMENT,
-  `parent_product_id` int NOT NULL,
-  `child_product_id` int NOT NULL,
-  `sort_order` int NOT NULL DEFAULT '0',
-  `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
-  `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  `deleted_at` datetime DEFAULT NULL,
-  `created_by` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `updated_by` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `deleted_by` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  PRIMARY KEY (`id`),
-  UNIQUE KEY `uq_product_component` (`parent_product_id`,`child_product_id`),
-  KEY `fk_component_child` (`child_product_id`),
-  CONSTRAINT `fk_component_child` FOREIGN KEY (`child_product_id`) REFERENCES `products` (`id`),
-  CONSTRAINT `fk_component_parent` FOREIGN KEY (`parent_product_id`) REFERENCES `products` (`id`),
-  CONSTRAINT `chk_component_not_self` CHECK ((`parent_product_id` <> `child_product_id`))
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+-- Dump completed on 2026-11-03 10:26:32
