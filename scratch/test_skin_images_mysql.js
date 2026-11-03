@@ -10,6 +10,8 @@ async function main() {
     if (!process.env.DOTENV_CONFIG_PATH || process.env.DB_HOST !== '127.0.0.1' || process.env.DB_PORT !== '3308') throw new Error('Explicit Rosa 3308 environment required.');
     const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'rosa-upload-http-'));
     process.env.UPLOAD_ROOT = temp;
+    process.env.SKIN_IMAGES_ENABLED = 'true';
+    process.env.SKIN_IMAGES_TENANT_DATABASE = 'db_spa_1791039769068_e185';
     const database = require('../src/config/database');
     const { masterPool } = database;
     const originalQuery = masterPool.query;
@@ -120,7 +122,7 @@ async function main() {
         const otherCustomer = (await connection.query(`INSERT INTO \`${db}\`.customers (fullname,phone_number) VALUES (?,?)`, ['Other test', `U${Date.now()}`]))[0].insertId;
         assert.equal((await request(first.file_url.replace(`/customers/${customerId}/`, `/customers/${otherCustomer}/`))).status, 404);
         const otherTenant = (await connection.query('SELECT id FROM db_system_master.tenants WHERE id<>7 AND deleted_at IS NULL LIMIT 1'))[0][0];
-        if (otherTenant) assert.equal((await request(first.file_url, { bearer: token({ tenant_id: otherTenant.id }) })).status, 404);
+        if (otherTenant) assert.equal((await request(first.file_url, { bearer: token({ tenant_id: otherTenant.id }) })).status, 403);
         assert.equal((await request(`${route}/${session}/images/${first.id}`, { method: 'DELETE' })).status, 200);
         assert.equal((await request(first.file_url)).status, 404);
         assert.equal((await request(`${route}/${session}`)).body.data.images.length, 2);

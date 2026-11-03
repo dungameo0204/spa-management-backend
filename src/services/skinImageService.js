@@ -3,18 +3,26 @@ const { normalizeDateOfBirth } = require('../utils/dateOfBirth');
 const { paginateQuery } = require('../utils/pagination');
 const storage = require('../utils/skinImageStorage');
 const { error } = storage;
+const skinImagesEnabled = () => {
+    if (process.env.SKIN_IMAGES_ENABLED !== 'true') throw error(503, 'API ảnh chưa được bật trên máy chủ này.');
+    if (process.env.DB_HOST !== '127.0.0.1') throw error(503, 'API ảnh chỉ được bật với MySQL loopback.');
+    const database = process.env.SKIN_IMAGES_TENANT_DATABASE;
+    if (!/^db_spa_[a-zA-Z0-9_]+$/.test(database || '')) throw error(503, 'Chưa cấu hình database tenant ảnh hợp lệ.');
+    return database;
+};
 
 const id = (value, name) => {
     if (!/^[1-9]\d*$/.test(String(value)) || !Number.isSafeInteger(Number(value)) || Number(value) > 2147483647) throw error(400, `${name} không hợp lệ.`);
     return Number(value);
 };
 const scope = async (tenant, customer, session) => {
-    if (process.env.DB_HOST !== '127.0.0.1' || process.env.DB_PORT !== '3308') throw error(503, 'API ảnh chỉ được bật trên cấu hình Rosa 3308.');
+    const configuredDatabase = skinImagesEnabled();
     const tenantId = id(tenant, 'tenant_id');
     const customerId = id(customer, 'customerId');
     const sessionId = session === undefined ? undefined : id(session, 'sessionId');
     const db = await getTenantDbName(tenantId);
     if (!/^db_spa_[a-zA-Z0-9_]+$/.test(db)) throw error(403, 'Database tenant không hợp lệ.');
+    if (db !== configuredDatabase) throw error(403, 'Tenant không được bật API ảnh.');
     return { db, tenantId, customerId, sessionId };
 };
 const customerCheck = async (executor, ctx, lock = false) => {

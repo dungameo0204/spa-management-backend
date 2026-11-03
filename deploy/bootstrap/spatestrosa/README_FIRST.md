@@ -8,6 +8,7 @@
 | --- | --- |
 | Server ID | `spatestrosa` |
 | Backend release đầu tiên | `backend-spatestrosa-v1.0.0` |
+| Bản vá ảnh da hiện tại | `backend-spatestrosa-v1.0.1` |
 | Kênh cập nhật | `backend-spatestrosa-v*` |
 | API public | `https://api-spa-testrosa.infinityhavocx.men` |
 | Frontend public | `https://app-spa-testrosa.infinityhavocx.men` |

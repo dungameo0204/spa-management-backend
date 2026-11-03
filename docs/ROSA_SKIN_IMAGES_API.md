@@ -4,8 +4,8 @@ Base local: `http://localhost:5002/api/customers/:customerId/skin-image-sessions
 
 ## Cấu hình và phạm vi
 
-- Chỉ bật trên cấu hình `DB_HOST=127.0.0.1`, `DB_PORT=3308`; tenant cần schema Rosa đã migrate. Tenant 7 là tenant được migrate hiện tại.
-- `UPLOAD_ROOT=D:/SpaRosa/storage` là thư mục tuyệt đối bên ngoài Git. Đã cấu hình trong các file env Rosa local; không cấu hình cho O'HINA/Xuly.
+- Chỉ bật khi `SKIN_IMAGES_ENABLED=true`, `DB_HOST=127.0.0.1` và `SKIN_IMAGES_TENANT_DATABASE` là tên database tenant Rosa đã migrate. Cổng MySQL được lấy từ `DB_PORT`; không dùng cổng để nhận diện Rosa. Tenant database khác bị từ chối, kể cả khi JWT hợp lệ.
+- `UPLOAD_ROOT` phải là thư mục tuyệt đối bên ngoài Git. Ví dụ Rosa test Windows dùng `C:/SpaBackend/uploads`; Rosa local có thể dùng `D:/SpaRosa/storage`.
 - JWT Bearer của MANAGER hoặc STAFF có tenant_id hợp lệ; token khách hàng/SUPER_ADMIN bị từ chối. Không nhận tenant_id từ request body.
 - Khách, lần chụp, ảnh phải thuộc đúng quan hệ trong tenant lấy từ JWT và chưa xóa mềm. Không có phân quyền theo branch vì ảnh thuộc hồ sơ khách chung của tenant.
 - File được lưu dưới `tenants/<tenantId>/customers/<customerId>/<sessionId>/<uuid>.<ext>`. Response không trả file_path/đường dẫn máy chủ.
@@ -116,7 +116,7 @@ API trả Content-Type ảnh, Cache-Control private/no-store, nosniff. Ảnh/l�
 - 413: ảnh quá 10 MiB.
 - 415: POST upload không dùng multipart/form-data.
 - 429: đã có 4 upload đang xử lý trong process.
-- 503: chưa cấu hình storage hoặc không phải cấu hình Rosa 3308.
+- 503: chưa bật API ảnh, cấu hình database tenant/storage không hợp lệ hoặc MySQL không chạy qua loopback.
 - 500: lỗi lưu file/database; response không lộ chi tiết SQL/đường dẫn.
 
 Upload dùng staging riêng mỗi request rồi transaction DB + move file. Lỗi thông thường rollback và dọn file của request trước khi response. Commit mất kết nối có thể không rõ kết quả: chỉ xóa file nếu kiểm tra không còn bản ghi tham chiếu; khi không xác định được thì giữ file và log để đối chiếu. Không có atomic transaction giữa filesystem và MySQL. Process bị kill có thể để lại file chính không có bản ghi; chưa có job tự xóa file chính mồ côi (cần đối chiếu có backup trước).

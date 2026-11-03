@@ -13,7 +13,7 @@
     "test:treatment-groups:mysql": "node --require dotenv/config scratch/test_treatment_groups_mysql.js",
     "test:product-components": "node scratch/test_product_components.js",
     "test:product-components:mysql": "node --require dotenv/config scratch/test_product_components_mysql.js",
-    "test:skin-images": "node scratch/test_skin_image_storage.js",
+    "test:skin-images": "node scratch/test_skin_image_storage.js && node scratch/test_skin_image_config.js",
     "test:skin-images:mysql": "node --require dotenv/config scratch/test_skin_images_mysql.js",
     "db:migrate:rosa-image-sessions": "node scripts/apply-rosa-image-sessions.js",
     "test:rosa-image-sessions": "node scratch/test_rosa_image_sessions_migration.js",

@@ -2,7 +2,8 @@
 param(
     [string]$RepositoryRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path,
     [string]$OutputDirectory = (Join-Path (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path 'artifacts'),
-    [string]$PackageName = 'SpaBackendBootstrap_SpaTestRosa'
+    [string]$PackageName = 'SpaBackendBootstrap_SpaTestRosa',
+    [string]$BackendTag = 'backend-spatestrosa-v1.0.1'
 )
 
 Set-StrictMode -Version Latest
@@ -10,6 +11,9 @@ $ErrorActionPreference = 'Stop'
 
 if ($PackageName -notmatch '^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$') {
     throw 'PackageName contains unsupported characters.'
+}
+if ($BackendTag -notmatch '^backend-spatestrosa-v\d+\.\d+\.\d+$') {
+    throw 'BackendTag must be an exact Spa Test Rosa release tag.'
 }
 
 $files = [ordered]@{
@@ -54,7 +58,7 @@ try {
         package = $PackageName
         environment = 'Spa Test Rosa'
         serverId = 'spatestrosa'
-        initialBackendTag = 'backend-spatestrosa-v1.0.0'
+        initialBackendTag = $BackendTag
         tagPattern = 'backend-spatestrosa-v*'
         apiOrigin = 'https://api-spa-testrosa.infinityhavocx.men'
         frontendOrigin = 'https://app-spa-testrosa.infinityhavocx.men'
