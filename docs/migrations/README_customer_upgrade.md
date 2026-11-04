@@ -15,6 +15,7 @@ Test import schema vào database trống và tạo dữ liệu giả; không có
 ## Phạm vi và điều kiện dừng
 
 - Thêm `customers.date_of_birth DATE NULL`; khách cũ giữ NULL.
+- Đổi unique SĐT từ `phone_number` sang generated column `active_phone_number`: chỉ customer có `deleted_at IS NULL` giữ SĐT. Customer đã xóa mềm có thể được tạo lại với cùng SĐT; restore sẽ bị chặn nếu SĐT đã được customer đang hoạt động sử dụng.
 - Nếu thiếu `products.sale_price`: thêm nullable, điền NULL bằng `price`, chuyển NOT NULL.
 - Nếu cột giá đã có và đúng kiểu: chỉ điền những giá trị NULL, không chạm giá đã nhập (kể cả `sale_price >= price`).
 - Nếu đã hoàn tất: chạy lại không ALTER/UPDATE. Nếu dở dang nhưng đúng kiểu: tiếp tục phần còn thiếu.
@@ -62,7 +63,7 @@ npm run db:migrate:customer-upgrade -- --db db_spa_template --apply --backup-con
 
 ### Workbench error 1175 / migration bị ngắt
 
-Không chạy lại ADD COLUMN mù. Runner kiểm tra metadata trước; nếu `sale_price` đã thêm nullable, runner tiếp tục backfill NULL và NOT NULL. Nó lưu/khôi phục `SQL_SAFE_UPDATES` trên **cùng session**, kể cả backfill lỗi; không thay cấu hình global. Nếu schema không tương thích hoặc lỗi DDL, giữ maintenance và kiểm tra trước khi tiếp tục.
+Không chạy lại ADD COLUMN/ADD INDEX mù. Runner kiểm tra metadata trước; nếu `sale_price` đã thêm nullable, runner tiếp tục backfill NULL và NOT NULL. Với unique SĐT, runner chỉ tạo active-phone index sau khi kiểm tra không có duplicate ở customer đang hoạt động, rồi mới bỏ unique index cũ. Nó lưu/khôi phục `SQL_SAFE_UPDATES` trên **cùng session**, kể cả backfill lỗi; không thay cấu hình global. Nếu schema không tương thích hoặc lỗi DDL, giữ maintenance và kiểm tra trước khi tiếp tục.
 
 Chạy tay chỉ dành cho người hiểu trạng thái hiện tại: file `2026-10-25_customer_date_of_birth.sql` và `2026-10-22_product_sale_price.sql` là SQL tham khảo **không idempotent**. Ưu tiên runner; không tắt Safe Updates toàn hệ thống, không ghi đè giá bán đã nhập.
 
@@ -81,12 +82,16 @@ SELECT COUNT(*) AS known_birthdays FROM customers WHERE date_of_birth IS NOT NUL
 SELECT id, price, sale_price FROM products WHERE sale_price >= price;
 SELECT id, total_sessions, remaining_sessions FROM treatments
 WHERE remaining_sessions < 0 OR remaining_sessions > total_sessions;
+SELECT INDEX_NAME, NON_UNIQUE, COLUMN_NAME
+FROM information_schema.STATISTICS
+WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'customers'
+  AND INDEX_NAME IN ('uq_customers_phone_number', 'uq_customers_active_phone_number');
 ```
 
 Kỳ vọng DATE nullable, DECIMAL(15,2) NOT NULL, missing_sale_price = 0. Ngày sinh cũ vẫn NULL trừ dữ liệu đã nhập trước đó. Giá đã có giữ nguyên; giá mới backfill bằng price kể cả sản phẩm xóa mềm. `sale_price >= price` legacy không phải lý do tự giảm giá. Dữ liệu thẻ bất thường phải đối soát, không sửa tự động.
 
 Deploy backend bằng tag **mới**, giữ cấu hình/secret; không thay tag đã phát hành. Script deploy hiện tại không migrate DB. Phối hợp frontend: product POST phải gửi hai giá, hóa đơn gửi `items[].unit_price = sale_price` (fallback hiện tại vẫn là price). Migrate xong mọi tenant/template cần thiết rồi mới bật code và mở ghi.
 
-Smoke test: GET /auth/me; tạo/sửa/list/detail/overview khách có ngày sinh; xóa ngày sinh bằng NULL; tạo thẻ tổng 10 còn 4 và kiểm tra còn 3 sau một buổi; thẻ bỏ số còn lại mặc định đủ tổng; product legacy sửa note không đổi giá; tạo/sửa hóa đơn với giá bán rõ ràng. Dùng bản sao/staging cho thử nghiệp vụ trước, không tạo giao dịch giả trên dữ liệu thật.
+Smoke test: GET /auth/me; tạo/sửa/list/detail/overview khách có ngày sinh; xóa ngày sinh bằng NULL; trên staging tạo customer, xóa mềm, tạo customer mới cùng SĐT và xác nhận thành công; xác nhận customer đang hoạt động vẫn không thể trùng SĐT và restore customer cũ bị từ chối nếu SĐT đã tái sử dụng; tạo thẻ tổng 10 còn 4 và kiểm tra còn 3 sau một buổi; thẻ bỏ số còn lại mặc định đủ tổng; product legacy sửa note không đổi giá; tạo/sửa hóa đơn với giá bán rõ ràng. Dùng bản sao/staging cho thử nghiệp vụ trước, không tạo giao dịch giả trên dữ liệu thật.
 
 Rollback: dừng ghi, chuyển release cũ khi đã xác minh tương thích. Giữ cột bổ sung; không DROP cột để rollback code. Nếu cần phục hồi dữ liệu, dùng backup đã thử restore và đối soát giao dịch sau backup; rollback service không rollback database. Chỉ bật lại auto-update sau khi hoàn tất.
