@@ -21,7 +21,7 @@ const expectedDir = path.resolve(__dirname, '../artifacts/mysql-customer-upgrade
         await connection.query('USE db_spa_template');
         await connection.query(schema);
         await connection.query("INSERT INTO db_spa_upgrade_test.customers (fullname, phone_number) VALUES ('Legacy customer', '0900000000'); INSERT INTO db_spa_upgrade_test.products (name, price, sale_price, is_product) VALUES ('Legacy service', 100, 100, 0)");
-        await connection.query('ALTER TABLE db_spa_upgrade_test.customers DROP COLUMN date_of_birth; ALTER TABLE db_spa_upgrade_test.products DROP COLUMN sale_price; SET SESSION SQL_SAFE_UPDATES = 1');
+        await connection.query('ALTER TABLE db_spa_upgrade_test.customers DROP INDEX uq_customers_active_phone_number, DROP COLUMN active_phone_number, ADD UNIQUE KEY uq_customers_phone_number (phone_number), DROP COLUMN date_of_birth; ALTER TABLE db_spa_upgrade_test.products DROP COLUMN sale_price; SET SESSION SQL_SAFE_UPDATES = 1');
         const options = { db: 'db_spa_upgrade_test', apply: false };
         await migrate(connection, options, () => {});
         const [[absent]] = await connection.query("SELECT COUNT(*) AS total FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = 'db_spa_upgrade_test' AND COLUMN_NAME = 'date_of_birth'");
@@ -54,6 +54,15 @@ const expectedDir = path.resolve(__dirname, '../artifacts/mysql-customer-upgrade
         assert.equal((await customers.getCustomerById(1, id)).date_of_birth, '2000-02-29');
         await customers.updateCustomer(1, id, { date_of_birth: null }, 'test');
         assert.equal((await customers.getCustomerById(1, id)).date_of_birth, null);
+        const reusablePhone = '0900000002';
+        const originalId = await customers.createCustomer(1, { fullname: 'Reusable original', phone_number: reusablePhone }, 'test');
+        await assert.rejects(customers.createCustomer(1, { fullname: 'Active duplicate', phone_number: reusablePhone }, 'test'), /tồn tại|Số điện thoại/);
+        await customers.deleteCustomer(1, originalId, 'test');
+        const replacementId = await customers.createCustomer(1, { fullname: 'Reusable replacement', phone_number: reusablePhone }, 'test');
+        assert.notEqual(replacementId, originalId);
+        await assert.rejects(customers.restoreCustomer(1, originalId, 'test'), /Số điện thoại/);
+        const [[phoneState]] = await connection.query('SELECT COUNT(*) AS active, SUM(deleted_at IS NOT NULL) AS deleted FROM db_spa_upgrade_test.customers WHERE phone_number = ?', [reusablePhone]);
+        assert.equal(Number(phoneState.active), 1); assert.equal(Number(phoneState.deleted), 1);
         await connection.query("INSERT INTO db_spa_upgrade_test.branches (name) VALUES ('Test')");
         const { treatmentId } = await treatments.createTreatment(1, { customer_id: id, product_id: 1, total_sessions: 10, remaining_sessions: 4, commission_base_price: 100 }, 'test');
         for (let i = 0; i < 4; i++) await treatments.executeTreatmentSession(1, { treatment_id: treatmentId, branch_id: 1 }, 'test', 'MANAGER');
@@ -62,6 +71,6 @@ const expectedDir = path.resolve(__dirname, '../artifacts/mysql-customer-upgrade
         assert.equal(card.total_sessions, 10); assert.equal(card.remaining_sessions, 0);
         const [[history]] = await connection.query('SELECT COUNT(*) AS total FROM db_spa_upgrade_test.treatment_history');
         assert.equal(history.total, 4);
-        console.log('PASS: real isolated MySQL 3308 schema import, fresh/partial/rerun/template migration, Safe Updates, customer DOB read/write, imported treatment consumption.');
+        console.log('PASS: real isolated MySQL 3308 schema import, fresh/partial/rerun/template migration, Safe Updates, active-only customer phone uniqueness with soft-delete reuse, customer DOB read/write, imported treatment consumption.');
     } finally { await connection.end(); }
 })().catch(error => { console.error(error); process.exitCode = 1; });

@@ -13,7 +13,7 @@ const createCustomer = async (tenantId, customerData, executorName) => {
 
     // Kiểm tra trùng số điện thoại
     const [existing] = await masterPool.query(
-        `SELECT id FROM \`${dbName}\`.customers WHERE phone_number = ?`,
+        `SELECT id FROM \`${dbName}\`.customers WHERE phone_number = ? AND deleted_at IS NULL`,
         [phone_number]
     );
     if (existing.length > 0) {
@@ -157,7 +157,7 @@ const updateCustomer = async (tenantId, customerId, updateData, executorName) =>
     // 1. Xử lý Phone Number để check trùng
     if (updateData.phone_number !== undefined) { 
         const [existing] = await masterPool.query(
-            `SELECT id FROM \`${dbName}\`.customers WHERE phone_number = ? AND id != ?`,
+            `SELECT id FROM \`${dbName}\`.customers WHERE phone_number = ? AND id != ? AND deleted_at IS NULL`,
             [updateData.phone_number, customerId]
         );
         if (existing.length > 0) throw new Error('Số điện thoại này đã được khách hàng khác sử dụng!');
@@ -233,10 +233,15 @@ const restoreCustomer = async (tenantId, customerId, executorName) => {
     const [check] = await masterPool.query(`SELECT id FROM \`${dbName}\`.customers WHERE id = ? AND deleted_at IS NOT NULL`, [customerId]);
     if (check.length === 0) throw new Error('Khách hàng chưa bị xóa, không thể khôi phục.');
 
-    await masterPool.query(
-        `UPDATE \`${dbName}\`.customers SET deleted_at = NULL, deleted_by = NULL, updated_by = ? WHERE id = ?`,
-        [executorName, customerId]
-    );
+    try {
+        await masterPool.query(
+            `UPDATE \`${dbName}\`.customers SET deleted_at = NULL, deleted_by = NULL, updated_by = ? WHERE id = ?`,
+            [executorName, customerId]
+        );
+    } catch (error) {
+        if (error.code === 'ER_DUP_ENTRY') throw customerDuplicateError(error);
+        throw error;
+    }
 };
 
 module.exports = { 

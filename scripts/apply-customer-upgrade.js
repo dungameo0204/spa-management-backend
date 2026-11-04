@@ -21,7 +21,7 @@ const expectedSchema = () => {
     const result = [];
     for (const table of sql.matchAll(/CREATE TABLE `([^`]+)` \(([\s\S]*?)\) ENGINE=/g)) {
         for (const column of table[2].matchAll(/^\s*`([^`]+)`\s/gm)) {
-            if ((table[1] === 'customers' && column[1] === 'date_of_birth') || (table[1] === 'products' && column[1] === 'sale_price')) continue;
+            if ((table[1] === 'customers' && ['date_of_birth', 'active_phone_number'].includes(column[1])) || (table[1] === 'products' && column[1] === 'sale_price')) continue;
             result.push(`${table[1]}.${column[1]}`);
         }
     }
@@ -37,9 +37,27 @@ const inspect = async (connection, db) => {
     if (missing.length) throw new Error(`Missing prerequisite schema (review earlier migrations): ${missing.join(', ')}`);
     const dob = columns.get('customers.date_of_birth');
     const sale = columns.get('products.sale_price');
+    const activePhone = columns.get('customers.active_phone_number');
     if (dob && (dob.DATA_TYPE !== 'date' || dob.IS_NULLABLE !== 'YES' || dob.COLUMN_DEFAULT !== null || dob.EXTRA)) throw new Error('Incompatible customers.date_of_birth; manual review required.');
     if (sale && (sale.COLUMN_TYPE.toLowerCase() !== 'decimal(15,2)' || sale.EXTRA)) throw new Error('Incompatible products.sale_price; manual review required.');
-    return { dob, sale };
+    if (activePhone && (activePhone.COLUMN_TYPE.toLowerCase() !== 'varchar(15)' || !/STORED GENERATED/i.test(activePhone.EXTRA || ''))) throw new Error('Incompatible customers.active_phone_number; manual review required.');
+    const [indexRows] = await connection.query(
+        'SELECT INDEX_NAME, NON_UNIQUE, SEQ_IN_INDEX, COLUMN_NAME FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?', [db, 'customers']);
+    const indexes = new Map();
+    for (const row of indexRows) {
+        if (!indexes.has(row.INDEX_NAME)) indexes.set(row.INDEX_NAME, []);
+        indexes.get(row.INDEX_NAME).push(row);
+    }
+    const assertIndex = (name, column) => {
+        if (!indexes.has(name)) return false;
+        const rows = indexes.get(name).sort((a, b) => a.SEQ_IN_INDEX - b.SEQ_IN_INDEX);
+        if (rows.length !== 1 || Number(rows[0].NON_UNIQUE) !== 0 || rows[0].COLUMN_NAME !== column) throw new Error(`Incompatible customers.${name}; manual review required.`);
+        return true;
+    };
+    const legacyPhoneIndex = assertIndex('uq_customers_phone_number', 'phone_number');
+    const activePhoneIndex = assertIndex('uq_customers_active_phone_number', 'active_phone_number');
+    if (activePhoneIndex && !activePhone) throw new Error('Incompatible customers active-phone index; manual review required.');
+    return { dob, sale, activePhone, legacyPhoneIndex, activePhoneIndex };
 };
 
 const migrate = async (connection, { db, apply, backupConfirmed }, log = console.log) => {
@@ -61,7 +79,7 @@ const migrate = async (connection, { db, apply, backupConfirmed }, log = console
             locked = true;
         }
         let state = await inspect(connection, db);
-        log(`Target ${db}: DOB ${state.dob ? 'present' : 'missing'}, sale_price ${state.sale ? state.sale.IS_NULLABLE === 'YES' ? 'nullable/partial' : 'present' : 'missing'}`);
+        log(`Target ${db}: DOB ${state.dob ? 'present' : 'missing'}, sale_price ${state.sale ? state.sale.IS_NULLABLE === 'YES' ? 'nullable/partial' : 'present' : 'missing'}, active phone ${state.activePhoneIndex ? 'present' : 'missing'}`);
         if (state.sale) {
             const [[counts]] = await connection.query(`SELECT COUNT(*) AS total, SUM(sale_price IS NULL) AS null_prices, SUM(sale_price >= price) AS legacy_pairs FROM ${target}.products`);
             log(`Products: ${counts.total}; NULL sale prices: ${Number(counts.null_prices)}; existing sale_price >= price: ${Number(counts.legacy_pairs)} (preserved).`);
@@ -73,6 +91,11 @@ const migrate = async (connection, { db, apply, backupConfirmed }, log = console
         // DDL implicitly commits. An interrupted run can resume only from compatible states above.
         if (!state.dob) await connection.query(`ALTER TABLE ${target}.customers ADD COLUMN date_of_birth DATE NULL AFTER phone_number`);
         if (!state.sale) await connection.query(`ALTER TABLE ${target}.products ADD COLUMN sale_price DECIMAL(15,2) NULL AFTER price`);
+        if (!state.activePhone) await connection.query(`ALTER TABLE ${target}.customers ADD COLUMN active_phone_number VARCHAR(15) GENERATED ALWAYS AS (CASE WHEN deleted_at IS NULL THEN phone_number ELSE NULL END) STORED AFTER deleted_at`);
+        const [[activeDuplicates]] = await connection.query(`SELECT COUNT(*) AS total FROM (SELECT phone_number FROM ${target}.customers WHERE deleted_at IS NULL AND phone_number IS NOT NULL GROUP BY phone_number HAVING COUNT(*) > 1) AS duplicates`);
+        if (Number(activeDuplicates.total)) throw new Error('Active customer phone duplicates exist; reconcile them before migration.');
+        if (!state.activePhoneIndex) await connection.query(`ALTER TABLE ${target}.customers ADD UNIQUE KEY uq_customers_active_phone_number (active_phone_number)`);
+        if (state.legacyPhoneIndex) await connection.query(`ALTER TABLE ${target}.customers DROP INDEX uq_customers_phone_number`);
         state = await inspect(connection, db);
         if (state.sale.IS_NULLABLE === 'YES') {
             const [[settings]] = await connection.query('SELECT @@SESSION.SQL_SAFE_UPDATES AS safe_updates');
@@ -87,8 +110,8 @@ const migrate = async (connection, { db, apply, backupConfirmed }, log = console
             await connection.query(`ALTER TABLE ${target}.products MODIFY COLUMN sale_price DECIMAL(15,2) NOT NULL`);
         }
         state = await inspect(connection, db);
-        if (!state.dob || !state.sale || state.sale.IS_NULLABLE !== 'NO') throw new Error('Post-migration verification failed.');
-        log('Upgrade verified. No existing non-NULL selling prices or session counts changed.');
+        if (!state.dob || !state.sale || state.sale.IS_NULLABLE !== 'NO' || !state.activePhone || !state.activePhoneIndex || state.legacyPhoneIndex) throw new Error('Post-migration verification failed.');
+        log('Upgrade verified. Active customer phone numbers are unique; soft-deleted customer phone numbers can be reused.');
     } finally {
         if (locked) await connection.query('SELECT RELEASE_LOCK(?)', [lockName]);
     }
