@@ -1,0 +1,7 @@
+{
+  "endpointUrl": "https://<CLOUDFLARE_ACCOUNT_ID>.r2.cloudflarestorage.com",
+  "bucket": "spa-rosa-backups",
+  "prefix": "production",
+  "accessKeyId": "REPLACE_WITH_R2_ACCESS_KEY_ID",
+  "secretAccessKey": "REPLACE_WITH_R2_SECRET_ACCESS_KEY"
+}
