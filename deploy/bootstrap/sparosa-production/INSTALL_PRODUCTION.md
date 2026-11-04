@@ -80,7 +80,7 @@ Deploy tag Rosa đã duyệt (thay phiên bản theo release được phê duy�
 
 ```powershell
 Set-ExecutionPolicy -Scope Process Bypass
-& 'C:\SpaBackend\scripts\Deploy-SpaBackend.ps1' -Version 'backend-spatestrosa-v1.0.2' -ServerId 'sparosa-production'
+& 'C:\SpaBackend\scripts\Deploy-SpaBackend.ps1' -Version 'backend-sparosa-v1.0.3' -ServerId 'sparosa-production'
 ```
 
 Sau deploy, tạo SQL Super Admin từ password nhập kín, copy output vào cửa sổ MySQL admin và chạy đúng một lần:

@@ -3,7 +3,7 @@ param(
     [string]$RepositoryRoot,
     [string]$OutputDirectory,
     [string]$PackageName = 'SpaBackendBootstrap_SpaRosaProduction',
-    [string]$BackendTag = 'backend-spatestrosa-v1.0.2'
+    [string]$BackendTag = 'backend-sparosa-v1.0.3'
 )
 
 Set-StrictMode -Version Latest
@@ -12,7 +12,7 @@ $scriptRepositoryRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 if (-not $RepositoryRoot) { $RepositoryRoot = $scriptRepositoryRoot }
 if (-not $OutputDirectory) { $OutputDirectory = Join-Path $scriptRepositoryRoot 'artifacts' }
 if ($PackageName -notmatch '^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$') { throw 'PackageName contains unsupported characters.' }
-if ($BackendTag -notmatch '^backend-spatestrosa-v\d+\.\d+\.\d+$') { throw 'BackendTag must be an exact Rosa release tag.' }
+if ($BackendTag -notmatch '^backend-sparosa-v\d+\.\d+\.\d+$') { throw 'BackendTag must be an exact Rosa production release tag.' }
 
 $files = [ordered]@{
     'deploy\bootstrap\sparosa-production\README_FIRST.md' = 'README_FIRST.md'
@@ -53,7 +53,7 @@ try {
     }
     [ordered]@{
         package = $PackageName; environment = 'Rosa Production'; serverId = 'sparosa-production'; initialBackendTag = $BackendTag
-        tagPattern = 'backend-spatestrosa-v*'; apiOrigin = 'https://api-spa-rosa.infinityhavocx.men'
+        tagPattern = 'backend-sparosa-v*'; apiOrigin = 'https://api-spa-rosa.infinityhavocx.men'
         frontendOrigin = 'https://app-spa-rosa.infinityhavocx.men'; containsSensitiveData = $false
         containsTenantData = $false; createdAtUtc = [DateTimeOffset]::UtcNow.ToString('o'); files = @($manifestFiles)
     } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $packageRoot 'manifest.json') -Encoding UTF8
