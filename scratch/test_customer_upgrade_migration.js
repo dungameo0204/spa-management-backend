@@ -1,11 +1,12 @@
 const assert = require('node:assert/strict');
 const { parseArgs, expectedSchema, migrate } = require('../scripts/apply-customer-upgrade');
 const column = (table, name, type, nullable = 'YES') => ({ TABLE_NAME: table, COLUMN_NAME: name, DATA_TYPE: type.split('(')[0], COLUMN_TYPE: type, IS_NULLABLE: nullable, COLUMN_DEFAULT: null, EXTRA: '' });
-const fixture = ({ dob = false, sale = false, nullable = 'NO', missing = false, failBackfill = false } = {}) => {
-    const state = { calls: [], prices: [null, 80, 100, 120, 0], safe: 1, released: false };
+const fixture = ({ dob = false, sale = false, activePhone = false, activePhoneIndex = false, legacyPhoneIndex = true, activeDuplicates = false, nullable = 'NO', missing = false, failBackfill = false } = {}) => {
+    const state = { calls: [], prices: [null, 80, 100, 120, 0], safe: 1, released: false, activePhoneIndex, legacyPhoneIndex, activeDuplicates };
     state.columns = expectedSchema().filter((_, i) => !missing || i > 0).map(key => { const [table, name] = key.split('.'); return column(table, name, 'int'); });
     if (dob) state.columns.push(column('customers', 'date_of_birth', 'date'));
     if (sale) state.columns.push(column('products', 'sale_price', 'decimal(15,2)', nullable));
+    if (activePhone) { const generated = column('customers', 'active_phone_number', 'varchar(15)'); generated.EXTRA = 'STORED GENERATED'; state.columns.push(generated); }
     const connection = { query: async (sql, params) => {
         state.calls.push({ sql, params });
         if (sql.includes('information_schema.SCHEMATA')) return [[{ SCHEMA_NAME: 'db_spa_test' }]];
@@ -13,12 +14,20 @@ const fixture = ({ dob = false, sale = false, nullable = 'NO', missing = false, 
         if (sql.includes('GET_LOCK')) return [[{ acquired: 1 }]];
         if (sql.includes('RELEASE_LOCK')) { state.released = true; return [[{}]]; }
         if (sql.includes('information_schema.COLUMNS')) return [state.columns];
+        if (sql.includes('information_schema.STATISTICS')) return [[
+            ...(state.legacyPhoneIndex ? [{ INDEX_NAME: 'uq_customers_phone_number', NON_UNIQUE: 0, SEQ_IN_INDEX: 1, COLUMN_NAME: 'phone_number' }] : []),
+            ...(state.activePhoneIndex ? [{ INDEX_NAME: 'uq_customers_active_phone_number', NON_UNIQUE: 0, SEQ_IN_INDEX: 1, COLUMN_NAME: 'active_phone_number' }] : [])
+        ]];
         if (sql.includes('ADD COLUMN date_of_birth')) { state.columns.push(column('customers', 'date_of_birth', 'date')); return [{}]; }
         if (sql.includes('ADD COLUMN sale_price')) { state.columns.push(column('products', 'sale_price', 'decimal(15,2)')); state.prices = [null, null]; return [{}]; }
+        if (sql.includes('ADD COLUMN active_phone_number')) { const generated = column('customers', 'active_phone_number', 'varchar(15)'); generated.EXTRA = 'STORED GENERATED'; state.columns.push(generated); return [{}]; }
+        if (sql.includes('ADD UNIQUE KEY uq_customers_active_phone_number')) { state.activePhoneIndex = true; return [{}]; }
+        if (sql.includes('DROP INDEX uq_customers_phone_number')) { state.legacyPhoneIndex = false; return [{}]; }
         if (sql.includes('@@SESSION.SQL_SAFE_UPDATES')) return [[{ safe_updates: state.safe }]];
         if (sql.startsWith('SET SESSION')) { state.safe = Number(sql.slice(-1)); return [{}]; }
         if (sql.startsWith('UPDATE')) { if (failBackfill) throw new Error('Injected failure'); state.prices = state.prices.map(price => price === null ? 100 : price); return [{}]; }
         if (sql.includes('MODIFY COLUMN')) { state.columns.find(c => c.COLUMN_NAME === 'sale_price').IS_NULLABLE = 'NO'; return [{}]; }
+        if (sql.includes('AS duplicates')) return [[{ total: state.activeDuplicates ? 1 : 0 }]];
         if (sql.includes('COUNT(*)')) return [[{ total: sql.includes('WHERE sale_price IS NULL') ? state.prices.filter(p => p === null).length : state.prices.length, null_prices: state.prices.filter(p => p === null).length, legacy_pairs: state.prices.filter(p => p >= 100).length }]];
         throw new Error(`Unexpected SQL: ${sql}`);
     } };
@@ -33,6 +42,9 @@ const run = (test, apply = true, db = 'db_spa_test') => migrate(test.connection,
     const fresh = fixture(); await run(fresh);
     assert.deepEqual(fresh.state.prices, [100, 100]);
     assert.equal(fresh.state.safe, 1); assert.equal(fresh.state.released, true);
+    assert.ok(fresh.state.columns.some(c => c.COLUMN_NAME === 'active_phone_number'));
+    assert.equal(fresh.state.activePhoneIndex, true); assert.equal(fresh.state.legacyPhoneIndex, false);
+    assert.ok(fresh.state.calls.findIndex(c => c.sql.includes('ADD UNIQUE KEY uq_customers_active_phone_number')) < fresh.state.calls.findIndex(c => c.sql.includes('DROP INDEX uq_customers_phone_number')));
     fresh.state.calls = []; await run(fresh);
     assert.equal(fresh.state.calls.filter(c => /^(ALTER|UPDATE|SET)/.test(c.sql)).length, 0);
     const partial = fixture({ sale: true, nullable: 'YES' }); await run(partial);
@@ -51,5 +63,7 @@ const run = (test, apply = true, db = 'db_spa_test') => migrate(test.connection,
     const unregistered = fixture(); const original = unregistered.connection.query;
     unregistered.connection.query = (sql, params) => sql.includes('FROM db_system_master.tenants') ? Promise.resolve([[]]) : original(sql, params);
     await assert.rejects(run(unregistered), /registered tenant/);
-    console.log('PASS: migration dry run, fresh/partial/rerun/template, legacy price preservation, prerequisites, incompatible types, safe-updates restoration and target guards.');
+    const duplicates = fixture({ activeDuplicates: true }); await assert.rejects(run(duplicates), /Active customer phone duplicates/);
+    assert.equal(duplicates.state.activePhoneIndex, false); assert.equal(duplicates.state.legacyPhoneIndex, true);
+    console.log('PASS: migration dry run, fresh/partial/rerun/template, active-phone uniqueness, legacy price preservation, prerequisites, incompatible types, safe-updates restoration and target guards.');
 })().catch(error => { console.error(error); process.exitCode = 1; });

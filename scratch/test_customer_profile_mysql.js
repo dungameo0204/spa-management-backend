@@ -41,10 +41,15 @@ async function main() {
         await service.deleteCustomer(7, id, 'profile-test');
         await assert.rejects(service.createCustomer(7, { ...profile, phone_number: `U${profile.phone_number.slice(1)}` }, 'profile-test'), /Mã hồ sơ/);
         await service.restoreCustomer(7, id, 'profile-test');
+        const reusablePhone = `P${Date.now()}`;
+        const deletedId = await service.createCustomer(7, { fullname: 'Deleted phone owner', phone_number: reusablePhone }, 'profile-test');
+        await service.deleteCustomer(7, deletedId, 'profile-test');
+        await service.createCustomer(7, { fullname: 'Replacement phone owner', phone_number: reusablePhone }, 'profile-test');
+        await assert.rejects(service.restoreCustomer(7, deletedId, 'profile-test'), /Sá»‘ Ä‘iá»‡n thoáº¡i/);
         await connection.rollback();
         const [[count]] = await connection.query(`SELECT COUNT(*) AS total FROM \`${db}\`.customers WHERE id=?`, [id]);
         assert.equal(count.total, 0);
-        console.log('PASS: Rosa 3308 actual customer service roundtrip, JSON arrays, date formatting, unique code, soft-delete/restore; rollback verified.');
+        console.log('PASS: Rosa 3308 actual customer service roundtrip, JSON arrays, date formatting, unique code, active-only phone reuse and restore guard; rollback verified.');
     } finally {
         masterPool.query = originalQuery;
         if (connection) { await connection.rollback(); connection.release(); }

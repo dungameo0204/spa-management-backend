@@ -62,6 +62,8 @@ async function main() {
     const update = calls.at(-1);
     for (const field of PROFILE_FIELDS) assert.ok(update.sql.includes(`${field} = ?`));
     assert.equal(update.params.length, PROFILE_FIELDS.length + 2);
+    await service.updateCustomer(7, 9, { phone_number: '0900000001' }, 'tester');
+    assert.ok(calls.some(call => /SELECT id FROM `test_tenant`\.customers WHERE phone_number = \? AND id != \? AND deleted_at IS NULL/.test(call.sql)));
     await service.updateCustomer(7, 9, { note: 'Keep profile' }, 'tester');
     assert.doesNotMatch(calls.at(-1).sql, /profile_code|skin_types/);
     await service.updateCustomer(7, 9, { skin_types: null, referral_sources: [] }, 'tester');
@@ -86,6 +88,7 @@ async function main() {
     await assert.rejects(service.createCustomer(7, { phone_number: '1' }, 'tester'), /Mã hồ sơ/);
     await assert.rejects(service.updateCustomer(7, 9, { profile_code: 'ROSA-01' }, 'tester'), /Mã hồ sơ/);
     race = false;
+    assert.ok(calls.some(call => call.sql.includes('phone_number = ? AND deleted_at IS NULL')));
     for (const [handler, body] of [[controller.create, null], [controller.create, { fullname: [], phone_number: '1' }], [controller.update, { fullname: null }], [controller.update, { phone_number: 1 }], [controller.update, []]]) {
         const res = { status(code) { this.code = code; return this; }, json(value) { this.body = value; } };
         await handler({ body, params: { id: 9 }, user: { tenant_id: 7 } }, res);

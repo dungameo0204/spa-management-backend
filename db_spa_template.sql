@@ -377,6 +377,7 @@ CREATE TABLE `customers` (
   `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   `deleted_at` datetime DEFAULT NULL,
+  `active_phone_number` varchar(15) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci GENERATED ALWAYS AS ((case when (`deleted_at` is null) then `phone_number` else NULL end)) STORED,
   `created_by` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `updated_by` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `deleted_by` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
@@ -397,7 +398,7 @@ CREATE TABLE `customers` (
   `skin_assessment` text COLLATE utf8mb4_unicode_ci,
   `consultation_note` text COLLATE utf8mb4_unicode_ci,
   PRIMARY KEY (`id`),
-  UNIQUE KEY `uq_customers_phone_number` (`phone_number`),
+  UNIQUE KEY `uq_customers_active_phone_number` (`active_phone_number`),
   UNIQUE KEY `uq_customer_profile_code` (`profile_code`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
