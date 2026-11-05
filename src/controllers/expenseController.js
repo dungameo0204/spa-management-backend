@@ -18,11 +18,12 @@ const create = async (req, res) => {
 const getList = async (req, res) => {
     try {
         const tenantId = req.user.tenant_id;
+        const executorName = req.user.fullname || req.user.username;
         const userRole = req.user.system_role;
         const userBranchId = req.user.branch_id;
         const { search, branchId, startDate, endDate } = req.query;
 
-        const expenses = await expenseService.getExpenses(tenantId, search, branchId, startDate, endDate, userRole, userBranchId, req.query);
+        const expenses = await expenseService.getExpenses(tenantId, search, branchId, startDate, endDate, userRole, userBranchId, executorName, req.query);
         res.status(200).json({ message: 'Lấy danh sách thành công', ...expenses });
     } catch (error) {
         respondListError(res, error);
@@ -32,10 +33,11 @@ const getList = async (req, res) => {
 const getDetail = async (req, res) => {
     try {
         const tenantId = req.user.tenant_id;
+        const executorName = req.user.fullname || req.user.username;
         const userRole = req.user.system_role;
         const userBranchId = req.user.branch_id;
 
-        const data = await expenseService.getExpenseDetail(tenantId, req.params.id, userRole, userBranchId);
+        const data = await expenseService.getExpenseDetail(tenantId, req.params.id, userRole, userBranchId, executorName);
         res.status(200).json({ message: 'Lấy chi tiết phiếu chi thành công', data });
     } catch (error) {
         res.status(404).json({ message: error.message });

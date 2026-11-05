@@ -17,6 +17,7 @@ require.cache[db] = { id: db, filename: db, loaded: true, exports: {
         query: async (sql, params) => {
             calls.push({ sql, params });
             if (sql.includes('.branches WHERE')) return [[{ id: 1 }]];
+            if (sql.includes('SELECT COUNT(*) AS total')) return [[{ total: 1 }]];
             if (sql.includes('SELECT e.*, b.name')) return [[{ id: 4, branch_id: 1, amount: '30.00' }]];
             if (sql.includes('SELECT branch_id FROM')) return [[{ branch_id: 1 }]];
             if (sql.includes('FROM `test_tenant`.expenses_vouchers_items')) return [[{ id: 2, expenses_voucher_id: 4, expense_type: 'Điện', amount: '30.00' }]];
@@ -32,6 +33,29 @@ const service = require('../src/services/expenseService');
     assert.equal(calls.find(c => c.sql?.includes('INSERT INTO `test_tenant`.expense_vouchers\n')).params[1], 30);
     assert.equal(calls.filter(c => c.sql?.includes('INSERT INTO `test_tenant`.expenses_vouchers_items')).length, 2);
     assert.equal((await service.getExpenseDetail(1, 4, 'MANAGER')).items[0].expense_type, 'Điện');
+
+    calls.length = 0;
+    await service.getExpenses(1, '', undefined, undefined, undefined, 'STAFF', 1, 'Staff One', { page: 1, pageSize: 20 });
+    const staffListQueries = calls.filter(c => c.sql?.includes('SELECT COUNT(*) AS total') || c.sql?.includes('SELECT e.*, b.name'));
+    assert.equal(staffListQueries.length, 2);
+    for (const call of staffListQueries) {
+        assert.match(call.sql, /AND e\.branch_id = \? AND e\.created_by = \?/);
+        assert.deepEqual(call.params.slice(0, 2), [1, 'Staff One']);
+    }
+
+    calls.length = 0;
+    await service.getExpenseDetail(1, 4, 'STAFF', 1, 'Staff One');
+    const staffDetail = calls.find(c => c.sql?.includes('SELECT e.*, b.name'));
+    assert.match(staffDetail.sql, /AND e\.branch_id = \? AND e\.created_by = \?/);
+    assert.deepEqual(staffDetail.params, [4, 1, 'Staff One']);
+
+    calls.length = 0;
+    await service.getExpenses(1, '', undefined, undefined, undefined, 'MANAGER', undefined, 'Manager One', { page: 1, pageSize: 20 });
+    await service.getExpenseDetail(1, 4, 'MANAGER', undefined, 'Manager One');
+    for (const call of calls.filter(c => c.sql?.includes('SELECT COUNT(*) AS total') || c.sql?.includes('SELECT e.*, b.name'))) {
+        assert.doesNotMatch(call.sql, /e\.created_by = \?/);
+    }
+
     await service.updateExpense(1, 4, { items: [{ expense_type: 'Điện', amount: 30 }] }, 'tester', 'MANAGER');
     assert.ok(calls.some(c => c.sql?.includes('DELETE FROM `test_tenant`.expenses_vouchers_items')));
     failItem = true;

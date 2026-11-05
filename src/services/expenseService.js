@@ -78,7 +78,7 @@ const createExpense = async (tenantId, expenseData, executorName, userRole, user
     }
 };
 
-const getExpenses = async (tenantId, searchKeyword = '', branchId, startDate, endDate, userRole, userBranchId, pagination) => {
+const getExpenses = async (tenantId, searchKeyword = '', branchId, startDate, endDate, userRole, userBranchId, executorName, pagination) => {
     const dbName = await getTenantDbName(tenantId);
     let query = `
         SELECT e.*, b.name AS branch_name 
@@ -88,10 +88,14 @@ const getExpenses = async (tenantId, searchKeyword = '', branchId, startDate, en
     `;
     const params = [];
 
-    // Phân quyền Staff chỉ xem được phiếu của cơ sở mình
+    // Phân quyền: STAFF chỉ xem được phiếu do chính họ tạo tại cơ sở mình.
     if (String(userRole).toUpperCase() !== 'MANAGER') {
         query += ' AND e.branch_id = ?';
         params.push(toNumber(userBranchId, 'branch_id', { min: 1, integer: true }));
+        if (String(userRole).toUpperCase() === 'STAFF') {
+            query += ' AND e.created_by = ?';
+            params.push(executorName);
+        }
     } else if (branchId !== undefined) {
         query += ' AND e.branch_id = ?';
         params.push(toNumber(branchId, 'branchId', { min: 1, integer: true }));
@@ -119,7 +123,7 @@ const getExpenses = async (tenantId, searchKeyword = '', branchId, startDate, en
     return result;
 };
 
-const getExpenseDetail = async (tenantId, expenseId, userRole, userBranchId) => {
+const getExpenseDetail = async (tenantId, expenseId, userRole, userBranchId, executorName) => {
     const dbName = await getTenantDbName(tenantId);
     let query = `
         SELECT e.*, b.name AS branch_name 
@@ -132,6 +136,10 @@ const getExpenseDetail = async (tenantId, expenseId, userRole, userBranchId) => 
     if (String(userRole).toUpperCase() !== 'MANAGER') {
         query += ' AND e.branch_id = ?';
         params.push(toNumber(userBranchId, 'branch_id', { min: 1, integer: true }));
+        if (String(userRole).toUpperCase() === 'STAFF') {
+            query += ' AND e.created_by = ?';
+            params.push(executorName);
+        }
     }
 
     const [rows] = await masterPool.query(query, params);
