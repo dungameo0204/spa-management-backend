@@ -219,7 +219,8 @@ const createLegacyDebtPayment = async (tenantId, paymentData, executorName, user
 const getDebtPayments = async (tenantId, filters, userRole, userBranchId) => {
     const dbName = await getTenantDbName(tenantId);
     let query = `
-        SELECT dp.*, c.fullname AS customer_name, c.phone_number, b.name AS branch_name, cb.name AS collection_branch_name
+        SELECT dp.*, c.fullname AS customer_name, c.phone_number, b.name AS branch_name, b.address AS branch_address,
+               cb.name AS collection_branch_name, cb.address AS collection_branch_address
         FROM \`${dbName}\`.debt_payments dp
         INNER JOIN \`${dbName}\`.customers c ON dp.customer_id = c.id
         INNER JOIN \`${dbName}\`.branches b ON dp.branch_id = b.id
@@ -262,7 +263,8 @@ const getDebtPayments = async (tenantId, filters, userRole, userBranchId) => {
 const getDebtPaymentDetail = async (tenantId, paymentId, userRole, userBranchId) => {
     const dbName = await getTenantDbName(tenantId);
     let query = `
-        SELECT dp.*, c.fullname AS customer_name, c.phone_number, b.name AS branch_name, cb.name AS collection_branch_name,
+        SELECT dp.*, c.fullname AS customer_name, c.phone_number, b.name AS branch_name, b.address AS branch_address,
+               cb.name AS collection_branch_name, cb.address AS collection_branch_address,
                i.total_amount AS invoice_total_amount, i.debt_amount AS invoice_debt_amount
         FROM \`${dbName}\`.debt_payments dp
         INNER JOIN \`${dbName}\`.customers c ON dp.customer_id = c.id

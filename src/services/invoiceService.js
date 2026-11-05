@@ -13,17 +13,6 @@ const toNumber = (value, fieldName, { min = 0, integer = false } = {}) => {
     return numberValue;
 };
 
-const checkPermission = (userRole, targetDate) => {
-    const today = new Date();
-    const createdDate = new Date(targetDate);
-    today.setHours(0, 0, 0, 0);
-    createdDate.setHours(0, 0, 0, 0);
-
-    if (String(userRole).toUpperCase() !== 'MANAGER' && createdDate.getTime() < today.getTime()) {
-        throw new Error('Nhân viên chỉ được phép sửa hoặc xóa hóa đơn được tạo trong ngày hôm nay.');
-    }
-};
-
 const getWalletUsedFromInvoice = (invoice) => {
     if (invoice.wallet_used !== undefined && invoice.wallet_used !== null) {
         return Number(invoice.wallet_used);
@@ -276,7 +265,7 @@ const getInvoices = async (tenantId, filters, userRole, userBranchId) => {
     const dbName = await getTenantDbName(tenantId);
     let query = `
         SELECT ${invoiceHeaderColumns},
-               b.name AS branch_name, c.fullname AS customer_name, c.phone_number
+               b.name AS branch_name, b.address AS branch_address, c.fullname AS customer_name, c.phone_number
         FROM \`${dbName}\`.invoices i
         INNER JOIN \`${dbName}\`.branches b ON i.branch_id = b.id
         INNER JOIN \`${dbName}\`.customers c ON i.customer_id = c.id
@@ -330,7 +319,7 @@ const getInvoiceDetail = async (tenantId, invoiceId, userRole, userBranchId) => 
     const dbName = await getTenantDbName(tenantId);
     let query = `
         SELECT ${invoiceHeaderColumns},
-               b.name AS branch_name, c.fullname AS customer_name, c.phone_number
+               b.name AS branch_name, b.address AS branch_address, c.fullname AS customer_name, c.phone_number
         FROM \`${dbName}\`.invoices i
         INNER JOIN \`${dbName}\`.branches b ON i.branch_id = b.id
         INNER JOIN \`${dbName}\`.customers c ON i.customer_id = c.id
@@ -378,7 +367,6 @@ const updateInvoice = async (tenantId, invoiceId, updateData, executorName, user
         if (String(userRole).toUpperCase() !== 'MANAGER' && oldInvoice.branch_id !== userBranchId) throw new Error('Bạn không có quyền sửa hóa đơn của cơ sở khác.');
         const oldNote = normalizeInvoiceNote(oldInvoice.note);
         const newNote = updateData.note === undefined ? oldNote : normalizeInvoiceNote(updateData.note);
-        checkPermission(userRole, oldInvoice.created_at);
         await ensureInvoiceHasNoDebtPayments(connection, dbName, invoiceId, 'sửa');
         const [oldTreatments] = await connection.query(
             `SELECT * FROM \`${dbName}\`.treatments WHERE invoice_id = ? AND deleted_at IS NULL ORDER BY id FOR UPDATE`,
@@ -623,7 +611,6 @@ const deleteInvoice = async (tenantId, invoiceId, executorName, userRole, userBr
 
         const oldInvoice = headers[0];
         if (String(userRole).toUpperCase() !== 'MANAGER' && oldInvoice.branch_id !== userBranchId) throw new Error('Bạn không có quyền xóa hóa đơn của cơ sở khác.');
-        checkPermission(userRole, oldInvoice.created_at);
         await ensureInvoiceHasNoDebtPayments(connection, dbName, invoiceId, 'xóa');
         const [closedCards] = await connection.query(`SELECT t.id FROM \`${dbName}\`.treatments t WHERE t.invoice_id = ? AND t.deleted_at IS NULL
             AND t.closed_at IS NOT NULL LIMIT 1 FOR UPDATE`, [invoiceId]);

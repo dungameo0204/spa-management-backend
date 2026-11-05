@@ -296,7 +296,7 @@ const getWalletLogs = async (tenantId, filters, userRole, userBranchId) => {
     const dbName = await getTenantDbName(tenantId);
     const normalizedRole = String(userRole).toUpperCase();
     let query = `
-        SELECT wl.*, c.fullname AS customer_name, c.phone_number, b.name AS branch_name
+        SELECT wl.*, c.fullname AS customer_name, c.phone_number, b.name AS branch_name, b.address AS branch_address
         FROM \`${dbName}\`.customer_wallet_logs wl
         INNER JOIN \`${dbName}\`.customers c ON wl.customer_id = c.id
         LEFT JOIN \`${dbName}\`.branches b ON wl.branch_id = b.id
@@ -340,7 +340,7 @@ const getWalletLogs = async (tenantId, filters, userRole, userBranchId) => {
 const getWalletLogDetail = async (tenantId, walletLogId, userRole, userBranchId) => {
     const dbName = await getTenantDbName(tenantId);
     let query = `
-        SELECT wl.*, c.fullname AS customer_name, c.phone_number, b.name AS branch_name
+        SELECT wl.*, c.fullname AS customer_name, c.phone_number, b.name AS branch_name, b.address AS branch_address
         FROM \`${dbName}\`.customer_wallet_logs wl
         INNER JOIN \`${dbName}\`.customers c ON wl.customer_id = c.id
         LEFT JOIN \`${dbName}\`.branches b ON wl.branch_id = b.id

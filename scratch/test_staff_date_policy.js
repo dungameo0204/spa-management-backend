@@ -62,22 +62,8 @@ const reset = () => { state.calls = []; };
         assert.equal(state.calls.find(call => call.sql.includes(`INSERT INTO \`test_tenant\`.${insert}\n`)).params[dateIndex], '2026-01-01 10:00:00');
     }
 
-    const today = new Date();
-    const yesterday = new Date(today); yesterday.setDate(today.getDate() - 1);
-    const tomorrow = new Date(today); tomorrow.setDate(today.getDate() + 1);
-    for (const [execution_date, created_at] of [
-        [yesterday, today], [today, yesterday], [tomorrow, today], [today, tomorrow],
-        [null, today], [today, 'invalid'], [today, undefined]
-    ]) {
-        reset();
-        state.history = { treatment_id: 1, branch_id: 2, appointment_id: 4, execution_date, created_at };
-        await assert.rejects(deleteTreatmentHistory(1, 10, 'tester', 'STAFF', 2), /ngày thực hiện và ngày tạo/);
-        assert.equal(state.calls.filter(call => /^(UPDATE|INSERT|DELETE)/.test(call.sql)).length, 0);
-        assert.ok(state.calls.some(call => call.sql === 'ROLLBACK'));
-        assert.equal(state.calls.at(-1).sql, 'RELEASE');
-    }
     reset();
-    state.history = { treatment_id: 1, branch_id: 2, appointment_id: 4, execution_date: today, created_at: today };
+    state.history = { treatment_id: 1, branch_id: 2, appointment_id: 4, execution_date: new Date('2000-01-01T09:00:00Z'), created_at: new Date('2000-01-01T09:00:00Z') };
     await deleteTreatmentHistory(1, 10, 'tester', 'STAFF', 2);
     assert.ok(state.calls.some(call => call.sql.includes('remaining_sessions = remaining_sessions + 1')));
     assert.ok(state.calls.some(call => call.sql.includes('.treatment_history_staffs SET deleted_at')));
@@ -85,8 +71,10 @@ const reset = () => { state.calls = []; };
     assert.ok(state.calls.some(call => call.sql === 'COMMIT'));
 
     reset();
-    state.history = { ...state.history, execution_date: yesterday, created_at: yesterday };
-    await deleteTreatmentHistory(1, 10, 'tester', 'MANAGER');
-    assert.ok(state.calls.some(call => call.sql === 'COMMIT'));
-    console.log('PASS: STAFF date input guards, server-generated dates, same-day history deletion, no rejected-write side effects and MANAGER bypass');
+    state.history = { ...state.history, branch_id: 3 };
+    await assert.rejects(deleteTreatmentHistory(1, 10, 'tester', 'STAFF', 2), /cơ sở khác/);
+    assert.equal(state.calls.filter(call => /^(UPDATE|INSERT|DELETE)/.test(call.sql)).length, 0);
+    assert.ok(state.calls.some(call => call.sql === 'ROLLBACK'));
+    assert.equal(state.calls.at(-1).sql, 'RELEASE');
+    console.log('PASS: STAFF date input guards, server-generated dates, past-history deletion within its branch and cross-branch guard');
 })().catch(error => { console.error(error); process.exitCode = 1; });

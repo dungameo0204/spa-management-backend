@@ -7,6 +7,7 @@ const pool = {
         calls.push({ sql, params });
         if (sql.includes('page_count')) return [[{ total: 1 }]];
         if (sql.includes('LIMIT ? OFFSET ?')) return [[{ id: 8, invoice_date: '2026-10-10 10:00:00' }]];
+        if (sql.includes('.invoice_items') || sql.includes('.treatments')) return [[]];
         return [[{ id: 8, invoice_date: '2026-10-10 10:00:00' }]];
     }
 };
@@ -35,6 +36,7 @@ async function main() {
     await getInvoiceDetail(1, 8, 'MANAGER', 1);
     assert.match(calls[0].sql, /DATE_FORMAT\(i\.invoice_date, '%Y-%m-%d %H:%i:%s'\)/);
     assert.doesNotMatch(calls[0].sql, /SELECT\s+i\.\*/);
+    assert.match(calls[0].sql, /b\.address AS branch_address/);
     console.log('Invoice filters, count, display date and detail: OK');
 }
 main().catch(error => { console.error(error); process.exitCode = 1 });

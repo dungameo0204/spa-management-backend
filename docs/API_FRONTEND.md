@@ -942,7 +942,7 @@ Query tùy chọn: `search`, `branchId`, `startDate`, `endDate`, `productName`, 
 
 ### `GET /api/invoices/:id`
 
-Lấy header hóa đơn, gồm `paid_amount`, `wallet_used`, `debt_amount`, `branch_name`, `customer_name`, `phone_number`, danh sách `items`, và mỗi item có `consultants`. STAFF không thể lấy hóa đơn cơ sở khác. Thành công `200`: `{ "message": "Lấy chi tiết hóa đơn thành công", "data": { ... } }`; không có quyền/không tồn tại trả `404`.
+Lấy header hóa đơn, gồm `paid_amount`, `wallet_used`, `debt_amount`, `branch_name`, `branch_address`, `customer_name`, `phone_number`, danh sách `items`, và mỗi item có `consultants`. STAFF không thể lấy hóa đơn cơ sở khác. Thành công `200`: `{ "message": "Lấy chi tiết hóa đơn thành công", "data": { ... } }`; không có quyền/không tồn tại trả `404`.
 
 ### `PUT /api/invoices/:id`
 

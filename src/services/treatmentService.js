@@ -1,6 +1,5 @@
 const { masterPool, getTenantDbName } = require('../config/database');
 const { paginateQuery } = require('../utils/pagination');
-const { isToday } = require('../utils/staffDatePolicy');
 const { loadCommissionBase, calculateCommission } = require('./commissionService');
 const groups = require('./treatmentGroupService');
 const { normalizeClosureSignature } = require('../utils/treatmentSignature');
@@ -338,12 +337,6 @@ const deleteTreatmentHistory = async (tenantId, historyId, executorName, userRol
         const history = histories[0];
         if (String(userRole).toUpperCase() === 'STAFF' && Number(history.branch_id) !== Number(userBranchId)) {
             throw new Error('Bạn không có quyền thao tác trên lịch sử của cơ sở khác.');
-        }
-
-        const now = new Date();
-        if (String(userRole).toUpperCase() === 'STAFF' &&
-            (!isToday(history.execution_date, now) || !isToday(history.created_at, now))) {
-            throw new Error('Nhân viên chỉ được xóa lịch sử có ngày thực hiện và ngày tạo đều là hôm nay.');
         }
 
         // Hoàn lại 1 buổi cho thẻ liệu trình

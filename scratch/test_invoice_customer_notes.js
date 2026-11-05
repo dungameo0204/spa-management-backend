@@ -60,7 +60,7 @@ const service = require('../src/services/invoiceService');
 const base = { customer_id: 7, branch_id: 1, paid_amount: 100, items: [{ product_id: 1, quantity: 1 }] };
 const create = data => service.createInvoice(1, { ...base, ...data }, 'tester', 'MANAGER');
 const update = data => service.updateInvoice(1, 123, { items: base.items, ...data }, 'tester', 'MANAGER');
-const remove = () => service.deleteInvoice(1, 123, 'tester', 'MANAGER');
+const remove = (role = 'MANAGER', branchId = 1) => service.deleteInvoice(1, 123, 'tester', role, branchId);
 const reset = () => { state.customers = new Map([[7, 'Khách VIP'], [8, null]]); state.invoice = null; state.calls = []; state.fail = false; };
 
 (async () => {
@@ -81,7 +81,10 @@ const reset = () => { state.customers = new Map([[7, 'Khách VIP'], [8, null]]);
     const cleared = state.customers.get(7);
     await update({ note: null });
     assert.equal(state.customers.get(7), cleared);
-    await remove();
+    state.invoice.created_at = new Date('2000-01-01T00:00:00Z');
+    await assert.rejects(remove('STAFF', 2), /cơ sở khác/);
+    assert.equal(state.invoice.deleted_at, undefined, 'STAFF must not delete an invoice from another branch');
+    await remove('STAFF');
     assert.ok(state.customers.get(7).startsWith(cleared));
     assert.match(state.customers.get(7), /\[HĐ #123 - Đã xóa\]$/);
     await assert.rejects(remove(), /không tồn tại/);

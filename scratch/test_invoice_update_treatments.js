@@ -41,7 +41,7 @@ require.cache[configPath] = { id: configPath, filename: configPath, loaded: true
     exports: { getTenantDbName: async () => 'test_tenant', masterPool: { getConnection: async () => connection } } };
 const { updateInvoice } = require('../src/services/invoiceService');
 const combo = quantity => ({ product_id: 1, quantity });
-const run = items => updateInvoice(1, 20, { items }, 'tester', 'MANAGER');
+const run = (items, branchId = 1) => updateInvoice(1, 20, { items }, 'tester', 'STAFF', branchId);
 const card = (id, product_id, total_sessions, remaining_sessions) => ({ id, product_id, total_sessions, remaining_sessions, customer_id: 7, note: null });
 const changes = pattern => state.queries.filter(q => pattern.test(q.sql));
 
@@ -51,6 +51,11 @@ const changes = pattern => state.queries.filter(q => pattern.test(q.sql));
     assert.equal(changes(/UPDATE `test_tenant`\.treatments SET deleted_at/).length, 0);
     assert.equal(changes(/INSERT INTO `test_tenant`\.treatments/).length, 0);
     assert.equal(changes(/UPDATE `test_tenant`\.treatments SET customer_id/).length, 0);
+
+    state.queries.length = 0;
+    await assert.rejects(run([combo(5)], 2), /cơ sở khác/);
+    assert.equal(state.queries.filter(query => /^(UPDATE|INSERT)/.test(query.sql.trim())).length, 0,
+        'STAFF must remain blocked from another branch before any write');
 
     state.queries.length = 0;
     await run([combo(3)]);
@@ -84,5 +89,5 @@ const changes = pattern => state.queries.filter(q => pattern.test(q.sql));
     state.queries.length = 0;
     await run([combo(5)]);
     assert.equal(changes(/INSERT INTO `test_tenant`\.treatments/)[0].params.at(-1), createdAt);
-    console.log('PASS: preserve used treatment, adjust remaining sessions, guard removals, preserve invoice creation date');
+    console.log('PASS: STAFF can update past invoices in its branch; cross-branch access remains blocked; preserve used treatment, adjust remaining sessions, guard removals and preserve invoice creation date');
 })().catch(error => { console.error(error); process.exitCode = 1; });
