@@ -11,6 +11,33 @@ const toNumber = (value, fieldName, { min = 0, integer = false } = {}) => {
     return numberValue;
 };
 
+const optionalDate = (value, fieldName) => {
+    if (value === undefined) return undefined;
+    if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+        const error = new Error(`${fieldName} phải là ngày YYYY-MM-DD hợp lệ.`);
+        error.status = 400;
+        throw error;
+    }
+    const parsed = new Date(`${value}T00:00:00.000Z`);
+    if (!Number.isFinite(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== value) {
+        const error = new Error(`${fieldName} phải là ngày YYYY-MM-DD hợp lệ.`);
+        error.status = 400;
+        throw error;
+    }
+    return value;
+};
+
+const executionDateFilters = filters => {
+    const start = optionalDate(filters.executionStartDate, 'executionStartDate');
+    const end = optionalDate(filters.executionEndDate, 'executionEndDate');
+    if (start && end && start > end) {
+        const error = new Error('executionStartDate không được sau executionEndDate.');
+        error.status = 400;
+        throw error;
+    }
+    return { start, end };
+};
+
 // ==========================
 // 1. QUẢN LÝ THẺ LIỆU TRÌNH
 // ==========================
@@ -311,6 +338,7 @@ const deleteTreatmentHistory = async (tenantId, historyId, executorName, userRol
 
 const getTreatments = async (tenantId, filters) => {
     const dbName = await getTenantDbName(tenantId);
+    const executionDates = executionDateFilters(filters);
     let query = `
         SELECT t.*, c.fullname as customer_name, c.phone_number, p.name as product_name, i.branch_id
         FROM \`${dbName}\`.treatments t
@@ -350,6 +378,22 @@ const getTreatments = async (tenantId, filters) => {
     if (filters.endDate) {
         query += ' AND DATE(t.created_at) <= ?';
         params.push(filters.endDate);
+    }
+
+    if (executionDates.start || executionDates.end) {
+        query += ` AND EXISTS (
+            SELECT 1
+            FROM \`${dbName}\`.treatment_history th
+            WHERE th.treatment_id = t.id AND th.deleted_at IS NULL`;
+        if (executionDates.start) {
+            query += ' AND th.execution_date >= ?';
+            params.push(executionDates.start);
+        }
+        if (executionDates.end) {
+            query += ' AND th.execution_date < DATE_ADD(?, INTERVAL 1 DAY)';
+            params.push(executionDates.end);
+        }
+        query += ')';
     }
 
     if (filters.branchId) {

@@ -1125,11 +1125,14 @@ API này hỗ trợ query filter để tìm danh sách thẻ liệu trình. Tấ
 | `status` | `active` / `completed` | `active`: còn buổi (`remaining_sessions > 0`); `completed`: đã hết buổi (`remaining_sessions = 0`). |
 | `startDate` | `YYYY-MM-DD` | Lọc từ ngày tạo thẻ, theo `treatments.created_at`. |
 | `endDate` | `YYYY-MM-DD` | Lọc đến ngày tạo thẻ, theo `treatments.created_at`. |
+| `executionStartDate` | `YYYY-MM-DD` | Lọc từ ngày thực hiện, theo `treatment_history.execution_date`. |
+| `executionEndDate` | `YYYY-MM-DD` | Lọc đến ngày thực hiện, theo `treatment_history.execution_date`. |
 | `branchId` | number | Lọc theo branch của hóa đơn gốc. Thẻ tạo thủ công không có invoice vẫn được bao gồm theo logic hiện tại. |
 
 - `customerSearch` tìm theo tên/số điện thoại; `productSearch` tìm tên dịch vụ.
 - `status=active` lọc thẻ còn buổi; `status=completed` lọc thẻ hết buổi.
 - `startDate`, `endDate`: lọc ngày tạo thẻ; `invoiceId` lọc toàn bộ thẻ liệu trình được sinh từ một hóa đơn, không phụ thuộc branch của hóa đơn; `branchId` lọc thẻ tạo từ hóa đơn của một cơ sở (thẻ thủ công không có invoice vẫn được bao gồm theo nghiệp vụ hiện tại).
+- `executionStartDate`, `executionEndDate`: lọc theo ngày thực hiện, bao gồm hai đầu ngày. Thẻ được trả khi có ít nhất một `treatment_history` chưa xóa của chính thẻ với `execution_date` trong khoảng. Hai param có thể dùng độc lập hoặc kết hợp với `startDate`/`endDate`; định dạng không hợp lệ hoặc `executionStartDate` sau `executionEndDate` trả `400`. Filter được áp dụng trong SQL trước khi tính `total` và phân trang.
 - Thành công `200`: `{ "message": "Lấy danh sách liệu trình thành công", "total": 1, "page": 1, "pageSize": 20, "totalPages": 1, "data": [ ... ] }`.
 
 Ví dụ tìm các thẻ liệu trình có tên dịch vụ chứa `lông`:
@@ -1151,6 +1154,13 @@ Ví dụ kết hợp nhiều điều kiện:
 
 ```http
 GET /api/treatments?customerId=1&productSearch=lông&status=active&startDate=2026-10-01&endDate=2026-10-31
+Authorization: Bearer <token>
+```
+
+Ví dụ lọc thẻ có buổi thực hiện trong ngày `2026-11-05`:
+
+```http
+GET /api/treatments?executionStartDate=2026-11-05&executionEndDate=2026-11-05
 Authorization: Bearer <token>
 ```
 
