@@ -110,6 +110,7 @@ const jwt = require('jsonwebtoken');
             assert.match(aggregate.sql, /SUM\(ths\.commission_amount_snapshot\)/);
             assert.doesNotMatch(pageQuery.sql, /product_commissions pc/);
             assert.match(pageQuery.sql, /ths\.commission_amount_snapshot/);
+            assert.match(pageQuery.sql, /ORDER BY th\.branch_id ASC, th\.execution_date ASC, s\.fullname ASC, s\.id ASC, commission_amount ASC, ths\.id ASC LIMIT \? OFFSET \?/);
         } else assert.match(aggregate.sql, new RegExp(`COUNT\\(\\*\\) AS total, COALESCE\\(SUM\\(${column.replace('.', '\\.')}\\), 0\\) AS total_amount`));
         assert.match(aggregate.sql, /deleted_at IS NULL/);
         assert.deepEqual(aggregate.params, ['2026-10-01', '2026-10-31', 1]);
