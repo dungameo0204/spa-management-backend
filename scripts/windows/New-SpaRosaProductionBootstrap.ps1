@@ -28,11 +28,16 @@ $files = [ordered]@{
     'scripts\windows\Install-SpaBackendService.ps1' = 'scripts\windows\Install-SpaBackendService.ps1'
     'scripts\windows\Check-SpaBackendUpdate.ps1' = 'scripts\windows\Check-SpaBackendUpdate.ps1'
     'scripts\windows\Install-SpaBackendAutoUpdate.ps1' = 'scripts\windows\Install-SpaBackendAutoUpdate.ps1'
+    'scripts\windows\Backup-SpaDatabase.ps1' = 'scripts\windows\Backup-SpaDatabase.ps1'
     'scripts\windows\Rollback-SpaBackend.ps1' = 'scripts\windows\Rollback-SpaBackend.ps1'
     'scripts\windows\Backup-SpaRosaDatabase.ps1' = 'scripts\windows\Backup-SpaRosaDatabase.ps1'
     'scripts\windows\Backup-SpaRosaToR2.ps1' = 'scripts\windows\Backup-SpaRosaToR2.ps1'
     'scripts\windows\Install-SpaRosaBackupTask.ps1' = 'scripts\windows\Install-SpaRosaBackupTask.ps1'
     'scripts\windows\New-SpaRosaSuperAdminSql.ps1' = 'scripts\windows\New-SpaRosaSuperAdminSql.ps1'
+    'scripts\apply-release-migrations.js' = 'scripts\apply-release-migrations.js'
+    'scripts\release-migrations.json' = 'scripts\release-migrations.json'
+    'config\migration-policy.example.json' = 'config\migration-policy.example.json'
+    'config\migration-policy.seed.json' = 'config\migration-policy.seed.json'
 }
 
 $stagingRoot = Join-Path ([IO.Path]::GetTempPath()) "$PackageName-$([guid]::NewGuid().ToString('N'))"
