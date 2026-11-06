@@ -16,6 +16,8 @@ $statePath = Join-Path $Root 'state\deployment.json'
 $releasePath = Join-Path $Root "releases\$Version"
 $currentPath = Join-Path $Root 'current'
 $serviceExe = Join-Path $Root 'service\SpaBackend.exe'
+$backupScript = Join-Path $releasePath 'scripts\windows\Backup-SpaDatabase.ps1'
+$migrationRunner = Join-Path $releasePath 'scripts\apply-release-migrations.js'
 
 New-Item -ItemType Directory -Path (Join-Path $Root 'releases') -Force | Out-Null
 New-Item -ItemType Directory -Path (Join-Path $Root 'state') -Force | Out-Null
@@ -43,6 +45,18 @@ try {
     if (-not (Test-Path -LiteralPath (Join-Path $releasePath 'src\server.js') -PathType Leaf)) {
         throw "Invalid release: src\server.js is missing from $releasePath"
     }
+    if (-not (Test-Path -LiteralPath $migrationRunner -PathType Leaf)) {
+        throw "Invalid release: migration runner is missing from $releasePath"
+    }
+    if (-not (Test-Path -LiteralPath $backupScript -PathType Leaf)) {
+        throw "Invalid release: backup script is missing from $releasePath"
+    }
+    $nodeExe = Join-Path $Root 'runtime\node\node.exe'
+    if (-not (Test-Path -LiteralPath $nodeExe -PathType Leaf)) { $nodeExe = 'node.exe' }
+    $migrationPlanRaw = & $nodeExe $migrationRunner --release-path $releasePath --root $Root --plan
+    if ($LASTEXITCODE -ne 0) { throw "Migration planning failed for $Version" }
+    try { $migrationPlan = $migrationPlanRaw | ConvertFrom-Json } catch { throw "Migration runner returned invalid plan output: $migrationPlanRaw" }
+    $migrationRequired = [bool]$migrationPlan.requiresMigration
 
     $previousPath = Get-CurrentReleasePath -CurrentPath $currentPath
     if ($previousPath) { $previousVersion = Split-Path $previousPath -Leaf }
@@ -51,6 +65,15 @@ try {
     if ($serviceWasRunning) {
         if (-not (Test-Path -LiteralPath $serviceExe -PathType Leaf)) { throw "Service wrapper is missing: $serviceExe" }
         Invoke-CheckedCommand -FilePath $serviceExe -ArgumentList @('stop')
+    }
+
+    if ($migrationRequired) {
+        Write-Host "Pending schema migrations detected for $Version. Creating backup before migration." -ForegroundColor Yellow
+        Invoke-CheckedCommand -FilePath 'powershell.exe' -ArgumentList @('-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', $backupScript, '-Root', $Root)
+        $migrationApplyRaw = & $nodeExe $migrationRunner --release-path $releasePath --root $Root --apply
+        if ($LASTEXITCODE -ne 0) { throw "Migration apply failed for $Version" }
+        try { $migrationApply = $migrationApplyRaw | ConvertFrom-Json } catch { throw "Migration runner returned invalid apply output: $migrationApplyRaw" }
+        Write-Host "Schema migrations completed: $($migrationApply | ConvertTo-Json -Compress)" -ForegroundColor Green
     }
 
     Set-ReleaseJunction -CurrentPath $currentPath -TargetPath $releasePath

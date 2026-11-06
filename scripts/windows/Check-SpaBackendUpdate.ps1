@@ -10,6 +10,8 @@ $configPath = Join-Path $Root 'config\auto-update.json'
 $statePath = Join-Path $Root 'state\deployment.json'
 $logPath = Join-Path $Root 'logs\auto-update.log'
 $deployScript = Join-Path $Root 'current\scripts\windows\Deploy-SpaBackend.ps1'
+$migrationPolicyPath = Join-Path $Root 'config\migration-policy.json'
+$migrationPolicySeedPath = Join-Path $Root 'current\config\migration-policy.seed.json'
 
 function Write-UpdateLog {
     param([Parameter(Mandatory)][string]$Message)
@@ -32,6 +34,11 @@ try {
     }
     if ($config.tagPattern -notmatch '^[A-Za-z0-9][A-Za-z0-9._*?-]{0,79}$') {
         throw 'tagPattern contains unsupported characters.'
+    }
+    if (-not (Test-Path -LiteralPath $migrationPolicyPath -PathType Leaf)) {
+        if (-not (Test-Path -LiteralPath $migrationPolicySeedPath -PathType Leaf)) { throw "Migration policy seed not found in current release: $migrationPolicySeedPath" }
+        Copy-Item -LiteralPath $migrationPolicySeedPath -Destination $migrationPolicyPath -ErrorAction Stop
+        Write-UpdateLog "Created migration policy from the current release seed: $migrationPolicyPath"
     }
 
     $state = Get-Content -LiteralPath $statePath -Raw | ConvertFrom-Json
