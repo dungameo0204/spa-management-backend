@@ -30,6 +30,10 @@ $files = [ordered]@{
     'scripts\windows\Backup-SpaDatabase.ps1' = 'scripts\windows\Backup-SpaDatabase.ps1'
     'scripts\windows\Rollback-SpaBackend.ps1' = 'scripts\windows\Rollback-SpaBackend.ps1'
     'scripts\windows\New-SuperAdminPasswordSql.ps1' = 'scripts\windows\New-SuperAdminPasswordSql.ps1'
+    'scripts\apply-release-migrations.js' = 'scripts\apply-release-migrations.js'
+    'scripts\release-migrations.json' = 'scripts\release-migrations.json'
+    'config\migration-policy.example.json' = 'config\migration-policy.example.json'
+    'config\migration-policy.seed.json' = 'config\migration-policy.seed.json'
 }
 
 $stagingRoot = Join-Path ([IO.Path]::GetTempPath()) "$PackageName-$([guid]::NewGuid().ToString('N'))"

@@ -11,6 +11,8 @@ $envValues = Get-DotEnvValues -Path (Join-Path $Root 'config\.env')
 foreach ($required in @('DB_HOST', 'DB_USER', 'DB_PASSWORD', 'DB_SYSTEM_NAME')) {
     if (-not $envValues.ContainsKey($required) -or -not $envValues[$required]) { throw "Missing $required in .env" }
 }
+$dbPort = if ($envValues.ContainsKey('DB_PORT') -and $envValues.DB_PORT) { $envValues.DB_PORT } else { '3306' }
+if ($dbPort -notmatch '^\d{1,5}$' -or [int]$dbPort -lt 1 -or [int]$dbPort -gt 65535) { throw 'DB_PORT must be an integer from 1 to 65535.' }
 $mysql = Join-Path $MySqlBin 'mysql.exe'
 $mysqldump = Join-Path $MySqlBin 'mysqldump.exe'
 if (-not (Test-Path -LiteralPath $mysql -PathType Leaf)) { throw "Not found: $mysql" }
@@ -24,12 +26,12 @@ $oldPassword = $env:MYSQL_PWD
 try {
     $env:MYSQL_PWD = $envValues.DB_PASSWORD
     $query = 'SELECT database_name FROM tenants WHERE deleted_at IS NULL ORDER BY id'
-    $tenantDatabases = & $mysql --batch --skip-column-names --host=$($envValues.DB_HOST) --user=$($envValues.DB_USER) $envValues.DB_SYSTEM_NAME --execute=$query
+    $tenantDatabases = & $mysql --batch --skip-column-names --host=$($envValues.DB_HOST) --port=$dbPort --user=$($envValues.DB_USER) $envValues.DB_SYSTEM_NAME --execute=$query
     if ($LASTEXITCODE -ne 0) { throw 'Could not read the tenant database list.' }
     $databases = @($envValues.DB_SYSTEM_NAME, 'db_spa_template') + @($tenantDatabases | Where-Object { $_ })
     $databases = $databases | Sort-Object -Unique
     $arguments = @(
-        "--host=$($envValues.DB_HOST)", "--user=$($envValues.DB_USER)",
+        "--host=$($envValues.DB_HOST)", "--port=$dbPort", "--user=$($envValues.DB_USER)",
         '--single-transaction', '--routines', '--triggers', '--events',
         '--set-gtid-purged=OFF', "--result-file=$dumpPath", '--databases'
     ) + $databases
