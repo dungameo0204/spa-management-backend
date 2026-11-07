@@ -26,12 +26,13 @@ const { getCustomerOverview } = require('../src/services/customerService');
             { invoice_item_id: 7, invoice_id: 50, product_id: 2, is_product: 0, purchase_date: '2026-10-10' }
         ],
         cards: [
-            { id: 54, invoice_id: 64, invoice_item_id: 83, product_id: 23, total_sessions: 1, remaining_sessions: 0, purchase_date: '2026-10-12' },
-            { id: 55, invoice_id: 64, invoice_item_id: 85, product_id: 23, total_sessions: 5, remaining_sessions: 3, purchase_date: '2026-10-12' },
-            { id: 56, invoice_id: 64, product_id: 23, total_sessions: 1, remaining_sessions: 1, purchase_date: '2026-10-12' },
-            { id: 57, invoice_id: null, product_id: 23, total_sessions: 2, remaining_sessions: 2, purchase_date: null, created_at: '2026-10-09' }
+            { id: 54, customer_id: 1, invoice_id: 64, invoice_item_id: 83, product_id: 23, total_sessions: 1, remaining_sessions: 0, purchase_date: '2026-10-12' },
+            { id: 55, customer_id: 1, invoice_id: 64, invoice_item_id: 85, product_id: 23, total_sessions: 5, remaining_sessions: 3, purchase_date: '2026-10-12' },
+            { id: 56, customer_id: 1, invoice_id: 64, product_id: 23, total_sessions: 1, remaining_sessions: 1, purchase_date: '2026-10-12' },
+            { id: 57, customer_id: 1, invoice_id: null, product_id: 23, total_sessions: 2, remaining_sessions: 2, purchase_date: null, created_at: '2026-10-09' },
+            { id: 58, customer_id: 1, invoice_id: 64, invoice_item_id: 85, product_id: 23, parent_treatment_id: 55, total_sessions: null, remaining_sessions: null, purchase_date: '2026-10-12' }
         ],
-        histories: [{ id: 53, treatment_id: 54, execution_date: '2026-10-12' }],
+        histories: [{ id: 53, treatment_id: 54, execution_date: '2026-10-12' }, { id: 59, treatment_id: 58, execution_date: '2026-10-12' }],
         staffs: [{ id: 8, treatment_history_id: 53, staff_id: 9, staff_name: 'A' }]
     };
     const result = await getCustomerOverview(1, '1');
@@ -41,6 +42,8 @@ const { getCustomerOverview } = require('../src/services/customerService');
     assert.equal(result.purchases[0].treatment.completed_sessions, 1);
     assert.equal(result.purchases[0].treatment.histories[0].staffs[0].staff_id, 9);
     assert.equal(result.purchases[1].treatment.id, 55);
+    assert.equal(result.purchases[1].treatment.children[0].id, 58);
+    assert.equal(result.purchases[1].treatment.children[0].completed_sessions, 1);
     assert.equal(result.purchases[2].treatment, null);
     assert.equal(result.purchases[3].treatment, null); // Same product, different invoice.
     assert.equal(result.purchases[4].treatment, null);

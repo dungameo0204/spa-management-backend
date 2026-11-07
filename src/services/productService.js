@@ -1,5 +1,6 @@
 const { masterPool, getTenantDbName } = require('../config/database');
 const { paginateQuery } = require('../utils/pagination');
+const components = require('./productComponentService');
 
 const toNumber = (value, fieldName, { min = 0, integer = false } = {}) => {
     const numberValue = Number(value);
@@ -148,10 +149,15 @@ const syncCommissionTiers = async (connection, dbName, productId, tiers, executo
 
 const createProduct = async (tenantId, productData, executorName, userRole) => {
     guardCommissionWrite(productData, userRole);
+    if (productData.child_service_ids !== undefined) components.normalizeIds(productData.child_service_ids);
     const dbName = await getTenantDbName(tenantId);
     const connection = await masterPool.getConnection();
 
+    let graphLocked = false;
+    let transactionStarted = false;
     try {
+        await components.acquire(connection, dbName);
+        graphLocked = true;
         const {
             name, images, description, benefits, price, sale_price, unit, is_product,
             is_treatment_combo = false, default_sessions = 1, session_unit = 'buổi',
@@ -179,6 +185,7 @@ const createProduct = async (tenantId, productData, executorName, userRole) => {
         }
 
         await connection.beginTransaction();
+        transactionStarted = true;
         if (Array.isArray(commissions) && commissions.length > 0) {
             await validateCommissions(connection, dbName, commissions);
         }
@@ -205,6 +212,8 @@ const createProduct = async (tenantId, productData, executorName, userRole) => {
             ]
         );
         const productId = result.insertId;
+        await components.check(connection, dbName, productId, { ids: productData.child_service_ids });
+        if (productData.child_service_ids !== undefined) await components.sync(connection, dbName, productId, productData.child_service_ids, executorName);
 
         if (Array.isArray(commissions)) {
             await insertOrUpdateCommissions(connection, dbName, productId, commissions, executorName);
@@ -226,10 +235,11 @@ const createProduct = async (tenantId, productData, executorName, userRole) => {
         await connection.commit();
         return productId;
     } catch (error) {
-        await connection.rollback();
+        if (transactionStarted) await connection.rollback();
         throw error;
     } finally {
-        connection.release();
+        try { if (graphLocked) await components.release(connection, dbName); }
+        finally { connection.release(); }
     }
 };
 
@@ -254,6 +264,7 @@ const getProducts = async (tenantId, searchKeyword = '', isProduct, userRole, us
     if (products.length === 0) return result;
 
     const productIds = products.map(product => product.id);
+    const childIds = await components.read(masterPool, dbName, productIds);
 
     // 1. Lấy thông tin hoa hồng
     const [commissions] = await masterPool.query(
@@ -294,6 +305,7 @@ const getProducts = async (tenantId, searchKeyword = '', isProduct, userRole, us
         
         return {
             ...cleanProduct,
+            child_service_ids: Number(product.is_product) === 0 ? (childIds.get(product.id) || []) : [],
             commissions: commissions.filter(item => item.product_id === product.id),
             commission_tiers: tiers.filter(item => item.product_id === product.id),
             inventory: inventories.filter(item => item.product_id === product.id)
@@ -315,6 +327,7 @@ const getProductById = async (tenantId, productId, userRole, userBranchId) => {
     }
     
     const { is_active, ...cleanProduct } = products[0];
+    const childIds = await components.read(masterPool, dbName, [Number(productId)]);
 
     const [commissions] = await masterPool.query(
         `SELECT pc.id, pc.product_id, pc.role_id, pc.commission_percent, pc.commission_fixed_amount, r.name AS role_name
@@ -345,6 +358,7 @@ const getProductById = async (tenantId, productId, userRole, userBranchId) => {
 
     return {
         ...cleanProduct,
+        child_service_ids: Number(cleanProduct.is_product) === 0 ? (childIds.get(Number(productId)) || []) : [],
         commissions,
         commission_tiers: tiers,
         inventory: inventories
@@ -353,16 +367,27 @@ const getProductById = async (tenantId, productId, userRole, userBranchId) => {
 
 const updateProduct = async (tenantId, productId, updateData, executorName, userRole) => {
     guardCommissionWrite(updateData, userRole);
+    if (updateData.child_service_ids !== undefined) components.normalizeIds(updateData.child_service_ids);
     const dbName = await getTenantDbName(tenantId);
     const connection = await masterPool.getConnection();
 
+    let graphLocked = false;
+    let transactionStarted = false;
     try {
+        await components.acquire(connection, dbName);
+        graphLocked = true;
         await connection.beginTransaction();
+        transactionStarted = true;
         const [products] = await connection.query(
             `SELECT id, price, sale_price FROM \`${dbName}\`.products WHERE id = ? AND deleted_at IS NULL FOR UPDATE`,
             [productId]
         );
         if (products.length === 0) throw new Error('Sản phẩm/dịch vụ không tồn tại hoặc đã bị xóa.');
+        await components.check(connection, dbName, productId, {
+            ids: updateData.child_service_ids,
+            isProduct: updateData.is_product === undefined ? undefined : toBooleanNumber(updateData.is_product, 'is_product')
+        });
+        if (updateData.child_service_ids !== undefined) await components.sync(connection, dbName, productId, updateData.child_service_ids, executorName);
 
         // Keep legacy prices untouched for non-price edits; validate the final pair on any price edit.
         if (updateData.price !== undefined || updateData.sale_price !== undefined) {
@@ -432,31 +457,40 @@ const updateProduct = async (tenantId, productId, updateData, executorName, user
 
         await connection.commit();
     } catch (error) {
-        await connection.rollback();
+        if (transactionStarted) await connection.rollback();
         throw error;
     } finally {
-        connection.release();
+        try { if (graphLocked) await components.release(connection, dbName); }
+        finally { connection.release(); }
     }
 };
 
-const deleteProduct = async (tenantId, productId, executorName) => {
+const changeProductDeletion = async (tenantId, productId, executorName, restore) => {
     const dbName = await getTenantDbName(tenantId);
-    const [result] = await masterPool.query(
-        `UPDATE \`${dbName}\`.products SET deleted_at = NOW(), deleted_by = ?
-         WHERE id = ? AND deleted_at IS NULL`,
-        [executorName, productId]
-    );
-    if (result.affectedRows === 0) throw new Error('Sản phẩm/dịch vụ không tồn tại hoặc đã bị xóa.');
+    const connection = await masterPool.getConnection();
+    let graphLocked = false;
+    let transactionStarted = false;
+    try {
+        await components.acquire(connection, dbName);
+        graphLocked = true;
+        await connection.beginTransaction();
+        transactionStarted = true;
+        const [rows] = await connection.query(`SELECT id FROM \`${dbName}\`.products WHERE id=? AND deleted_at IS ${restore ? 'NOT ' : ''}NULL FOR UPDATE`, [productId]);
+        if (!rows.length) throw new Error(restore ? 'Sản phẩm/dịch vụ chưa bị xóa hoặc không tồn tại.' : 'Sản phẩm/dịch vụ không tồn tại hoặc đã bị xóa.');
+        await components.check(connection, dbName, productId, { action: restore ? 'restore' : 'delete' });
+        await connection.query(restore
+            ? `UPDATE \`${dbName}\`.products SET deleted_at=NULL,deleted_by=NULL,updated_by=? WHERE id=?`
+            : `UPDATE \`${dbName}\`.products SET deleted_at=NOW(),deleted_by=?,updated_by=? WHERE id=?`,
+        restore ? [executorName, productId] : [executorName, executorName, productId]);
+        await connection.commit();
+    } catch (error) { if (transactionStarted) await connection.rollback(); throw error; }
+    finally {
+        try { if (graphLocked) await components.release(connection, dbName); }
+        finally { connection.release(); }
+    }
 };
 
-const restoreProduct = async (tenantId, productId, executorName) => {
-    const dbName = await getTenantDbName(tenantId);
-    const [result] = await masterPool.query(
-        `UPDATE \`${dbName}\`.products SET deleted_at = NULL, deleted_by = NULL, updated_by = ?
-         WHERE id = ? AND deleted_at IS NOT NULL`,
-        [executorName, productId]
-    );
-    if (result.affectedRows === 0) throw new Error('Sản phẩm/dịch vụ chưa bị xóa hoặc không tồn tại.');
-};
+const deleteProduct = (tenantId, productId, executorName) => changeProductDeletion(tenantId, productId, executorName, false);
+const restoreProduct = (tenantId, productId, executorName) => changeProductDeletion(tenantId, productId, executorName, true);
 
 module.exports = { createProduct, getProducts, getProductById, updateProduct, deleteProduct, restoreProduct };

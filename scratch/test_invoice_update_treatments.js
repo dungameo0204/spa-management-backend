@@ -23,6 +23,13 @@ const connection = {
         if (sql.includes('.products WHERE id = ?')) return [products.has(params[0]) ? [products.get(params[0])] : []];
         if (sql.includes('.debt_payments WHERE invoice_id = ?')) return [[]];
         if (sql.includes('FROM `test_tenant`.treatments WHERE invoice_id = ?') && sql.includes('FOR UPDATE')) return [state.cards.map(card => ({ ...card }))];
+        if (sql.includes('SELECT id FROM `test_tenant`.treatment_history WHERE treatment_id=?')) {
+            const current = state.cards.find(card => Number(card.id) === Number(params[0]));
+            const used = current && current.total_sessions !== null
+                ? Number(current.total_sessions) - Number(current.remaining_sessions)
+                : 0;
+            return [Array.from({ length: used }, (_, id) => ({ id: id + 1 }))];
+        }
         if (sql.includes('SELECT id, product_id, quantity FROM `test_tenant`.invoice_items')) return [[{ id: 12, product_id: 1, quantity: 5 }]];
         if (sql.includes('FROM `test_tenant`.treatments t') && sql.includes('commission_base_price')) return [[{
             product_id: 1, invoice_id: 20, invoice_item_id: 201, is_treatment_combo: 1, snapshot_price: 100, quantity: 5

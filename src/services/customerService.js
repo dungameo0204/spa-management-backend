@@ -121,22 +121,33 @@ const getCustomerOverview = async (tenantId, customerId) => {
             histories.forEach(history => { history.staffs = staffs.filter(staff => staff.treatment_history_id === history.id); });
         }
         cards.forEach(card => {
-            card.completed_sessions = card.total_sessions - card.remaining_sessions;
             card.histories = histories.filter(history => history.treatment_id === card.id);
+            card.completed_sessions = card.total_sessions === null || card.closed_at
+                ? card.histories.length
+                : card.total_sessions - card.remaining_sessions;
         });
     }
     const matchedCardIds = new Set();
+    const cardMap = new Map(cards.map(card => [Number(card.id), card]));
+    cards.forEach(card => { card.children = []; });
+    cards.forEach(card => {
+        if (card.parent_treatment_id != null) {
+            const parent = cardMap.get(Number(card.parent_treatment_id));
+            if (parent && Number(parent.customer_id) === Number(card.customer_id)) parent.children.push(card);
+        }
+    });
+    const rootCards = cards.filter(card => card.parent_treatment_id == null);
     const purchasesWithTreatments = purchases.map(item => {
-        const treatment = cards.find(card => card.invoice_item_id != null && Number(card.invoice_item_id) === Number(item.invoice_item_id)) || null;
+        const treatment = rootCards.find(card => card.invoice_item_id != null && Number(card.invoice_item_id) === Number(item.invoice_item_id)) || null;
         if (treatment) matchedCardIds.add(treatment.id);
         return { ...item, treatment };
     });
     const timeline = [
         ...purchasesWithTreatments.map(item => ({ type: 'purchase', date: item.purchase_date, item })),
-        ...cards.filter(card => !matchedCardIds.has(card.id))
+        ...rootCards.filter(card => !matchedCardIds.has(card.id))
             .map(treatment => ({ type: 'treatment', date: treatment.purchase_date || treatment.created_at, treatment }))
     ].sort((a, b) => new Date(b.date) - new Date(a.date) || a.type.localeCompare(b.type));
-    return { customer: withDebtBalances(customers[0]), purchases: purchasesWithTreatments, treatments: cards, timeline };
+    return { customer: withDebtBalances(customers[0]), purchases: purchasesWithTreatments, treatments: rootCards, timeline };
 };
 
 const updateCustomer = async (tenantId, customerId, updateData, executorName) => {

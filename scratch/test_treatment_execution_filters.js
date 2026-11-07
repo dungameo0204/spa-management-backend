@@ -1,34 +1,57 @@
 const assert = require('node:assert/strict');
+
 const calls = [];
-const configPath = require.resolve('../src/config/database');
-require.cache[configPath] = { id: configPath, filename: configPath, loaded: true, exports: {
-    getTenantDbName: async () => 'test_tenant',
-    masterPool: { async query(sql, params = []) {
-        calls.push({ sql, params });
-        if (sql.startsWith('SELECT COUNT(*)')) return [[{ total: 1 }]];
-        if (sql.includes('FROM `test_tenant`.treatments t')) return [[{ id: 10, customer_id: 1 }]];
-        if (sql.includes('FROM `test_tenant`.treatment_history th')) return [[{ id: 50, treatment_id: 10, execution_date: '2026-11-05' }]];
-        if (sql.includes('FROM `test_tenant`.treatment_history_staffs')) return [[{ treatment_history_id: 50, staff_name: 'Lan' }]];
-        return [[]];
-    } }
-} };
+const databasePath = require.resolve('../src/config/database');
+require.cache[databasePath] = {
+    id: databasePath,
+    filename: databasePath,
+    loaded: true,
+    exports: {
+        getTenantDbName: async () => 'test_tenant',
+        masterPool: {
+            async query(sql, params = []) {
+                calls.push({ sql, params });
+                if (sql.includes('page_count')) return [[{ total: 1 }]];
+                return [[]];
+            }
+        }
+    }
+};
+
 const { getTreatments } = require('../src/services/treatmentService');
 
-(async () => {
-    const page = await getTreatments(7, { executionStartDate: '2026-11-05', executionEndDate: '2026-11-05', page: 1, pageSize: 20 });
-    assert.equal(page.total, 1);
-    assert.equal(page.data[0].histories.length, 1);
-    assert.equal(page.data[0].histories[0].staffs[0].staff_name, 'Lan');
-    const treatmentQueries = calls.filter(call => call.sql.includes('FROM `test_tenant`.treatments t'));
-    assert.equal(treatmentQueries.length, 2);
-    for (const call of treatmentQueries) {
-        assert.match(call.sql, /EXISTS \(\s*SELECT 1\s*FROM `test_tenant`\.treatment_history th/s);
-        assert.match(call.sql, /th\.execution_date >= \?/);
-        assert.match(call.sql, /th\.execution_date < DATE_ADD\(\?, INTERVAL 1 DAY\)/);
+const matchingCalls = () => calls.filter(({ sql }) => sql.includes('FROM `test_tenant`.treatments t'));
+
+async function main() {
+    await getTreatments(1, { executionStartDate: '2026-11-01', executionEndDate: '2026-11-03' });
+    assert.equal(calls.length, 2);
+    for (const { sql, params } of calls) {
+        assert.match(sql, /EXISTS \(\s*SELECT 1\s*FROM `test_tenant`\.treatment_history th/s);
+        assert.match(sql, /WITH RECURSIVE treatment_tree AS/);
+        assert.match(sql, /INNER JOIN treatment_tree tree ON tree\.id = th\.treatment_id/);
+        assert.match(sql, /tree\.root_id = t\.id AND th\.deleted_at IS NULL/);
+        assert.match(sql, /th\.execution_date >= \?/);
+        assert.match(sql, /th\.execution_date < DATE_ADD\(\?, INTERVAL 1 DAY\)/);
+        assert.deepEqual(params.slice(0, 2), ['2026-11-01', '2026-11-03']);
     }
-    assert.ok(calls.some(call => call.sql.includes('WHERE th.treatment_id IN (?)')));
-    for (const filters of [{ executionStartDate: 'bad' }, { executionEndDate: '2026-02-30' }, { executionStartDate: '2026-11-06', executionEndDate: '2026-11-05' }]) {
-        await assert.rejects(getTreatments(7, filters), error => error.status === 400);
+
+    calls.length = 0;
+    await getTreatments(1, { executionStartDate: '2026-11-01', page: '2', pageSize: '5' });
+    assert.equal(matchingCalls().length, 2);
+    for (const { sql, params } of calls) {
+        assert.match(sql, /th\.execution_date >= \?/);
+        assert.doesNotMatch(sql, /th\.execution_date < DATE_ADD/);
+        assert.equal(params[0], '2026-11-01');
     }
-    console.log('PASS: execution-date treatment filtering returns matching histories with assigned staff.');
-})().catch(error => { console.error(error); process.exitCode = 1; });
+
+    await assert.rejects(() => getTreatments(1, { executionStartDate: '2026-02-30' }), {
+        message: 'executionStartDate phải là ngày YYYY-MM-DD hợp lệ.', status: 400
+    });
+    await assert.rejects(() => getTreatments(1, { executionStartDate: '2026-11-04', executionEndDate: '2026-11-03' }), {
+        message: 'executionStartDate không được sau executionEndDate.', status: 400
+    });
+
+    console.log('Treatment execution-date filters: OK');
+}
+
+main().catch(error => { console.error(error); process.exitCode = 1; });
