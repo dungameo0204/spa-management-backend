@@ -172,10 +172,10 @@ CREATE TABLE `customer_bookings` (
   `id` int NOT NULL AUTO_INCREMENT,
   `customer_id` int DEFAULT NULL,
   `customer_name` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
-  `customer_phone` varchar(50) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `customer_phone` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `branch_id` int NOT NULL,
   `product_id` int DEFAULT NULL,
-  `booking_time` datetime NOT NULL,
+  `booking_time` datetime DEFAULT NULL,
   `note` text COLLATE utf8mb4_unicode_ci,
   `status` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT 'PENDING',
   `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
@@ -184,13 +184,22 @@ CREATE TABLE `customer_bookings` (
   `created_by` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `updated_by` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `deleted_by` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `customer_type` varchar(10) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `promotion_note` text COLLATE utf8mb4_unicode_ci,
+  `arrival_date` date NOT NULL,
+  `arrival_time` time DEFAULT NULL,
+  `consultation_total` decimal(15,2) NOT NULL DEFAULT '0.00',
   PRIMARY KEY (`id`),
   KEY `fk_cb_customer` (`customer_id`),
   KEY `fk_cb_branch` (`branch_id`),
   KEY `fk_cb_product` (`product_id`),
+  KEY `idx_booking_arrival` (`branch_id`,`arrival_date`,`arrival_time`),
   CONSTRAINT `fk_cb_branch` FOREIGN KEY (`branch_id`) REFERENCES `branches` (`id`),
   CONSTRAINT `fk_cb_customer` FOREIGN KEY (`customer_id`) REFERENCES `customers` (`id`),
-  CONSTRAINT `fk_cb_product` FOREIGN KEY (`product_id`) REFERENCES `products` (`id`)
+  CONSTRAINT `fk_cb_product` FOREIGN KEY (`product_id`) REFERENCES `products` (`id`),
+  CONSTRAINT `chk_booking_customer` CHECK (((`customer_type` = 'NEW' AND `customer_id` IS NULL AND CHAR_LENGTH(TRIM(`customer_name`)) > 0 AND `customer_phone` IS NOT NULL AND CHAR_LENGTH(TRIM(`customer_phone`)) > 0) OR (`customer_type` = 'EXISTING' AND `customer_id` IS NOT NULL))),
+  CONSTRAINT `chk_booking_time` CHECK ((`arrival_time` IS NULL OR (`arrival_time` >= '00:00:00' AND `arrival_time` < '24:00:00'))),
+  CONSTRAINT `chk_booking_total` CHECK (`consultation_total` >= 0)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 

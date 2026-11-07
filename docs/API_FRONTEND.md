@@ -122,7 +122,7 @@ Tại thời điểm hiện tại, `src/server.js` mount các endpoint hoạt đ
 | Expense | `POST/GET /api/expenses`, `GET /api/expenses/:id`, `PUT/DELETE /api/expenses/:id` |
 | Invoice | `POST/GET /api/invoices`, `GET /api/invoices/:id`, `PUT/DELETE /api/invoices/:id` |
 | Appointment | `POST/GET /api/appointments`, `GET /api/appointments/tomorrow`, `GET /api/appointments/not-arrived`, `GET /api/appointments/:id`, `PUT/DELETE /api/appointments/:id` |
-| Customer booking | `GET /api/customer-bookings`, `GET /api/customer-bookings/:id` |
+| Customer booking | `POST/GET /api/customer-bookings`, `GET/PUT/DELETE /api/customer-bookings/:id` |
 | Customer wallet log | `POST/GET /api/customer-wallet-logs`, `GET/PUT/DELETE /api/customer-wallet-logs/:id` |
 | Debt payment | `POST/GET /api/debt-payments`, `GET/PUT/DELETE /api/debt-payments/:id`, `GET /api/debt-payments/invoices/:invoiceId/remaining-debt` |
 | Treatment | `POST /api/treatments`, `POST /api/treatments/execute`, `DELETE /api/treatments/execute/:historyId`, `PUT /api/treatments/execute/:historyId/staffs`, `GET /api/treatments/commissions` |
@@ -943,24 +943,33 @@ Xóa mềm lịch hẹn. MANAGER xóa được mọi branch; STAFF chỉ xóa đ
 
 ---
 
-## 17. Booking do khách đặt `/api/customer-bookings`
+## 17. Booking khách hàng `/api/customer-bookings`
 
-Đây là API quản trị **chỉ đọc** booking do khách tạo từ MiniApp. Backend quản trị không có `POST`, `PUT`, `DELETE` cho resource này; việc khách tạo/sửa/hủy booking thuộc MiniApp.
+API booking nội bộ cho MANAGER/STAFF của Spa; customer/MiniApp token và vai trò khác bị từ chối. Cả hai vai trò xem được booking toàn Spa; STAFF chỉ tạo, sửa và xóa tại branch trong token. Database tenant hiện có phải áp dụng migration `docs/migrations/2026-11-06_customer_bookings.sql` đã được duyệt trước khi dùng API ghi.
+
+### `POST /api/customer-bookings`, `PUT /api/customer-bookings/:id`, `DELETE /api/customer-bookings/:id`
+
+- Hỗ trợ khách `NEW` (bắt buộc `customer_name`, `customer_phone`, không có `customer_id`) và `EXISTING` (bắt buộc `customer_id` đang hoạt động). Không tự tạo customer khi booking NEW.
+- Field ghi: `customer_type`, `customer_id`, `customer_name`, `customer_phone`, `branch_id`, `product_id`, `arrival_date`, `arrival_time`, `note`, `promotion_note`, `consultation_total`, `status`. PUT nhận một phần field; field bỏ qua giữ giá trị cũ, `null` xóa field nullable.
+- `arrival_date` bắt buộc theo `YYYY-MM-DD`; `arrival_time` tùy chọn (`HH:mm`/`HH:mm:ss`). `booking_time` cũ do backend tự suy ra khi có giờ, không nhận từ client.
+- `consultation_total` chỉ là số tư vấn không âm, không ghi hóa đơn, ví, kho hay công nợ. DELETE xóa mềm.
+- POST trả `201`, PUT/DELETE trả `200`, cùng envelope `{ message, bookingId }`. Chi tiết payload và validation: `docs/CUSTOMER_BOOKINGS_API.md`.
 
 ### `GET /api/customer-bookings`
 
-Query tùy chọn: `search`, `branchId`, `customerId`, `productId`, `status`, `startDate`, `endDate`.
+Query tùy chọn: `search`, `branchId`, `customerId`, `productId`, `status`, `startDate`, `endDate`, `startTime`, `endTime`.
 
 - `search`: tìm gần đúng theo `customer_name`, `customer_phone`, ghi chú hoặc tên dịch vụ đã chọn.
-- `branchId`: MANAGER có thể lọc branch; STAFF luôn bị khóa ở branch token.
+- `branchId`: cả MANAGER và STAFF có thể lọc branch trong tenant.
 - `customerId`, `productId`, `status`: lọc khớp chính xác.
-- `startDate`, `endDate`: lọc theo `booking_time` dạng `YYYY-MM-DD`.
-- Kết quả trả thêm `branch_name`, `product_name`; nếu booking liên kết customer hệ thống thì có thêm `registered_customer_name`, `registered_customer_phone`.
+- `startDate`, `endDate`: lọc theo `arrival_date` dạng `YYYY-MM-DD`.
+- `startTime`, `endTime`: lọc theo giờ hẹn, bao gồm booking chưa chốt giờ (`arrival_time = NULL`) và xếp nhóm NULL sau các booking có giờ khớp. Không hỗ trợ khoảng qua đêm.
+- Kết quả trả thêm `branch_name`, `product_name`, `registered_customer_name`, `registered_customer_phone` và `has_arrived`. `has_arrived` là boolean tính khi đọc: có hóa đơn hoặc thẻ liệu trình chưa xóa của khách được tạo từ 00:00 ngày `arrival_date` đến hiện tại trong cùng tenant.
 - Thành công `200`: `{ "message": "Lấy danh sách booking khách hàng thành công", "total": 1, "page": 1, "pageSize": 20, "totalPages": 1, "data": [ ... ] }`.
 
 ### `GET /api/customer-bookings/:id`
 
-Cần token; `200`: `{ "message": "Lấy chi tiết booking khách hàng thành công", "data": { ... } }`, cùng các field `customer_bookings` và thông tin join (`branch_name`, `product_name`, `registered_customer_name`, `registered_customer_phone`) như item danh sách; LEFT JOIN có thể trả `null`. STAFF chỉ xem branch token. ID không hợp lệ trả `400`; không tồn tại/đã xóa/khác branch trả `404`.
+Cần token MANAGER/STAFF; `200`: `{ "message": "Lấy chi tiết booking khách hàng thành công", "data": { ... } }`, cùng các field `customer_bookings`, `has_arrived` và thông tin join (`branch_name`, `product_name`, `registered_customer_name`, `registered_customer_phone`) như item danh sách; LEFT JOIN có thể trả `null`. STAFF có thể xem booking branch khác trong cùng Spa. ID không hợp lệ trả `400`; không tồn tại/đã xóa trả `404`.
 
 ---
 
@@ -1132,7 +1141,7 @@ API này hỗ trợ query filter để tìm danh sách thẻ liệu trình. Tấ
 - `customerSearch` tìm theo tên/số điện thoại; `productSearch` tìm tên dịch vụ.
 - `status=active` lọc thẻ còn buổi; `status=completed` lọc thẻ hết buổi.
 - `startDate`, `endDate`: lọc ngày tạo thẻ; `invoiceId` lọc toàn bộ thẻ liệu trình được sinh từ một hóa đơn, không phụ thuộc branch của hóa đơn; `branchId` lọc thẻ tạo từ hóa đơn của một cơ sở (thẻ thủ công không có invoice vẫn được bao gồm theo nghiệp vụ hiện tại).
-- `executionStartDate`, `executionEndDate`: lọc theo ngày thực hiện, bao gồm hai đầu ngày. Thẻ được trả khi có ít nhất một `treatment_history` chưa xóa của chính thẻ với `execution_date` trong khoảng. Hai param có thể dùng độc lập hoặc kết hợp với `startDate`/`endDate`; định dạng không hợp lệ hoặc `executionStartDate` sau `executionEndDate` trả `400`. Filter được áp dụng trong SQL trước khi tính `total` và phân trang.
+- `executionStartDate`, `executionEndDate`: lọc theo ngày thực hiện, bao gồm hai đầu ngày. Thẻ được trả khi có ít nhất một `treatment_history` chưa xóa của chính thẻ với `execution_date` trong khoảng. Khi dùng một trong hai filter này, mỗi item `data[]` có thêm `histories[]`: chỉ các history khớp khoảng ngày, mỗi history có `staffs[]` chưa xóa cùng `staff_name`. Hai param có thể dùng độc lập hoặc kết hợp với `startDate`/`endDate`; định dạng không hợp lệ hoặc `executionStartDate` sau `executionEndDate` trả `400`. Filter được áp dụng trong SQL trước khi tính `total` và phân trang.
 - Thành công `200`: `{ "message": "Lấy danh sách liệu trình thành công", "total": 1, "page": 1, "pageSize": 20, "totalPages": 1, "data": [ ... ] }`.
 
 Ví dụ tìm các thẻ liệu trình có tên dịch vụ chứa `lông`:

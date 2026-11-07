@@ -21,7 +21,7 @@ Read this before exploring code. Snapshot, not live deployment proof. First chec
 | Expenses | /expenses vouchers/item breakdown, branch attribution and business dates; CRUD with permissions and staff-date constraints. expenseService. |
 | Sales | /invoices header/items/consultant allocations. One transaction coordinates discounts, payment, wallet, customer debt, inventory, treatment cards and customer note events. invoiceService plus branch-specific helpers. |
 | Treatments | /treatments lists/details, MANAGER manual cards, execute sessions, remove history, assign staff, commissions. treatment_history and treatment_history_staffs store execution/commission snapshots. Rosa extends groups/lifetime/signing (branch section). |
-| Scheduling | /appointments CRUD, tomorrow/not-arrived; treatment execution integrates appointments. /customer-bookings is a separate booking resource. Methods/permissions vary by branch; read the matching route/service. |
+| Scheduling | /appointments CRUD, tomorrow/not-arrived; treatment execution integrates appointments. /customer-bookings is a separate internal booking resource with CRUD, arrival filters and computed arrival state. Methods/permissions vary by branch; read the matching route/service. |
 | Wallet | /customer-wallet-logs topup/bonus and edit/delete. customerWalletLogService updates balance with transaction/ownership checks. |
 | Debt | /debt-payments linked or legacy collection, list/detail/edit/delete and invoice remaining-debt lookup. debtPaymentService/customerDebt utility; exact contract below. |
 | Reports | /reports/revenue, products, products/:productId/invoices, details/:type, commissions/consultants and detailed staff allocations. reportService; router requires MANAGER. Totals cover full filter scope, not just a page. |
@@ -55,10 +55,10 @@ Read this before exploring code. Snapshot, not live deployment proof. First chec
 - Never DROP populated financial tables, reset total_debt, run import SQL or migrate production automatically. Explicit approval, target verification and backup required. Keep financial effect and documentary history consistent.
 
 ## Branch: xuly
-- Feature base a7a3a99 (main merged, includes legacy debt); prior release tag backend-xuly-v1.0.5 is older. No Rosa-specific treatment/profile extensions assumed.
+- Current local base was aligned to tag backend-xuly-v1.0.8 (56d1d66); do not assume tag/deployment changes after local work.
 - Shared local environment with O'HINA: backend 5000 / MySQL 3306; D:\SpaConfigs\ohina-xuly.env. Old notes about missing config/3307 are superseded.
 - Diff from main: docs/migrations/customers_import.sql; scripts/upload-backup-r2.js; scripts/windows/Backup-SpaDatabase.ps1. Imports contain sensitive data; never run automatically or paste contents.
-- package.json includes test:legacy-debt; tests not rerun here for documentation-only task. Live deployment/migration state not established.
+- package.json includes test:legacy-debt and test:customer-bookings. Live deployment/migration state not established.
 
 
 ## Shared current debt contract
@@ -71,7 +71,7 @@ Read this before exploring code. Snapshot, not live deployment proof. First chec
 
 ## Handoff and maintenance
 - Xuly commission fallback: manual cards with NULL commission_base_price use current products.price via commissionService.loadCommissionBase (execute/assign/recalculate). Explicit prices including 0 and invoice snapshot rules stay unchanged; no DB backfill or automatic historical recalculation. Regression: node scratch/test_commission_tiers.js.
-- No new business-code/DB change in this documentation task. Ask user for next goal; do not resume historical test-data writes. Recheck runtime/env/migration state.
+- Xuly customer bookings: CRUD requires customer_bookings fields customer_type, promotion_note, arrival_date, arrival_time and consultation_total. Existing databases need reviewed one-time migration docs/migrations/2026-11-06_customer_bookings.sql; never run it automatically. MANAGER/STAFF read all tenant branches; STAFF writes only token branch. has_arrived is read-time invoice/card activity from arrival_date, not a DB status. Regression: npm run test:customer-bookings.
 - Maintain whole-project map AND branch identity when adding domains, rules, schema or deployment changes. Recent work is only the branch section, not a replacement for architecture.
 - On merge preserve target branch environment/features and incorporate verified shared changes; never accept incoming identity blindly. docs/CONTEXT.md contains older history; current source wins.
 - Base hashes/dates identify historical context, not current HEAD. Keep secrets, customer PII, full API dumps and raw logs out; detail belongs in referenced docs/code.

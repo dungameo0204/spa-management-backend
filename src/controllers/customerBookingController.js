@@ -19,4 +19,11 @@ const getDetail = async (req, res) => {
     }
 };
 
-module.exports = { getList, getDetail };
+const write = (remove = false) => async (req, res) => {
+    try {
+        const result = await customerBookingService.writeBooking(req.user.tenant_id, req.params.id ?? null, req.body,
+            req.user.fullname || req.user.username, req.user.system_role, req.user.branch_id, remove);
+        res.status(!req.params.id ? 201 : 200).json({ message: remove ? 'Xóa booking thành công' : 'Lưu booking thành công', ...result });
+    } catch (error) { res.status(error.status || 400).json({ message: error.message }); }
+};
+module.exports = { getList, getDetail, create: write(), update: write(), remove: write(true) };

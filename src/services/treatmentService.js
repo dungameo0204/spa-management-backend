@@ -38,6 +38,33 @@ const executionDateFilters = filters => {
     return { start, end };
 };
 
+// Execution-date list results include only matching non-deleted histories and their assignments.
+// This is intentionally batched by page, rather than issuing queries per treatment card.
+const attachFilteredHistories = async (dbName, treatments, dates) => {
+    if (!treatments.length) return treatments;
+    let query = `SELECT th.*, b.name AS branch_name FROM \`${dbName}\`.treatment_history th
+        LEFT JOIN \`${dbName}\`.branches b ON b.id = th.branch_id
+        WHERE th.treatment_id IN (?) AND th.deleted_at IS NULL`;
+    const params = [treatments.map(treatment => treatment.id)];
+    if (dates.start) { query += ' AND th.execution_date >= ?'; params.push(dates.start); }
+    if (dates.end) { query += ' AND th.execution_date < DATE_ADD(?, INTERVAL 1 DAY)'; params.push(dates.end); }
+    query += ' ORDER BY th.execution_date DESC, th.id DESC';
+
+    const [histories] = await masterPool.query(query, params);
+    let staffs = [];
+    if (histories.length) {
+        [staffs] = await masterPool.query(
+            `SELECT ths.*, s.fullname AS staff_name FROM \`${dbName}\`.treatment_history_staffs ths
+             JOIN \`${dbName}\`.staffs s ON s.id = ths.staff_id
+             WHERE ths.treatment_history_id IN (?) AND ths.deleted_at IS NULL ORDER BY ths.id`,
+            [histories.map(history => history.id)]
+        );
+    }
+    for (const history of histories) history.staffs = staffs.filter(staff => Number(staff.treatment_history_id) === Number(history.id));
+    for (const treatment of treatments) treatment.histories = histories.filter(history => Number(history.treatment_id) === Number(treatment.id));
+    return treatments;
+};
+
 // ==========================
 // 1. QUẢN LÝ THẺ LIỆU TRÌNH
 // ==========================
@@ -401,7 +428,9 @@ const getTreatments = async (tenantId, filters) => {
         params.push(filters.branchId);
     }
 
-    return paginateQuery(masterPool, query, params, 't.created_at DESC, t.id DESC', filters);
+    const page = await paginateQuery(masterPool, query, params, 't.created_at DESC, t.id DESC', filters);
+    if (executionDates.start || executionDates.end) await attachFilteredHistories(dbName, page.data, executionDates);
+    return page;
 };
 
 const getTreatmentDetail = async (tenantId, treatmentId) => {
