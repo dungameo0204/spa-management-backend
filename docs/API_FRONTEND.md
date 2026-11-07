@@ -27,6 +27,15 @@
 - MANAGER không bị áp dụng các giới hạn mới này. Không thay đổi các quyền sửa/xóa phiếu khác.
 - Máy chạy Node.js và MySQL cần cấu hình đồng bộ thời gian/múi giờ.
 
+## Nhóm liệu trình, dịch vụ con và đóng liệu trình (Xuly)
+
+- Product service có thể gửi `child_service_ids: number[]` khi tạo/sửa. Các ID phải là service còn hoạt động, không trùng, tối đa 200 và không được tạo vòng lặp trực tiếp/gián tiếp. Product hàng hóa không thể làm cha/con của cấu hình này.
+- Dòng invoice service có thể gửi `treatment: { total_sessions: number|null, children?: [{ product_id, total_sessions: number|null }] }`. `null` là liệu trình trọn đời; `0` chỉ hợp lệ ở child để không tạo card child. Card root và child được tạo một lần cho từng dòng invoice, không phải một thẻ mỗi buổi.
+- `GET /api/treatments` và `GET /api/treatments/:id` trả root card kèm `children[]`; khi lọc `executionStartDate`/`executionEndDate`, root vẫn xuất hiện nếu history phù hợp nằm ở bất kỳ child nào. `histories[]` và `histories[].staffs[]` chỉ chứa các history phù hợp bộ lọc ngày.
+- `GET /api/customers/:id/overview` trả treatment root trong `data.treatments`; child nằm trong `children[]`, histories/staffs giữ ở từng card. Card trọn đời hoặc card đã đóng dùng số history để trả `completed_sessions`.
+- `POST /api/treatments/:id/close` chỉ nhận `{ "closure_note": "..." }` (hoặc `{}`). Xuly **không yêu cầu chữ ký khách hàng** khi đóng. API đóng root và toàn bộ child, đặt `closed_at`, `closed_by`, `closure_note`, đưa `remaining_sessions` về 0 và từ chối thao tác tiếp trên card đã đóng. Chữ ký từng buổi qua `POST /api/treatments/execute/:historyId/sign` vẫn là tùy chọn riêng.
+- STAFF chỉ tạo invoice ngày hiện tại và chỉ sửa/xóa invoice có `created_at` thuộc ngày hiện tại, đồng thời phải thuộc branch token. STAFF chỉ sửa note/ký/xóa treatment history khi cả `execution_date` và `created_at` là ngày hiện tại. Riêng `PUT /api/treatments/execute/:historyId/staffs` có thể sửa staff của history quá khứ nếu vẫn cùng branch/access; MANAGER không bị giới hạn ngày.
+
 # Tài liệu API cho Frontend — Spa Management Backend
 
 ## Phân trang cho API danh sách (cập nhật 2026-10-09)

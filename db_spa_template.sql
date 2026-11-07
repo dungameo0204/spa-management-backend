@@ -806,6 +806,33 @@ CREATE TABLE `products` (
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
+-- Table structure for table `product_service_components`
+--
+
+DROP TABLE IF EXISTS `product_service_components`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `product_service_components` (
+  `id` int NOT NULL AUTO_INCREMENT,
+  `parent_product_id` int NOT NULL,
+  `child_product_id` int NOT NULL,
+  `sort_order` int NOT NULL DEFAULT '0',
+  `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `deleted_at` datetime DEFAULT NULL,
+  `created_by` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `updated_by` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `deleted_by` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_product_component` (`parent_product_id`,`child_product_id`),
+  KEY `fk_component_child` (`child_product_id`),
+  CONSTRAINT `fk_component_child` FOREIGN KEY (`child_product_id`) REFERENCES `products` (`id`),
+  CONSTRAINT `fk_component_parent` FOREIGN KEY (`parent_product_id`) REFERENCES `products` (`id`),
+  CONSTRAINT `chk_component_not_self` CHECK ((`parent_product_id` <> `child_product_id`))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
 -- Dumping data for table `products`
 --
 
@@ -941,6 +968,9 @@ CREATE TABLE `treatment_history` (
   `updated_by` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `deleted_by` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  `customer_signature_svg` mediumtext COLLATE utf8mb4_unicode_ci,
+  `customer_signed_at` datetime DEFAULT NULL,
+  `note` text COLLATE utf8mb4_unicode_ci,
   PRIMARY KEY (`id`),
   KEY `treatment_id` (`treatment_id`),
   KEY `branch_id` (`branch_id`),
@@ -1010,8 +1040,8 @@ CREATE TABLE `treatments` (
   `invoice_item_id` int DEFAULT NULL,
   `commission_base_price` decimal(15,2) DEFAULT NULL,
   `commission_quantity` int NOT NULL DEFAULT '1',
-  `total_sessions` int NOT NULL,
-  `remaining_sessions` int NOT NULL,
+  `total_sessions` int DEFAULT NULL,
+  `remaining_sessions` int DEFAULT NULL,
   `note` text COLLATE utf8mb4_unicode_ci,
   `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -1019,15 +1049,24 @@ CREATE TABLE `treatments` (
   `created_by` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `updated_by` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `deleted_by` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `parent_treatment_id` int DEFAULT NULL,
+  `closed_at` datetime DEFAULT NULL,
+  `closed_by` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `closure_note` text COLLATE utf8mb4_unicode_ci,
+  `closure_signature_svg` mediumtext COLLATE utf8mb4_unicode_ci,
   PRIMARY KEY (`id`),
   KEY `customer_id` (`customer_id`),
   KEY `product_id` (`product_id`),
   KEY `invoice_id` (`invoice_id`),
   KEY `invoice_item_id` (`invoice_item_id`),
+  KEY `idx_treatment_parent` (`parent_treatment_id`),
+  CONSTRAINT `fk_treatment_parent` FOREIGN KEY (`parent_treatment_id`) REFERENCES `treatments` (`id`),
   CONSTRAINT `treatments_ibfk_1` FOREIGN KEY (`customer_id`) REFERENCES `customers` (`id`),
   CONSTRAINT `treatments_ibfk_2` FOREIGN KEY (`product_id`) REFERENCES `products` (`id`),
   CONSTRAINT `treatments_ibfk_3` FOREIGN KEY (`invoice_id`) REFERENCES `invoices` (`id`),
-  CONSTRAINT `treatments_invoice_item_fk` FOREIGN KEY (`invoice_item_id`) REFERENCES `invoice_items` (`id`)
+  CONSTRAINT `treatments_invoice_item_fk` FOREIGN KEY (`invoice_item_id`) REFERENCES `invoice_items` (`id`),
+  CONSTRAINT `chk_treatment_closure` CHECK ((`closed_at` is null) or ((`remaining_sessions` is not null) and (`remaining_sessions` = 0))),
+  CONSTRAINT `chk_treatment_sessions` CHECK ((((`total_sessions` is null) and ((`remaining_sessions` is null) or (`remaining_sessions` = 0))) or ((`total_sessions` is not null) and (`total_sessions` > 0) and (`remaining_sessions` is not null) and (`remaining_sessions` >= 0) and (`remaining_sessions` <= `total_sessions`))))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 

@@ -1,5 +1,15 @@
 const treatmentService = require('../services/treatmentService');
 const { respondListError } = require('../utils/pagination');
+const { updateHistoryMetadata } = require('../services/treatmentHistoryMetadataService');
+const { updateGroupNote } = require('../services/treatmentGroupNoteService');
+
+const historyMetadata = action => async (req, res) => {
+    try {
+        const result = await updateHistoryMetadata(action, req.user.tenant_id, req.params.historyId, req.body,
+            req.user.fullname || req.user.username, req.user.system_role, req.user.branch_id);
+        res.status(200).json(result);
+    } catch (error) { res.status(error.status || 400).json({ message: error.message }); }
+};
 
 const createManualTreatment = async (req, res) => {
     try {
@@ -26,12 +36,19 @@ const getList = async (req, res) => {
 const getDetail = async (req, res) => {
     try {
         const tenantId = req.user.tenant_id;
-        const result = await treatmentService.getTreatmentDetail(tenantId, req.params.id);
+        const result = await treatmentService.getTreatmentDetail(tenantId, req.params.id, req.query);
         res.status(200).json({ message: 'Lấy chi tiết liệu trình thành công', data: result });
     } catch (error) {
         if (error.message.includes('Không tìm thấy')) return res.status(404).json({ message: error.message });
-        res.status(500).json({ message: error.message });
+        res.status(error.status || 500).json({ message: error.message });
     }
+};
+
+const close = async (req, res) => {
+    try {
+        const result = await treatmentService.closeTreatment(req.user.tenant_id, req.params.id, req.body, req.user.fullname || req.user.username);
+        res.json({ message: 'Kết thúc liệu trình thành công', ...result });
+    } catch (error) { res.status(error.status || 400).json({ message: error.message }); }
 };
 
 const executeSession = async (req, res) => {
@@ -89,6 +106,15 @@ const removeHistory = async (req, res) => {
 };
 
 module.exports = {
+    updateGroupNote: async (req, res) => {
+        try {
+            res.json(await updateGroupNote(req.user.tenant_id, req.params.id, req.body,
+                req.user.fullname || req.user.username, req.user.system_role, req.user.branch_id));
+        } catch (error) { res.status(error.status || 400).json({ message: error.message }); }
+    },
+    updateHistoryNote: historyMetadata('note'),
+    signHistory: historyMetadata('sign'),
+    close,
     getList,
     getDetail, 
     createManualTreatment, 

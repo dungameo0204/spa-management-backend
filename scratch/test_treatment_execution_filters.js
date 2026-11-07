@@ -27,7 +27,9 @@ async function main() {
     assert.equal(calls.length, 2);
     for (const { sql, params } of calls) {
         assert.match(sql, /EXISTS \(\s*SELECT 1\s*FROM `test_tenant`\.treatment_history th/s);
-        assert.match(sql, /th\.treatment_id = t\.id AND th\.deleted_at IS NULL/);
+        assert.match(sql, /WITH RECURSIVE treatment_tree AS/);
+        assert.match(sql, /INNER JOIN treatment_tree tree ON tree\.id = th\.treatment_id/);
+        assert.match(sql, /tree\.root_id = t\.id AND th\.deleted_at IS NULL/);
         assert.match(sql, /th\.execution_date >= \?/);
         assert.match(sql, /th\.execution_date < DATE_ADD\(\?, INTERVAL 1 DAY\)/);
         assert.deepEqual(params.slice(0, 2), ['2026-11-01', '2026-11-03']);

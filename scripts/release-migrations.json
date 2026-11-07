@@ -1,4 +1,9 @@
 {
   "version": 1,
-  "migrations": []
+  "migrations": [
+    {
+      "id": "2026-11-07-xuly-treatment-groups",
+      "file": "scripts/migrations/2026-11-07-xuly-treatment-groups.js"
+    }
+  ]
 }
