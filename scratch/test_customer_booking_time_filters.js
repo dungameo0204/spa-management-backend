@@ -51,6 +51,9 @@ const { getCustomerBookings, getCustomerBookingDetail } = require('../src/servic
     for (const call of calls) {
         assert.ok(call.sql.includes('ai.created_at >= cb.arrival_date AND ai.created_at <= NOW()'));
         assert.ok(call.sql.includes('atc.created_at >= cb.arrival_date AND atc.created_at <= NOW()'));
+        assert.ok(call.sql.includes('FROM `test_tenant`.treatment_history ath'));
+        assert.ok(call.sql.includes('att.id=ath.treatment_id AND att.customer_id=ac.id AND att.deleted_at IS NULL'));
+        assert.ok(call.sql.includes('ath.deleted_at IS NULL AND ath.created_at >= cb.arrival_date AND ath.created_at <= NOW()'));
         assert.doesNotMatch(call.sql, /DATE\(cb\.created_at\)/);
     }
     for (const filters of [{ startTime: '' }, { startTime: '24:00' }, { endTime: 'bad' }, { startTime: '08:00', endTime: '07:00' }]) {

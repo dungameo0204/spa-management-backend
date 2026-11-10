@@ -25,22 +25,14 @@ const assertStatusNotProvided = (data) => {
     }
 };
 
-// Dùng thời điểm ghi nhận để tránh invoice_date/execution_date nhập lùi ngày làm sai lần hẹn.
-// Một phát sinh sau khi đã có lịch hẹn tiếp theo cùng khách/cơ sở không tính cho lịch cũ.
+// Một phát sinh được ghi nhận từ đúng thời điểm hẹn đến hiện tại xác nhận khách đã đến.
 const visitStatusSql = (dbName) => {
     const eventExists = (table, customerSql, branchSql) => `EXISTS (
         SELECT 1 FROM \`${dbName}\`.${table} event
         ${table === 'treatment_history' ? `INNER JOIN \`${dbName}\`.treatments t ON t.id = event.treatment_id AND t.deleted_at IS NULL` : ''}
         WHERE ${customerSql} = a.customer_id AND ${branchSql} = a.branch_id
-          AND event.deleted_at IS NULL AND event.created_at >= DATE(a.appointment_date)
-          AND event.created_at >= a.created_at
+          AND event.deleted_at IS NULL AND event.created_at >= a.appointment_date
           AND event.created_at <= NOW()
-          AND NOT EXISTS (
-              SELECT 1 FROM \`${dbName}\`.appointments next_a
-              WHERE next_a.customer_id = a.customer_id AND next_a.branch_id = a.branch_id
-                AND next_a.deleted_at IS NULL AND next_a.appointment_date > a.appointment_date
-                AND next_a.appointment_date <= event.created_at
-          )
     )`;
     return `CASE WHEN ${eventExists('invoices', 'event.customer_id', 'event.branch_id')}
         OR ${eventExists('treatment_history', 't.customer_id', 'event.branch_id')}

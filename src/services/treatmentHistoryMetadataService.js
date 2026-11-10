@@ -19,7 +19,7 @@ const updateHistoryMetadata = async (action, tenantId, historyId, body, actor, r
         await connection.beginTransaction();
         // Shared history lock serializes note edits, signing and history deletion.
         const [[history]] = await connection.query(
-            `SELECT treatment_id, branch_id, execution_date, created_at, customer_signature_svg, customer_signed_at FROM \`${db}\`.treatment_history
+            `SELECT treatment_id, parent_history_id, branch_id, execution_date, created_at, customer_signature_svg, customer_signed_at FROM \`${db}\`.treatment_history
              WHERE id=? AND deleted_at IS NULL FOR UPDATE`, [id]
         );
         if (!history) throw failure(404, 'Buổi thực hiện không tồn tại hoặc đã bị xóa.');
@@ -38,7 +38,7 @@ const updateHistoryMetadata = async (action, tenantId, historyId, body, actor, r
             await connection.query(`UPDATE \`${db}\`.treatment_history SET note=?, updated_by=? WHERE id=?`, [metadata.note, actor, id]);
         }
         const [[data]] = await connection.query(
-            `SELECT id, treatment_id, branch_id, note, customer_signature_svg, customer_signed_at, updated_at, updated_by
+            `SELECT id, treatment_id, parent_history_id, branch_id, note, customer_signature_svg, customer_signed_at, updated_at, updated_by
              FROM \`${db}\`.treatment_history WHERE id=?`, [id]
         );
         await connection.commit();

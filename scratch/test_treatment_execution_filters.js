@@ -1,6 +1,7 @@
 const assert = require('node:assert/strict');
 
 const calls = [];
+let includeTreatment = false;
 const databasePath = require.resolve('../src/config/database');
 require.cache[databasePath] = {
     id: databasePath,
@@ -12,6 +13,21 @@ require.cache[databasePath] = {
             async query(sql, params = []) {
                 calls.push({ sql, params });
                 if (sql.includes('page_count')) return [[{ total: 1 }]];
+                if (sql.includes('ORDER BY t.created_at DESC, t.id DESC LIMIT')) {
+                    return [includeTreatment ? [{ id: 1, customer_id: 10 }] : []];
+                }
+                if (sql.includes('t.parent_treatment_id IN')) {
+                    return [includeTreatment && params[0].includes(1) && !params[0].includes(2)
+                        ? [{ id: 2, parent_treatment_id: 1, customer_id: 10, product_name: 'Dịch vụ con' }]
+                        : []];
+                }
+                if (sql.includes('FROM `test_tenant`.treatment_history th')) {
+                    return [[
+                        { id: 101, treatment_id: 1, execution_date: '2026-11-02', branch_name: 'Cơ sở 1' },
+                        { id: 102, treatment_id: 2, execution_date: '2026-11-03', branch_name: 'Cơ sở 1' }
+                    ]];
+                }
+                if (sql.includes('FROM `test_tenant`.treatment_history_staffs ths')) return [[]];
                 return [[]];
             }
         }
@@ -43,6 +59,30 @@ async function main() {
         assert.doesNotMatch(sql, /th\.execution_date < DATE_ADD/);
         assert.equal(params[0], '2026-11-01');
     }
+
+    calls.length = 0;
+    includeTreatment = true;
+    const page = await getTreatments(1, { executionStartDate: '2026-11-01', executionEndDate: '2026-11-03' });
+    assert.equal(page.data.length, 1);
+    assert.deepEqual(page.data[0].histories, [{
+        id: 101,
+        treatment_id: 1,
+        execution_date: '2026-11-02',
+        branch_name: 'Cơ sở 1',
+        staffs: [], children: []
+    }]);
+    assert.deepEqual(page.data[0].children[0].histories, [{
+        id: 102,
+        treatment_id: 2,
+        execution_date: '2026-11-03',
+        branch_name: 'Cơ sở 1',
+        staffs: [], children: []
+    }]);
+    const historyCall = calls.find(({ sql }) => sql.includes('FROM `test_tenant`.treatment_history th') && !sql.includes('WITH RECURSIVE'));
+    assert.ok(historyCall, 'Execution-date lists must attach matching histories.');
+    assert.match(historyCall.sql, /th\.execution_date >= \?/);
+    assert.match(historyCall.sql, /th\.execution_date < DATE_ADD\(\?, INTERVAL 1 DAY\)/);
+    assert.deepEqual(historyCall.params, [[1, 2], '2026-11-01', '2026-11-03']);
 
     await assert.rejects(() => getTreatments(1, { executionStartDate: '2026-02-30' }), {
         message: 'executionStartDate phải là ngày YYYY-MM-DD hợp lệ.', status: 400

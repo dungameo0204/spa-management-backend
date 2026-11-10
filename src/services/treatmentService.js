@@ -114,7 +114,7 @@ const executeTreatmentSession = async (tenantId, historyData, executorName, user
     const connection = await masterPool.getConnection();
 
     try {
-        const { treatment_id, branch_id, execution_date, staffs } = historyData;
+        const { treatment_id, branch_id, execution_date, staffs, children } = historyData;
 
         const treatmentId = toNumber(treatment_id, 'treatment_id', { min: 1, integer: true });
         const normalizedRole = String(userRole).toUpperCase();
@@ -130,6 +130,59 @@ const executeTreatmentSession = async (tenantId, historyData, executorName, user
         }
 
         await connection.beginTransaction();
+
+        // Group execution records one parent visit and one child history per selected child card.
+        if (children !== undefined) {
+            if (signature) throw new Error('Thực hiện nhóm không nhận chữ ký khách hàng.');
+            if (!Array.isArray(children) || !children.length || children.length > 200) throw new Error('children phải là mảng từ 0 đến 200 dịch vụ con thực hiện.');
+            const [roots] = await connection.query(`SELECT t.id,t.customer_id,t.closed_at,p.name AS product_name
+                FROM \`${dbName}\`.treatments t JOIN \`${dbName}\`.products p ON p.id=t.product_id
+                WHERE t.id=? AND t.deleted_at IS NULL FOR UPDATE`, [treatmentId]);
+            const root = roots[0];
+            if (!root) throw new Error('Thẻ liệu trình không tồn tại hoặc đã bị xóa.');
+            if (root.closed_at) throw new Error('Liệu trình cha đã kết thúc.');
+            const [availableChildren] = await connection.query(`SELECT t.id,t.customer_id,t.remaining_sessions,t.closed_at,t.product_id,p.name AS product_name,p.next_appointment_days
+                FROM \`${dbName}\`.treatments t JOIN \`${dbName}\`.products p ON p.id=t.product_id
+                WHERE t.parent_treatment_id=? AND t.deleted_at IS NULL FOR UPDATE`, [treatmentId]);
+            if (!availableChildren.length) throw new Error('Thẻ này không có dịch vụ con để thực hiện theo nhóm.');
+            const seen = new Set();
+            const selected = children.map((child, index) => {
+                if (!child || typeof child !== 'object' || Array.isArray(child) || Object.keys(child).some(key => !['treatment_id', 'staffs'].includes(key))) throw new Error(`children[${index}] chỉ nhận treatment_id và staffs.`);
+                const childId = toNumber(child.treatment_id, `children[${index}].treatment_id`, { min: 1, integer: true });
+                if (seen.has(childId)) throw new Error('Mỗi dịch vụ con chỉ được thực hiện một lần trong cùng request.');
+                seen.add(childId);
+                if (!Array.isArray(child.staffs)) throw new Error(`children[${index}].staffs phải là một mảng.`);
+                const card = availableChildren.find(item => Number(item.id) === childId);
+                if (!card || Number(card.customer_id) !== Number(root.customer_id)) throw new Error(`Dịch vụ con ID ${childId} không thuộc liệu trình cha.`);
+                if (card.closed_at || (card.remaining_sessions !== null && Number(card.remaining_sessions) <= 0)) throw new Error(`Dịch vụ con ${card.product_name} đã hết buổi hoặc đã kết thúc.`);
+                return { ...card, staffs: child.staffs };
+            });
+            const [parentInsert] = await connection.query(`INSERT INTO \`${dbName}\`.treatment_history
+                (treatment_id,parent_history_id,branch_id,execution_date,created_by,note,customer_signature_svg,customer_signed_at)
+                VALUES (?,NULL,?,COALESCE(?,NOW()),?,?,NULL,NULL)`, [treatmentId, branchId, execution_date || null, executorName, note]);
+            const parentHistoryId = parentInsert.insertId;
+            const childHistoryIds = [];
+            for (const child of selected) {
+                await connection.query(`UPDATE \`${dbName}\`.treatments SET remaining_sessions=CASE WHEN remaining_sessions IS NULL THEN NULL ELSE remaining_sessions-1 END,updated_by=? WHERE id=?`, [executorName, child.id]);
+                const [insert] = await connection.query(`INSERT INTO \`${dbName}\`.treatment_history
+                    (treatment_id,parent_history_id,branch_id,execution_date,created_by,note,customer_signature_svg,customer_signed_at)
+                    VALUES (?,?,?,COALESCE(?,NOW()),?,NULL,NULL,NULL)`, [child.id, parentHistoryId, branchId, execution_date || null, executorName]);
+                childHistoryIds.push(insert.insertId);
+                if (child.staffs.length) {
+                    const base = await loadCommissionBase(connection, dbName, child.id);
+                    for (const staff of child.staffs) {
+                        const staffId = toNumber(staff.staff_id, 'staff_id', { min: 1, integer: true });
+                        const [staffInfo] = await connection.query(`SELECT role_id,branch_id FROM \`${dbName}\`.staffs WHERE id=? AND deleted_at IS NULL`, [staffId]);
+                        if (!staffInfo.length) throw new Error(`Nhân viên ID ${staffId} không tồn tại.`);
+                        if (normalizedRole === 'STAFF' && Number(staffInfo[0].branch_id) !== branchId) throw new Error(`Nhân viên ID ${staffId} không thuộc cơ sở của tài khoản STAFF.`);
+                        await connection.query(`INSERT INTO \`${dbName}\`.treatment_history_staffs (treatment_history_id,staff_id,commission_amount_snapshot,created_by) VALUES (?,?,?,?)`,
+                            [insert.insertId, staffId, await calculateCommission(connection, dbName, base, staffInfo[0].role_id), executorName]);
+                    }
+                }
+            }
+            await connection.commit();
+            return { treatmentHistoryId: parentHistoryId, childTreatmentHistoryIds: childHistoryIds, message: 'Đã ghi nhận lần thực hiện nhóm thành công' };
+        }
 
         // 1. Kiểm tra thẻ liệu trình & Lấy thông tin Dịch vụ (Để tính hoa hồng + Lịch hẹn)
         const [treatments] = await connection.query(
@@ -211,6 +264,83 @@ const executeTreatmentSession = async (tenantId, historyData, executorName, user
     } finally {
         connection.release();
     }
+};
+
+// Replace a parent visit's selected child services. Removed services remain soft-deleted/auditable.
+const updateGroupedExecution = async (tenantId, parentHistoryId, body, executorName, userRole, userBranchId) => {
+    const parentId = toNumber(parentHistoryId, 'parentHistoryId', { min: 1, integer: true });
+    if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).some(key => !['treatment_id', 'branch_id', 'execution_date', 'note', 'children'].includes(key))) throw Object.assign(new Error('Chỉ nhận treatment_id, branch_id, execution_date, note và children.'), { status: 400 });
+    const { note } = normalizeSessionMetadata(body);
+    const treatmentId = toNumber(body.treatment_id, 'treatment_id', { min: 1, integer: true });
+    if (!Array.isArray(body.children) || body.children.length > 200) throw Object.assign(new Error('children phải là mảng từ 0 đến 200 dịch vụ con thực hiện.'), { status: 400 });
+    const role = String(userRole).toUpperCase(), selectedIds = new Set();
+    const selected = body.children.map((child, index) => {
+        if (!child || typeof child !== 'object' || Array.isArray(child) || Object.keys(child).some(key => !['treatment_id', 'staffs'].includes(key))) throw Object.assign(new Error(`children[${index}] chỉ nhận treatment_id và staffs.`), { status: 400 });
+        const childId = toNumber(child.treatment_id, `children[${index}].treatment_id`, { min: 1, integer: true });
+        if (selectedIds.has(childId)) throw Object.assign(new Error('Mỗi dịch vụ con chỉ được xuất hiện một lần.'), { status: 400 });
+        if (!Array.isArray(child.staffs)) throw Object.assign(new Error(`children[${index}].staffs phải là một mảng.`), { status: 400 });
+        const staffIds = child.staffs.map(staff => toNumber(staff?.staff_id, 'staff_id', { min: 1, integer: true }));
+        if (new Set(staffIds).size !== staffIds.length) throw Object.assign(new Error('Không được chọn trùng nhân viên cho cùng dịch vụ.'), { status: 400 });
+        selectedIds.add(childId); return { treatmentId: childId, staffIds };
+    });
+    if (role === 'STAFF' && (body.branch_id !== undefined || body.execution_date !== undefined)) throw Object.assign(new Error('STAFF không được đổi cơ sở hoặc ngày thực hiện khi sửa lần thực hiện.'), { status: 403 });
+    const dbName = await getTenantDbName(tenantId), connection = await masterPool.getConnection();
+    try {
+        await connection.beginTransaction();
+        const [parents] = await connection.query(`SELECT * FROM \`${dbName}\`.treatment_history WHERE id=? AND deleted_at IS NULL FOR UPDATE`, [parentId]);
+        const parent = parents[0];
+        if (!parent) throw Object.assign(new Error('Lần thực hiện không tồn tại hoặc đã bị xóa.'), { status: 404 });
+        if (parent.parent_history_id != null || Number(parent.treatment_id) !== treatmentId) throw Object.assign(new Error('parentHistoryId phải là history cha của treatment_id.'), { status: 400 });
+        if (role === 'STAFF' && (Number(parent.branch_id) !== Number(userBranchId) || !isToday(parent.execution_date) || !isToday(parent.created_at))) throw Object.assign(new Error('STAFF chỉ được sửa lần thực hiện hôm nay tại cơ sở trong token.'), { status: 403 });
+        const branchId = body.branch_id === undefined ? Number(parent.branch_id) : toNumber(body.branch_id, 'branch_id', { min: 1, integer: true });
+        const executionDate = body.execution_date === undefined ? parent.execution_date : body.execution_date;
+        const [roots] = await connection.query(`SELECT * FROM \`${dbName}\`.treatments WHERE id=? AND deleted_at IS NULL FOR UPDATE`, [treatmentId]);
+        const root = roots[0];
+        if (!root || root.parent_treatment_id != null || root.closed_at) throw Object.assign(new Error('Thẻ liệu trình cha không còn hoạt động.'), { status: 409 });
+        const [cards] = await connection.query(`SELECT t.*,p.name AS product_name FROM \`${dbName}\`.treatments t JOIN \`${dbName}\`.products p ON p.id=t.product_id WHERE t.parent_treatment_id=? AND t.deleted_at IS NULL FOR UPDATE`, [treatmentId]);
+        const cardById = new Map(cards.map(card => [Number(card.id), card]));
+        for (const child of selected) { const card = cardById.get(child.treatmentId); if (!card || Number(card.customer_id) !== Number(root.customer_id) || card.closed_at) throw Object.assign(new Error(`Dịch vụ con ID ${child.treatmentId} không thuộc thẻ cha đang hoạt động.`), { status: 400 }); }
+        const [oldHistories] = await connection.query(`SELECT * FROM \`${dbName}\`.treatment_history WHERE parent_history_id=? AND deleted_at IS NULL FOR UPDATE`, [parentId]);
+        const oldByTreatment = new Map(oldHistories.map(history => [Number(history.treatment_id), history]));
+        if (oldByTreatment.size !== oldHistories.length) throw Object.assign(new Error('Dữ liệu history con của lần thực hiện không hợp lệ.'), { status: 409 });
+        for (const child of selected) { const card = cardById.get(child.treatmentId); if (!oldByTreatment.has(child.treatmentId) && card.remaining_sessions !== null && Number(card.remaining_sessions) <= 0) throw Object.assign(new Error(`Dịch vụ ${card.product_name} đã hết buổi.`), { status: 409 }); }
+        const removed = oldHistories.filter(history => !selectedIds.has(Number(history.treatment_id)));
+        for (const history of removed) {
+            await connection.query(`UPDATE \`${dbName}\`.treatment_history_staffs SET deleted_at=NOW(),deleted_by=? WHERE treatment_history_id=? AND deleted_at IS NULL`, [executorName, history.id]);
+            await connection.query(`UPDATE \`${dbName}\`.treatment_history SET deleted_at=NOW(),deleted_by=? WHERE id=? AND parent_history_id=? AND deleted_at IS NULL`, [executorName, history.id, parentId]);
+            await connection.query(`UPDATE \`${dbName}\`.treatments SET remaining_sessions=remaining_sessions+1,updated_by=? WHERE id=? AND remaining_sessions IS NOT NULL AND closed_at IS NULL`, [executorName, history.treatment_id]);
+            if (history.appointment_id != null) await connection.query(`UPDATE \`${dbName}\`.appointments SET deleted_at=NOW(),deleted_by=? WHERE id=? AND deleted_at IS NULL`, [executorName, history.appointment_id]);
+        }
+        const childTreatmentHistoryIds = [];
+        for (const child of selected) {
+            let history = oldByTreatment.get(child.treatmentId);
+            if (!history) {
+                await connection.query(`UPDATE \`${dbName}\`.treatments SET remaining_sessions=remaining_sessions-1,updated_by=? WHERE id=? AND remaining_sessions IS NOT NULL`, [executorName, child.treatmentId]);
+                const [insert] = await connection.query(`INSERT INTO \`${dbName}\`.treatment_history (treatment_id,parent_history_id,branch_id,execution_date,created_by) VALUES (?,?,?,?,?)`, [child.treatmentId, parentId, branchId, executionDate, executorName]);
+                history = { id: insert.insertId };
+            } else await connection.query(`UPDATE \`${dbName}\`.treatment_history SET branch_id=?,execution_date=?,updated_by=? WHERE id=?`, [branchId, executionDate, executorName, history.id]);
+            await connection.query(`UPDATE \`${dbName}\`.treatment_history_staffs SET deleted_at=NOW(),deleted_by=? WHERE treatment_history_id=? AND deleted_at IS NULL`, [executorName, history.id]);
+            if (child.staffIds.length) {
+                const base = await loadCommissionBase(connection, dbName, child.treatmentId);
+                for (const staffId of child.staffIds) {
+                    const [staffInfo] = await connection.query(`SELECT role_id,branch_id FROM \`${dbName}\`.staffs WHERE id=? AND deleted_at IS NULL`, [staffId]);
+                    if (!staffInfo.length || (role === 'STAFF' && Number(staffInfo[0].branch_id) !== branchId)) throw Object.assign(new Error(`Nhân viên ID ${staffId} không tồn tại hoặc không thuộc cơ sở.`), { status: 400 });
+                    await connection.query(`INSERT INTO \`${dbName}\`.treatment_history_staffs (treatment_history_id,staff_id,commission_amount_snapshot,created_by) VALUES (?,?,?,?)`, [history.id, staffId, await calculateCommission(connection, dbName, base, staffInfo[0].role_id), executorName]);
+                }
+            }
+            childTreatmentHistoryIds.push(history.id);
+        }
+        const parentHistoryDeleted = selected.length === 0;
+        if (parentHistoryDeleted) {
+            await connection.query(`UPDATE \`${dbName}\`.treatment_history_staffs SET deleted_at=NOW(),deleted_by=? WHERE treatment_history_id=? AND deleted_at IS NULL`, [executorName, parentId]);
+            await connection.query(`UPDATE \`${dbName}\`.treatment_history SET deleted_at=NOW(),deleted_by=? WHERE id=? AND deleted_at IS NULL`, [executorName, parentId]);
+        } else {
+            await connection.query(`UPDATE \`${dbName}\`.treatment_history SET branch_id=?,execution_date=?,note=?,updated_by=? WHERE id=?`, [branchId, executionDate, Object.hasOwn(body, 'note') ? note : parent.note, executorName, parentId]);
+        }
+        await connection.commit();
+        return { message: 'Cập nhật lần thực hiện nhóm thành công', treatmentHistoryId: parentId, childTreatmentHistoryIds, removedTreatmentHistoryIds: removed.map(history => history.id), parentHistoryDeleted };
+    } catch (error) { await connection.rollback(); throw error; }
+    finally { connection.release(); }
 };
 
 // ==========================
@@ -331,7 +461,7 @@ const deleteTreatmentHistory = async (tenantId, historyId, executorName, userRol
     try {
         await connection.beginTransaction();
 
-        const [histories] = await connection.query(`SELECT treatment_id, branch_id, appointment_id, execution_date, created_at FROM \`${dbName}\`.treatment_history WHERE id = ? AND deleted_at IS NULL FOR UPDATE`, [historyId]);
+        const [histories] = await connection.query(`SELECT id,treatment_id,parent_history_id,branch_id,appointment_id,execution_date,created_at FROM \`${dbName}\`.treatment_history WHERE id = ? AND deleted_at IS NULL FOR UPDATE`, [historyId]);
         if (histories.length === 0) throw new Error('Lịch sử không tồn tại hoặc đã bị xóa.');
         
         const history = histories[0];
@@ -343,10 +473,24 @@ const deleteTreatmentHistory = async (tenantId, historyId, executorName, userRol
             throw new Error('Nhân viên chỉ được xóa lịch sử có ngày thực hiện và ngày tạo đều là hôm nay.');
         }
 
-        // Hoàn lại 1 buổi cho thẻ liệu trình
+        // Serialize cleanup with edits to this parent visit.
+        if (history.parent_history_id != null) {
+            const [parents] = await connection.query(`SELECT id FROM \`${dbName}\`.treatment_history WHERE id=? AND deleted_at IS NULL FOR UPDATE`, [history.parent_history_id]);
+            if (!parents.length) throw Object.assign(new Error('Parent visit no longer exists.'), { status: 409 });
+        }
+        // Only child or standalone histories can restore a session.
+        if (history.parent_history_id == null) {
+            const [children] = await connection.query(`SELECT id,treatment_id FROM \`${dbName}\`.treatment_history
+                WHERE parent_history_id=? AND deleted_at IS NULL FOR UPDATE`, [history.id]);
+            if (children.length) {
+                throw Object.assign(new Error('Lần thực hiện nhóm chỉ được hoàn tác từng dịch vụ con.'), { status: 409 });
+            }
+        }
+
+        // Hoàn lại 1 buổi cho thẻ liệu trình đơn hoặc history con.
         await connection.query(
-            `UPDATE \`${dbName}\`.treatments SET remaining_sessions = remaining_sessions + 1, updated_by = ? WHERE id = ? AND closed_at IS NULL AND remaining_sessions IS NOT NULL`,
-            [executorName, history.treatment_id]
+            `UPDATE \`${dbName}\`.treatments SET remaining_sessions = remaining_sessions + 1, updated_by = ? WHERE id = ? AND closed_at IS NULL AND remaining_sessions IS NOT NULL AND NOT EXISTS (SELECT 1 FROM \`${dbName}\`.treatment_history child_history WHERE child_history.parent_history_id = ?)`,
+            [executorName, history.treatment_id, history.id]
         );
 
         // Xóa mềm
@@ -360,8 +504,17 @@ const deleteTreatmentHistory = async (tenantId, historyId, executorName, userRol
             );
         }
 
+        let parentHistoryDeleted = false;
+        if (history.parent_history_id != null) {
+            const [remaining] = await connection.query(`SELECT id FROM \`${dbName}\`.treatment_history WHERE parent_history_id=? AND deleted_at IS NULL FOR UPDATE`, [history.parent_history_id]);
+            if (!remaining.length) {
+                await connection.query(`UPDATE \`${dbName}\`.treatment_history_staffs SET deleted_at=NOW(),deleted_by=? WHERE treatment_history_id=? AND deleted_at IS NULL`, [executorName, history.parent_history_id]);
+                await connection.query(`UPDATE \`${dbName}\`.treatment_history SET deleted_at=NOW(),deleted_by=? WHERE id=? AND deleted_at IS NULL`, [executorName, history.parent_history_id]);
+                parentHistoryDeleted = true;
+            }
+        }
         await connection.commit();
-        return { message: 'Xóa lịch sử thực hiện và cộng lại 1 buổi thành công' };
+        return { message: 'Xóa lịch sử thực hiện và cộng lại 1 buổi thành công', parentHistoryId: history.parent_history_id ?? null, parentHistoryDeleted };
     } catch (error) {
         await connection.rollback();
         throw error;
@@ -437,7 +590,11 @@ const getTreatments = async (tenantId, filters) => {
     }
 
     const page = await paginateQuery(masterPool, query, params, 't.created_at DESC, t.id DESC', filters);
-    page.data = await groups.attach(masterPool, dbName, page.data);
+    page.data = await groups.attach(masterPool, dbName, page.data, {
+        histories: Boolean(executionDates.start || executionDates.end),
+        executionStartDate: executionDates.start,
+        executionEndDate: executionDates.end
+    });
     return page;
 };
 
@@ -510,6 +667,7 @@ module.exports = {
     getTreatmentDetail, 
     createTreatment, 
     executeTreatmentSession, 
+    updateGroupedExecution,
     assignStaffToHistory, 
     getStaffCommissions,
     deleteTreatmentHistory 

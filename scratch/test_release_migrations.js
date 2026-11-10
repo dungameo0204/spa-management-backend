@@ -15,6 +15,21 @@ try {
     assert.throws(() => parseArgs(['--release-path', 'release', '--root', 'root']), /Usage/);
     fs.writeFileSync(path.join(root, 'scripts', 'release-migrations.json'), JSON.stringify({ version: 1, migrations: [{ id: 'bad', file: '../unsafe.js' }] }));
     assert.throws(() => readManifest(root), /Invalid/);
+    const productionManifest = readManifest(path.resolve(__dirname, '..'));
+    assert.deepEqual(productionManifest.map(migration => migration.id), [
+        '2026-11-06-xuly-customer-bookings',
+        '2026-11-07-xuly-treatment-groups',
+        '2026-11-08-xuly-treatment-history-groups',
+    ]);
+    for (const migration of productionManifest) {
+        const module = require(migration.filePath);
+        assert.equal(module.id, migration.id);
+        assert.equal(typeof module.up, 'function');
+        assert.equal(typeof module.verify, 'function');
+    }
+    const backupScript = fs.readFileSync(path.resolve(__dirname, '..', 'scripts', 'windows', 'Backup-SpaDatabase.ps1'), 'utf8');
+    assert.match(backupScript, /Join-Path \$Root 'runtime\\mysql\\bin'/);
+    assert.match(backupScript, /\[string\]\$MySqlBin,/);
     console.log('PASS: release migration manifest and CLI validation');
 } finally {
     fs.rmSync(root, { recursive: true, force: true });

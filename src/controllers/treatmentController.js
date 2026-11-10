@@ -105,6 +105,14 @@ const removeHistory = async (req, res) => {
     }
 };
 
+const updateExecution = async (req, res) => {
+    try {
+        const result = await treatmentService.updateGroupedExecution(req.user.tenant_id, req.params.historyId, req.body,
+            req.user.fullname || req.user.username, req.user.system_role, req.user.branch_id);
+        res.status(200).json(result);
+    } catch (error) { res.status(error.status || 400).json({ message: error.message }); }
+};
+
 module.exports = {
     updateGroupNote: async (req, res) => {
         try {
@@ -119,6 +127,7 @@ module.exports = {
     getDetail, 
     createManualTreatment, 
     executeSession, 
+    updateExecution,
     assignStaffs, 
     getCommissions,
     removeHistory

@@ -118,10 +118,16 @@ const getCustomerOverview = async (tenantId, customerId) => {
                 `SELECT ths.*, s.fullname AS staff_name FROM \`${dbName}\`.treatment_history_staffs ths
                  JOIN \`${dbName}\`.staffs s ON s.id = ths.staff_id
                  WHERE ths.treatment_history_id IN (?) AND ths.deleted_at IS NULL ORDER BY ths.id`, [histories.map(history => history.id)]);
-            histories.forEach(history => { history.staffs = staffs.filter(staff => staff.treatment_history_id === history.id); });
+            const historyById = new Map(histories.map(history => [Number(history.id), { ...history, staffs: staffs.filter(staff => Number(staff.treatment_history_id) === Number(history.id)), children: [] }]));
+            for (const history of historyById.values()) {
+                if (history.parent_history_id == null) continue;
+                const parent = historyById.get(Number(history.parent_history_id));
+                if (parent) parent.children.push(history);
+            }
+            histories.splice(0, histories.length, ...historyById.values());
         }
         cards.forEach(card => {
-            card.histories = histories.filter(history => history.treatment_id === card.id);
+            card.histories = histories.filter(history => history.parent_history_id == null && history.treatment_id === card.id);
             card.completed_sessions = card.total_sessions === null || card.closed_at
                 ? card.histories.length
                 : card.total_sessions - card.remaining_sessions;

@@ -44,10 +44,11 @@ const service = require('../src/services/appointmentService');
     assert.match(query.sql, /a\.branch_id = \?/);
     assert.deepEqual(query.params, [2, 20, 0]);
     assert.match(query.sql, /CURDATE\(\) \+ INTERVAL 1 DAY/);
-    assert.match(query.sql, /event\.deleted_at IS NULL AND event\.created_at >= DATE\(a\.appointment_date\)/);
-    assert.match(query.sql, /event\.created_at >= a\.created_at/);
+    assert.match(query.sql, /event\.deleted_at IS NULL AND event\.created_at >= a\.appointment_date/);
+    assert.doesNotMatch(query.sql, /DATE\(a\.appointment_date\)/);
+    assert.doesNotMatch(query.sql, /event\.created_at >= a\.created_at/);
     assert.match(query.sql, /t\.deleted_at IS NULL/);
-    assert.match(query.sql, /next_a\.appointment_date <= event\.created_at/);
+    assert.doesNotMatch(query.sql, /next_a\.appointment_date/);
 
     await service.getAppointments(1, { branchId: 2, status: 'Khách chưa đến' }, 'MANAGER', null, 'not-arrived');
     query = calls.at(-1);

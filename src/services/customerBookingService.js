@@ -13,6 +13,9 @@ const arrivedSql = db => `EXISTS (
             AND ai.created_at >= cb.arrival_date AND ai.created_at <= NOW())
         OR EXISTS (SELECT 1 FROM \`${db}\`.treatments atc WHERE atc.customer_id=ac.id AND atc.deleted_at IS NULL
             AND atc.created_at >= cb.arrival_date AND atc.created_at <= NOW())
+        OR EXISTS (SELECT 1 FROM \`${db}\`.treatment_history ath
+            INNER JOIN \`${db}\`.treatments att ON att.id=ath.treatment_id AND att.customer_id=ac.id AND att.deleted_at IS NULL
+            WHERE ath.deleted_at IS NULL AND ath.created_at >= cb.arrival_date AND ath.created_at <= NOW())
     )
 ) AS has_arrived`;
 const withArrival = row => ({ ...row, has_arrived: Number(row.has_arrived) === 1 });

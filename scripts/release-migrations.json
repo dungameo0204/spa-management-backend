@@ -2,8 +2,16 @@
   "version": 1,
   "migrations": [
     {
+      "id": "2026-11-06-xuly-customer-bookings",
+      "file": "scripts/migrations/2026-11-06-xuly-customer-bookings.js"
+    },
+    {
       "id": "2026-11-07-xuly-treatment-groups",
       "file": "scripts/migrations/2026-11-07-xuly-treatment-groups.js"
+    },
+    {
+      "id": "2026-11-08-xuly-treatment-history-groups",
+      "file": "scripts/migrations/2026-11-08-xuly-treatment-history-groups.js"
     }
   ]
 }

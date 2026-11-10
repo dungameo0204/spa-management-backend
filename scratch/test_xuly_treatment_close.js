@@ -29,9 +29,11 @@ const { closeTreatment } = require('../src/services/treatmentService');
 (async () => {
     const result = await closeTreatment(1, '10', {}, 'tester');
     assert.deepEqual(result.closedTreatmentIds, [10, 11]);
+    assert.ok(state.calls.some(call => call.sql.includes('SELECT * FROM `test_tenant`.treatments WHERE id=? AND deleted_at IS NULL FOR UPDATE')), 'close must lock the root treatment before traversing children');
     const update = state.calls.find(call => call.sql.includes('closure_signature_svg=NULL'));
     assert.ok(update, 'Xuly close must clear/avoid closure signature storage');
     assert.deepEqual(update.params, ['tester', null, 'tester', [10, 11]]);
+    assert.ok(state.calls.some(call => call.sql === 'COMMIT'), 'close must commit after closing the complete group');
     await assert.rejects(closeTreatment(1, 10, { closure_signature_svg: '<svg />' }, 'tester'), /Chỉ nhận closure_note/);
     console.log('PASS: Xuly closes a treatment group without customer signature.');
 })().catch(error => { console.error(error); process.exitCode = 1; });

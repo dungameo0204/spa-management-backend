@@ -968,6 +968,7 @@ DROP TABLE IF EXISTS `treatment_history`;
 CREATE TABLE `treatment_history` (
   `id` int NOT NULL AUTO_INCREMENT,
   `treatment_id` int NOT NULL,
+  `parent_history_id` int DEFAULT NULL,
   `branch_id` int NOT NULL,
   `appointment_id` int DEFAULT NULL,
   `execution_date` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
@@ -982,9 +983,11 @@ CREATE TABLE `treatment_history` (
   `note` text COLLATE utf8mb4_unicode_ci,
   PRIMARY KEY (`id`),
   KEY `treatment_id` (`treatment_id`),
+  KEY `idx_treatment_history_parent` (`parent_history_id`),
   KEY `branch_id` (`branch_id`),
   KEY `appointment_id` (`appointment_id`),
   CONSTRAINT `treatment_history_ibfk_1` FOREIGN KEY (`treatment_id`) REFERENCES `treatments` (`id`),
+  CONSTRAINT `fk_treatment_history_parent` FOREIGN KEY (`parent_history_id`) REFERENCES `treatment_history` (`id`),
   CONSTRAINT `treatment_history_ibfk_2` FOREIGN KEY (`branch_id`) REFERENCES `branches` (`id`),
   CONSTRAINT `treatment_history_ibfk_3` FOREIGN KEY (`appointment_id`) REFERENCES `appointments` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

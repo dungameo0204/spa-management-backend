@@ -326,12 +326,12 @@ Invoke-RestMethod 'https://api-spa-xuly.infinityhavocx.men/health'
 ## 12. Backup định kỳ sau khi app mới hoạt động
 
 ```powershell
-& 'C:\SpaBackend\current\scripts\windows\Backup-SpaDatabase.ps1' `
-  -MySqlBin 'C:\Program Files\MySQL\MySQL Server 8.0\bin' `
+& 'D:\SpaBackend\current\scripts\windows\Backup-SpaDatabase.ps1' `
+  -Root 'D:\SpaBackend' `
   -RetentionDays 30
 ```
 
-Script backup master, template và tenant active được đăng ký. Phải tạo Scheduled Task backup riêng, sao chép backup ra thiết bị/vị trí khác và thử restore định kỳ.
+Script backup master, template và tenant active được đăng ký. Nó tự dùng `D:\SpaBackend\runtime\mysql\bin` khi có `mysql.exe`/`mysqldump.exe`; chỉ thêm `-MySqlBin '<đường dẫn khác>'` khi MySQL nằm ngoài runtime. Phải tạo Scheduled Task backup riêng, sao chép backup ra thiết bị/vị trí khác và thử restore định kỳ.
 
 ## 13. Rollback
 

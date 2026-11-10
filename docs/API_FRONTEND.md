@@ -1185,6 +1185,114 @@ Authorization: Bearer <token>
 Lưu ý: endpoint này trả danh sách `data`. Muốn xem chi tiết một thẻ và toàn bộ lịch sử thực hiện, gọi `GET /api/treatments/:id`.
 Không gửi `status` thì API trả **cả thẻ đã hết buổi** (`remaining_sessions=0`); `status=active` chỉ lấy thẻ còn buổi, `status=completed` chỉ lấy thẻ hết buổi. Danh sách mặc định mới nhất trước theo `created_at`, rồi `id`.
 
+### History nhóm thực hiện (Xuly)
+
+Từ migration `2026-11-08-xuly-treatment-history-groups`, quan hệ **lần đến/lần thực hiện nhóm** được lưu tường minh bằng `treatment_history.parent_history_id`; không được suy luận một lần đến từ timestamp gần nhau.
+
+- History cha: `treatment_id` là thẻ cha, `parent_history_id = null`; sở hữu `execution_date`, `branch_id` và `note` của lần đến.
+- History con: `treatment_id` là thẻ dịch vụ con, `parent_history_id` trỏ history cha; sở hữu `staffs[]` và commission snapshot.
+- Chỉ các thẻ con được chọn mới bị giảm `remaining_sessions`. History cha không giảm buổi, không gán nhân viên và không tạo hoa hồng trùng.
+- API trả history cha trong `histories[]`; các child execution nằm ở `history.children[]`. History cũ/đơn không có `parent_history_id` vẫn được trả độc lập với `children: []`; frontend phải hiển thị chúng độc lập, không tự gộp theo khoảng thời gian.
+
+### `POST /api/treatments/execute`
+
+#### Execute một lần thực hiện nhóm
+
+Gọi **một request** cho một thẻ cha và một hay nhiều dịch vụ con được chọn:
+
+```json
+{
+  "treatment_id": 100,
+  "branch_id": 2,
+  "execution_date": "2026-11-08",
+  "note": "Da còn hơi đỏ",
+  "children": [
+    { "treatment_id": 101, "staffs": [{ "staff_id": 11 }] },
+    { "treatment_id": 102, "staffs": [] }
+  ]
+}
+```
+
+- `treatment_id`: ID thẻ cha; `children` bắt buộc có từ 1 đến 200 phần tử, mỗi thẻ con chỉ một lần.
+- Mỗi child chỉ nhận `treatment_id` và `staffs` (mảng, có thể rỗng), và phải là con trực tiếp còn hiệu lực của thẻ cha.
+- MANAGER phải gửi `branch_id`; STAFF dùng branch trong token và không được gửi branch khác. `execution_date` là tùy chọn, không gửi thì server dùng `NOW()`.
+- `note` là ghi chú **chỉ của history cha/lần đến**. Không có signature UI/payload cho Xuly; payload nhóm có chữ ký bị từ chối.
+- Toàn bộ tạo history cha, history con, staff mapping/commission và giảm buổi là **một transaction**. Một child/staff không hợp lệ làm rollback toàn bộ request.
+- Thành công `201`:
+
+```json
+{
+  "treatmentHistoryId": 501,
+  "childTreatmentHistoryIds": [502, 503],
+  "message": "Đã ghi nhận lần thực hiện nhóm thành công"
+}
+```
+
+`treatmentHistoryId` là history cha, dùng để sửa note của lần đến. Không dùng ID này để hoàn tác khi visit còn history con; hoàn tác dùng ID của từng child history.
+
+### `PUT /api/treatments/execute/:parentHistoryId`
+
+Sửa **một lần thực hiện nhóm đã tồn tại**. `parentHistoryId` trên URL là `treatment_history.id` của history cha/lần đến, không phải ID thẻ liệu trình. Một thẻ cha có thể có nhiều lần đến, nên frontend bắt buộc lấy ID này từ `histories[].id`.
+
+```http
+PUT /api/treatments/execute/501
+```
+
+```json
+{
+  "treatment_id": 100,
+  "branch_id": 2,
+  "execution_date": "2026-11-09 10:30:00",
+  "note": "Đổi Laser thành PNP",
+  "children": [
+    { "treatment_id": 102, "staffs": [{ "staff_id": 11 }] }
+  ]
+}
+```
+
+- `treatment_id` phải là ID thẻ cha của `parentHistoryId`.
+- `children` bắt buộc là **toàn bộ danh sách dịch vụ con được chọn sau khi sửa**, từ 0 đến 200 phần tử không trùng. Mỗi child chỉ nhận `treatment_id` và `staffs`.
+- `branch_id`, `execution_date`, `note` là tùy chọn với MANAGER: bỏ qua sẽ giữ giá trị parent history hiện tại. STAFF không được gửi/đổi `branch_id` hoặc `execution_date`; chỉ được sửa visit hôm nay tại branch token.
+- `note: null` hoặc chuỗi rỗng xóa ghi chú parent visit. Không nhận chữ ký trong endpoint này.
+
+Ví dụ visit `501` ban đầu có child history Laser `601`. Request trên chỉ chọn PNP `102` thì backend, trong **một transaction**:
+
+1. Xóa mềm staff mappings và history Laser `601` (`deleted_at`, `deleted_by`), đồng thời hoàn một buổi Laser.
+2. Tạo child history PNP mới trỏ `parent_history_id = 501`, giảm một buổi PNP, rồi lưu nhân viên/commission snapshot.
+3. Child service vẫn có trong request giữ nguyên history ID; chỉ đồng bộ nhân viên, ngày/cơ sở và **không giảm buổi lần thứ hai**.
+4. Parent history `501` được giữ nguyên ID và cập nhật note/ngày/cơ sở nếu body gửi các field đó.
+
+Nếu bất kỳ service/staff nào không hợp lệ hoặc dịch vụ thêm mới đã hết buổi, toàn bộ thay đổi rollback: history bị bỏ không bị xóa mềm và buổi không bị thay đổi.
+
+Thành công `200`:
+
+```json
+{
+  "message": "Cập nhật lần thực hiện nhóm thành công",
+  "treatmentHistoryId": 501,
+  "childTreatmentHistoryIds": [602],
+  "removedTreatmentHistoryIds": [601]
+}
+```
+
+`childTreatmentHistoryIds` là toàn bộ child histories còn hiệu lực sau khi sửa (bao gồm history giữ lại và history mới). `removedTreatmentHistoryIds` là histories đã xóa mềm. Sau thành công, frontend tải lại `GET /api/treatments/100`; không tự gọi DELETE child rồi POST child mới.
+
+#### Tương thích execute đơn
+
+Payload cũ không có `children` vẫn hợp lệ cho thẻ đơn/thẻ con:
+
+```json
+{ "treatment_id": 101, "branch_id": 2, "staffs": [{ "staff_id": 11 }], "note": "Ghi chú buổi đơn" }
+```
+
+Nó tạo một history độc lập (`parent_history_id = null`) và giữ response cũ `{ "treatmentHistoryId": ..., "message": ... }`. Không dùng execute đơn lặp lại cho các child của cùng một lần đến nếu muốn một visit có note chung.
+
+### Note, staff và hoàn tác history
+
+- `PUT /api/treatments/execute/:historyId/note` cập nhật chính history ID đó. Với execute nhóm, frontend chỉ gọi endpoint này bằng **parent history ID**, vì note là của lần đến; không sao chép note sang child histories.
+- `PUT /api/treatments/execute/:historyId/staffs` chỉ dùng cho child/standalone history. Nhân viên và commission phải ở history thực hiện dịch vụ; không gán nhân viên cho history cha nhóm.
+- `DELETE /api/treatments/execute/:historyId`: nút/API hoàn tác dùng cho history con/đơn và hoàn đúng một buổi của thẻ đó. Parent history của lần thực hiện nhóm không được hoàn tác khi còn child history; frontend hiển thị nút hoàn tác trên từng dịch vụ con, không hiển thị ở parent visit.
+
 ### `GET /api/treatments/:id`
 
 Trả thông tin thẻ, khách hàng, sản phẩm, cơ sở của hóa đơn gốc (nếu có) và `histories`; từng history chứa `staffs` cùng `commission_amount_snapshot`. Thành công `200`: `{ "message": "Lấy chi tiết liệu trình thành công", "data": { ... } }`; không tồn tại/đã xóa trả `404`.
@@ -1234,14 +1342,15 @@ Endpoint này **không hỗ trợ query parameter**. Không truyền `customerId
 - `customer_name`, `phone_number`: Tên và số điện thoại khách hàng.
 - `product_name`: Tên sản phẩm/dịch vụ.
 - `branch_id`: Branch của hóa đơn gốc nếu có; thẻ tạo thủ công có thể là `null`. Đây không phải branch giới hạn quyền xem treatment.
-- `histories`: Danh sách các lần thực hiện dịch vụ, sắp xếp `execution_date` mới nhất trước.
+- `histories`: Danh sách history gốc của thẻ, sắp xếp `execution_date` mới nhất trước. Với thẻ cha nhóm, mỗi phần tử là một lần đến và có `children[]` là các dịch vụ con đã thực hiện trong lần đó.
 
 Mỗi phần tử trong `histories[]` gồm các field của `treatment_history`:
 
-- `id`, `treatment_id`, `branch_id`.
+- `id`, `treatment_id`, `parent_history_id`, `branch_id`.
 - `execution_date`: Thời điểm thực hiện dịch vụ.
 - `created_at`, `updated_at`, `deleted_at`, `created_by`, `updated_by`, `deleted_by`.
 - `staffs`: Danh sách nhân viên được gán cho lần thực hiện đó.
+- `children`: History con liên kết tường minh với history này. Chỉ có ở history cha nhóm; history legacy/đơn trả `[]`.
 
 Mỗi phần tử trong `histories[].staffs[]` gồm các field của `treatment_history_staffs` và:
 
@@ -1717,3 +1826,17 @@ Các GET danh sách trong bảng này sử dụng message theo controller: `/ten
 `POST /treatments/execute` chỉ tự tạo lịch hẹn tiếp theo khi `next_appointment_days > 0` và thẻ vẫn còn buổi sau khi trừ. `treatment_history.appointment_id` lưu ID lịch hẹn tự tạo (`null` khi không tạo). `DELETE /treatments/execute/:historyId` xóa mềm cả lịch hẹn liên kết (nếu chưa bị xóa) trong cùng transaction với việc hoàn buổi/xóa lịch sử; không xóa lịch hẹn thủ công. Với history cũ trước migration, `appointment_id` là `null`, nên lịch cũ không tự xóa: không thể xác định quan hệ này an toàn từ dữ liệu hiện có.
 
 Các GET reports dùng query `startDate`/`endDate` bắt buộc và đều chỉ dành cho MANAGER. `period` chứa `startDate`, `endDate`, `branchId` (có thể `null`); báo cáo nhân sự với filter `staffId` còn thêm `period.staffId`. `totalAmount` ở báo cáo nhân sự là number, nhưng `commission_amount_snapshot` của GET `/treatments/commissions` là DECIMAL từ DB (thường là chuỗi). Riêng `/reports/revenue` không có `page`, `pageSize` hay `totalPages`.
+
+#### Xóa toàn bộ dịch vụ của một lần đến
+
+`PUT /api/treatments/execute/:parentHistoryId` chấp nhận body:
+
+```json
+{ "treatment_id": 100, "children": [] }
+```
+
+Trong một transaction, backend xóa mềm các child histories và staff mappings, hoàn buổi của child theo quy tắc hiện có (không tăng buổi cho thẻ đã đóng; unlimited vẫn là null), xóa mềm lịch tự sinh có liên kết với child bị xóa, rồi xóa mềm parent history và staff mappings của parent. Không hoàn buổi cho thẻ cha.
+
+Response PUT thêm `parentHistoryDeleted: true` khi danh sách cuối rỗng; `childTreatmentHistoryIds` là `[]`, `removedTreatmentHistoryIds` chứa các child histories vừa xóa. Với danh sách không rỗng, `parentHistoryDeleted` là `false`.
+
+`DELETE /api/treatments/execute/:childHistoryId` tự xóa mềm parent history khi child cuối cùng bị hoàn tác; còn child khác thì giữ parent. Response thêm `parentHistoryId` (null cho history độc lập) và `parentHistoryDeleted`. Giao diện chỉ cung cấp undo cho child; sau PUT/DELETE thành công tải lại `GET /api/treatments/:parentTreatmentId` để cập nhật visit và số buổi. Visit đã xóa không thể sửa lại bằng ID cũ; request lặp không được hoàn buổi thêm lần nữa. Không dùng DELETE parent để hoàn tác cả nhóm.
