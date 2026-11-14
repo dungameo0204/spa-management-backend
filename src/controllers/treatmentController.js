@@ -19,7 +19,7 @@ const createManualTreatment = async (req, res) => {
         const result = await treatmentService.createTreatment(tenantId, req.body, executorName);
         res.status(201).json({ message: 'Tạo thẻ liệu trình thủ công thành công', ...result });
     } catch (error) {
-        res.status(400).json({ message: error.message });
+        res.status(error.status || 400).json({ message: error.message });
     }
 };
 
@@ -47,7 +47,7 @@ const getDetail = async (req, res) => {
 const close = async (req, res) => {
     try {
         const result = await treatmentService.closeTreatment(req.user.tenant_id, req.params.id, req.body, req.user.fullname || req.user.username);
-        res.json({ message: 'Ký hoàn thành liệu trình thành công', ...result });
+        res.json({ message: 'Kết thúc liệu trình thành công', ...result });
     } catch (error) { res.status(error.status || 400).json({ message: error.message }); }
 };
 
@@ -58,7 +58,7 @@ const executeSession = async (req, res) => {
         const result = await treatmentService.executeTreatmentSession(tenantId, req.body, executorName, req.user.system_role, req.user.branch_id);
         res.status(201).json(result);
     } catch (error) {
-        res.status(400).json({ message: error.message });
+        res.status(error.status || 400).json({ message: error.message });
     }
 };
 
@@ -105,6 +105,14 @@ const removeHistory = async (req, res) => {
     }
 };
 
+const updateExecution = async (req, res) => {
+    try {
+        const result = await treatmentService.updateGroupedExecution(req.user.tenant_id, req.params.historyId, req.body,
+            req.user.fullname || req.user.username, req.user.system_role, req.user.branch_id);
+        res.status(200).json(result);
+    } catch (error) { res.status(error.status || 400).json({ message: error.message }); }
+};
+
 module.exports = {
     updateGroupNote: async (req, res) => {
         try {
@@ -119,6 +127,7 @@ module.exports = {
     getDetail, 
     createManualTreatment, 
     executeSession, 
+    updateExecution,
     assignStaffs, 
     getCommissions,
     removeHistory

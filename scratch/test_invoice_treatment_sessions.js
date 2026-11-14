@@ -17,7 +17,10 @@ const connection = {
         if (sql.includes('SELECT id,is_product FROM `test_tenant`.products')) return [[{ id:params[0], is_product:0 }]];
         if (sql.includes('product_service_components')) return [[]];
         if (sql.includes('INSERT INTO `test_tenant`.invoice_items')) billedItems.push(params);
-        if (sql.includes('SELECT t.id FROM `test_tenant`.treatments t')) return [[]];
+        if (sql.includes('FROM `test_tenant`.treatments t') && sql.includes('parent_treatment_id') && sql.includes('LIMIT 1 FOR UPDATE')) return [[]];
+        if (sql.includes('SELECT id,parent_treatment_id FROM `test_tenant`.treatments WHERE id=?')) return [[{ id: params[0], parent_treatment_id: null }]];
+        if (sql.includes('FROM `test_tenant`.treatment_purchases tp JOIN')) return [[]];
+        if (sql.includes("SELECT DATE_FORMAT(invoice_date, '%Y-%m-%d %H:%i:%s') AS invoice_date")) return [[{ invoice_date: '2026-11-13 09:15:00' }]];
         if (sql.includes('.invoices WHERE id = ? AND deleted_at IS NULL FOR UPDATE')) return [[{
             id: 20, branch_id: 1, customer_id: 7, created_at: new Date(), total_amount: 0,
             discount_percent: 0, discount_amount: 0, paid_amount: 0, wallet_used: 0, debt_amount: 0, payment_method: 'CASH', note: null

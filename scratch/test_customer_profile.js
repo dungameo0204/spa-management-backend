@@ -5,7 +5,10 @@ let duplicate = false;
 let race = false;
 const query = async (sql, params = []) => {
     calls.push({ sql, params });
-    if (sql.startsWith('SELECT id') && sql.includes('profile_code = ?')) return [duplicate ? [{ id: 2 }] : []];
+    if (sql.startsWith('SELECT id') && sql.includes('profile_code = ?')) {
+        assert.match(sql, /profile_code = \? AND deleted_at IS NULL/);
+        return [duplicate ? [{ id: 2 }] : []];
+    }
     if (sql.startsWith('SELECT id') && sql.includes('phone_number = ?')) return [[]];
     if (sql.startsWith('INSERT') || sql.startsWith('UPDATE')) {
         if (race) throw Object.assign(new Error('Duplicate entry for key uq_customer_profile_code'), { code: 'ER_DUP_ENTRY' });

@@ -382,6 +382,7 @@ CREATE TABLE `customers` (
   `updated_by` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `deleted_by` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `profile_code` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `active_profile_code` varchar(50) COLLATE utf8mb4_unicode_ci GENERATED ALWAYS AS ((case when (`deleted_at` is null) then `profile_code` else NULL end)) STORED,
   `profile_date` date DEFAULT NULL,
   `gender` varchar(20) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `skin_types` json DEFAULT NULL,
@@ -399,7 +400,7 @@ CREATE TABLE `customers` (
   `consultation_note` text COLLATE utf8mb4_unicode_ci,
   PRIMARY KEY (`id`),
   UNIQUE KEY `uq_customers_active_phone_number` (`active_phone_number`),
-  UNIQUE KEY `uq_customer_profile_code` (`profile_code`)
+  UNIQUE KEY `uq_customers_active_profile_code` (`active_profile_code`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
@@ -1123,6 +1124,7 @@ DROP TABLE IF EXISTS `treatment_history`;
 CREATE TABLE `treatment_history` (
   `id` int NOT NULL AUTO_INCREMENT,
   `treatment_id` int NOT NULL,
+  `parent_history_id` int DEFAULT NULL,
   `branch_id` int NOT NULL,
   `appointment_id` int DEFAULT NULL,
   `execution_date` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
@@ -1137,11 +1139,13 @@ CREATE TABLE `treatment_history` (
   `note` text COLLATE utf8mb4_unicode_ci,
   PRIMARY KEY (`id`),
   KEY `treatment_id` (`treatment_id`),
+  KEY `idx_treatment_history_parent` (`parent_history_id`),
   KEY `branch_id` (`branch_id`),
   KEY `appointment_id` (`appointment_id`),
   CONSTRAINT `treatment_history_ibfk_1` FOREIGN KEY (`treatment_id`) REFERENCES `treatments` (`id`),
   CONSTRAINT `treatment_history_ibfk_2` FOREIGN KEY (`branch_id`) REFERENCES `branches` (`id`),
-  CONSTRAINT `treatment_history_ibfk_3` FOREIGN KEY (`appointment_id`) REFERENCES `appointments` (`id`)
+  CONSTRAINT `treatment_history_ibfk_3` FOREIGN KEY (`appointment_id`) REFERENCES `appointments` (`id`),
+  CONSTRAINT `fk_treatment_history_parent` FOREIGN KEY (`parent_history_id`) REFERENCES `treatment_history` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
@@ -1231,6 +1235,37 @@ CREATE TABLE `treatments` (
   CONSTRAINT `treatments_invoice_item_fk` FOREIGN KEY (`invoice_item_id`) REFERENCES `invoice_items` (`id`),
   CONSTRAINT `chk_treatment_closure` CHECK (((`closed_at` is null) or ((`remaining_sessions` is not null) and (`remaining_sessions` = 0)))),
   CONSTRAINT `chk_treatment_sessions` CHECK ((((`total_sessions` is null) and ((`remaining_sessions` is null) or (`remaining_sessions` = 0))) or ((`total_sessions` is not null) and (`total_sessions` > 0) and (`remaining_sessions` is not null) and (`remaining_sessions` >= 0) and (`remaining_sessions` <= `total_sessions`))))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `treatment_purchases`
+--
+
+DROP TABLE IF EXISTS `treatment_purchases`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `treatment_purchases` (
+  `id` int NOT NULL AUTO_INCREMENT,
+  `treatment_id` int NOT NULL,
+  `invoice_id` int DEFAULT NULL,
+  `invoice_item_id` int DEFAULT NULL,
+  `total_sessions` int DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  `created_by` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `updated_by` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `deleted_by` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_treatment_purchase_invoice_item` (`treatment_id`,`invoice_item_id`),
+  KEY `idx_treatment_purchase_treatment` (`treatment_id`,`deleted_at`),
+  KEY `idx_treatment_purchase_invoice` (`invoice_id`,`deleted_at`),
+  KEY `idx_treatment_purchase_item` (`invoice_item_id`,`deleted_at`),
+  CONSTRAINT `fk_treatment_purchase_treatment` FOREIGN KEY (`treatment_id`) REFERENCES `treatments` (`id`),
+  CONSTRAINT `fk_treatment_purchase_invoice` FOREIGN KEY (`invoice_id`) REFERENCES `invoices` (`id`),
+  CONSTRAINT `fk_treatment_purchase_invoice_item` FOREIGN KEY (`invoice_item_id`) REFERENCES `invoice_items` (`id`),
+  CONSTRAINT `chk_treatment_purchase_sessions` CHECK ((`total_sessions` is null) or (`total_sessions` > 0))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 

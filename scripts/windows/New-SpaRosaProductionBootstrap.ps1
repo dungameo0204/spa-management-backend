@@ -36,6 +36,9 @@ $files = [ordered]@{
     'scripts\windows\New-SpaRosaSuperAdminSql.ps1' = 'scripts\windows\New-SpaRosaSuperAdminSql.ps1'
     'scripts\apply-release-migrations.js' = 'scripts\apply-release-migrations.js'
     'scripts\release-migrations.json' = 'scripts\release-migrations.json'
+    'scripts\migrations\2026-11-11-rosa-active-profile-code.js' = 'scripts\migrations\2026-11-11-rosa-active-profile-code.js'
+    'scripts\migrations\2026-11-11-rosa-treatment-history-groups.js' = 'scripts\migrations\2026-11-11-rosa-treatment-history-groups.js'
+    'scripts\migrations\2026-11-11-rosa-treatment-purchases.js' = 'scripts\migrations\2026-11-11-rosa-treatment-purchases.js'
     'config\migration-policy.example.json' = 'config\migration-policy.example.json'
     'config\migration-policy.seed.json' = 'config\migration-policy.seed.json'
 }

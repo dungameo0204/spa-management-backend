@@ -14,7 +14,7 @@ const customerDuplicateError = error => new Error(
 const assertProfileCodeAvailable = async (dbName, code, excludeId) => {
     if (!code) return;
     const params = [code];
-    let sql = `SELECT id FROM \`${dbName}\`.customers WHERE profile_code = ?`;
+    let sql = `SELECT id FROM \`${dbName}\`.customers WHERE profile_code = ? AND deleted_at IS NULL`;
     if (excludeId !== undefined) { sql += ' AND id != ?'; params.push(excludeId); }
     const [rows] = await masterPool.query(sql, params);
     if (rows.length) throw new Error('Mã hồ sơ đã được khách hàng khác sử dụng!');

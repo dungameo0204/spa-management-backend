@@ -3,15 +3,15 @@
 ## Luồng frontend
 
 1. Gọi POST `/api/treatments/execute` tạo buổi như hiện tại; note/chữ ký lúc tạo vẫn tùy chọn.
-2. Dùng `treatmentHistoryId` trong response hoặc `histories[].id` trong detail/overview để mở đúng buổi.
+2. Dùng `treatmentHistoryId` trong response hoặc `histories[].id` trong detail/overview để mở đúng buổi. Với execution nhóm, đây là history cha/visit chung; dịch vụ con nằm ở `history.children[]`.
 3. Nhân viên có thể cập nhật ghi chú buổi cả trước và sau khi khách ký.
 4. Khách làm xong, ra về: ký vào buổi đã tạo, không gọi execute lần nữa.
 
-Đây là note/chữ ký của `treatment_history`, không phải `treatments.note`, `appointments.note` hoặc contact-notes lịch hẹn. Không thay đổi DB/schema; dùng các cột đã có.
+Đây là note/chữ ký của `treatment_history`, không phải `treatments.note`, `appointments.note` hoặc contact-notes lịch hẹn. Với visit nhóm, note/chữ ký dùng history cha; không sao chép sang child histories.
 
 ## PUT /api/treatments/execute/:historyId/note
 
-Authorization Bearer token MANAGER/STAFF của tenant. STAFF chỉ được thao tác buổi có `branch_id` bằng branch trong token. Không giới hạn buổi phải tạo/thực hiện hôm nay; note sửa được cả trước/sau khi ký và khi thẻ đã đóng, miễn buổi/thẻ chưa bị xóa.
+Authorization Bearer token MANAGER/STAFF của tenant. STAFF chỉ được thao tác buổi có `branch_id` bằng branch trong token, nhưng không bị giới hạn theo `execution_date` hoặc `created_at`. Note sửa được cả trước/sau khi ký và khi thẻ đã đóng, miễn buổi/thẻ chưa bị xóa.
 
 ```json
 {
@@ -75,4 +75,4 @@ Lỗi: 400 payload/ID sai; 401 token thiếu/sai; 403 role/tenant claim không h
 
 ## Kiểm thử
 
-`npm run test:treatment-history-followup:mysql` với DOTENV_CONFIG_PATH cấu hình Rosa 3308. Test HTTP/MySQL dùng fixture rollback: quyền role/branch, note tiếng Việt nhiều dòng/null, SVG an toàn, ngày server, buổi cũ/hết buổi/đã đóng, chặn ghi đè/đã xóa, rollback khi lỗi sau update, GET history và đối chiếu thẻ/số history/hoa hồng không đổi.
+`npm run test:treatment-history-followup:mysql` với DOTENV_CONFIG_PATH cấu hình Rosa 3308. Test HTTP/MySQL dùng fixture rollback: quyền role/branch (STAFF cùng branch được sửa/ký buổi cũ), note tiếng Việt nhiều dòng/null, SVG an toàn, ngày server, buổi cũ/hết buổi/đã đóng, chặn ghi đè/đã xóa, rollback khi lỗi sau update, GET history và đối chiếu thẻ/số history/hoa hồng không đổi.

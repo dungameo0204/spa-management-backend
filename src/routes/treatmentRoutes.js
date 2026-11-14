@@ -8,11 +8,11 @@ router.use(verifyToken);
 // 1. Quản lý Thẻ liệu trình (Chỉ MANAGER mới được tạo thủ công)
 router.get('/', treatmentController.getList);
 router.post('/', verifyManager, treatmentController.createManualTreatment);
-// Both managers and staff can collect the customer's completion signature.
+// Both managers and staff can close a treatment group; Xuly does not require a customer signature.
 router.post('/:id/close', (req, res, next) => {
     if (req.user.customer_id !== undefined || !['MANAGER', 'STAFF'].includes(req.user.system_role) ||
         !Number.isSafeInteger(req.user.tenant_id) || req.user.tenant_id <= 0) {
-        return res.status(403).json({ message: 'Chỉ MANAGER/STAFF của Spa được xác nhận ký hoàn thành liệu trình.' });
+        return res.status(403).json({ message: 'Chỉ MANAGER/STAFF của Spa được kết thúc liệu trình.' });
     }
     next();
 }, treatmentController.close);
@@ -27,6 +27,7 @@ const verifyHistoryActor = (req, res, next) => {
     next();
 };
 router.put('/execute/:historyId/note', verifyHistoryActor, treatmentController.updateHistoryNote);
+router.put('/execute/:historyId', verifyHistoryActor, treatmentController.updateExecution);
 router.put('/:id/note', verifyHistoryActor, treatmentController.updateGroupNote);
 router.post('/execute/:historyId/sign', verifyHistoryActor, treatmentController.signHistory);
 router.delete('/execute/:historyId', treatmentController.removeHistory);

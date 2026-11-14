@@ -17,7 +17,10 @@ const query = async (sql, params = []) => {
         }
         return [[{ id: 1 }]];
     }
+    if (sql.includes('FROM `test_tenant`.treatment_purchases')) return [[{ count: 1 }]];
+    if (sql.includes('INSERT INTO `test_tenant`.treatment_purchases')) return [{ insertId: 1 }];
     if (sql.includes('INSERT INTO `test_tenant`.treatments')) { remaining = params[3]; return [{ insertId: 7 }]; }
+    if (sql.includes('FROM `test_tenant`.treatment_history') && sql.includes('DATE(execution_date)')) return [[]];
     if (sql.includes('SELECT t.customer_id, t.remaining_sessions')) return [[{ customer_id: 1, remaining_sessions: remaining, next_appointment_days: 0 }]];
     if (sql.includes('remaining_sessions = remaining_sessions - 1')) { remaining--; return [{}]; }
     if (sql.includes('INSERT INTO `test_tenant`.treatment_history')) { histories++; return [{ insertId: histories }]; }

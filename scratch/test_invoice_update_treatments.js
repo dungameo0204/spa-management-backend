@@ -23,6 +23,20 @@ const connection = {
         if (sql.includes('.customers WHERE id = ? AND deleted_at IS NULL FOR UPDATE')) return [[{ id: params[0], wallet_balance: 0 }]];
         if (sql.includes('.products WHERE id = ?')) return [products.has(params[0]) ? [products.get(params[0])] : []];
         if (sql.includes('.debt_payments WHERE invoice_id = ?')) return [[]];
+        if (sql.includes('FROM `test_tenant`.treatment_purchases tp JOIN')) return [state.cards.map(card => ({ ...card, purchase_invoice_item_id: card.invoice_item_id ?? null }))];
+        if (sql.includes('SELECT id,total_sessions FROM `test_tenant`.treatment_purchases')) {
+            const sourceCard = state.cards.find(card => Number(card.id) === Number(params[0]));
+            return [sourceCard ? [{ id: sourceCard.id, total_sessions: sourceCard.total_sessions }] : []];
+        }
+        if (sql.includes('FROM `test_tenant`.treatment_purchases p') && sql.includes('WHERE p.invoice_item_id=?')) {
+            return [state.cards.map(card => ({
+                id: card.id, treatment_id: card.id, total_sessions: card.total_sessions,
+                card_total: card.total_sessions, remaining_sessions: card.remaining_sessions,
+                closed_at: null, closure_signature_svg: null, parent_treatment_id: null,
+                parent_closed_at: null, parent_signature: null
+            }))];
+        }
+        if (sql.includes('SELECT COUNT(*) AS count FROM `test_tenant`.treatment_purchases')) return [[{ count: 1 }]];
         if (sql.includes('.treatment_history WHERE treatment_id=?')) return [[]];
         if (sql.includes('FROM `test_tenant`.treatments WHERE invoice_id = ?') && sql.includes('FOR UPDATE')) return [state.cards.map(card => ({ ...card }))];
         if (sql.includes('SELECT id, product_id, quantity FROM `test_tenant`.invoice_items')) return [[{ id: 12, product_id: 1, quantity: 5 }]];
@@ -31,6 +45,16 @@ const connection = {
         }]];
         if (sql.includes('FROM `test_tenant`.treatment_history_staffs ths') && sql.includes('FOR UPDATE')) return [[]];
         if (sql.includes('INSERT INTO `test_tenant`.treatments')) return [{ insertId: state.nextId++ }];
+        if (sql.includes('UPDATE `test_tenant`.treatments SET customer_id = ?, total_sessions = total_sessions + ?')) {
+            const card = state.cards.find(entry => Number(entry.id) === Number(params[5]));
+            if (card) {
+                card.customer_id = params[0];
+                card.total_sessions += params[1];
+                card.remaining_sessions += params[2];
+                card.note = params[3];
+            }
+            return [{ affectedRows: 1 }];
+        }
         if (sql.startsWith('INSERT INTO')) return [{ insertId: state.nextId++ }];
         if (sql.startsWith('UPDATE')) return [{ affectedRows: 1 }];
         throw new Error(`Unexpected SQL: ${sql}`);
@@ -50,7 +74,7 @@ const changes = pattern => state.queries.filter(q => pattern.test(q.sql));
     await run([combo(5), { product_id: 2, quantity: 1 }]);
     assert.equal(changes(/UPDATE `test_tenant`\.treatments SET deleted_at/).length, 0);
     assert.equal(changes(/INSERT INTO `test_tenant`\.treatments/).length, 0);
-    assert.equal(changes(/UPDATE `test_tenant`\.treatments SET customer_id/).length, 0);
+    assert.deepEqual(changes(/UPDATE `test_tenant`\.treatments SET customer_id/)[0].params.slice(0, 4), [7, 0, 0, null]);
 
     state.queries.length = 0;
     await assert.rejects(run([combo(5)], 2), /cơ sở khác/);
@@ -59,12 +83,12 @@ const changes = pattern => state.queries.filter(q => pattern.test(q.sql));
 
     state.queries.length = 0;
     await run([combo(3)]);
-    assert.deepEqual(changes(/UPDATE `test_tenant`\.treatments SET customer_id/)[0].params.slice(0, 4), [7, 3, 1, null]);
+    assert.deepEqual(changes(/UPDATE `test_tenant`\.treatments SET customer_id/)[0].params.slice(0, 4), [7, -2, -2, null]);
     assert.equal(changes(/INSERT INTO `test_tenant`\.treatments/).length, 0);
 
     state.queries.length = 0;
     await run([combo(2)]);
-    assert.equal(changes(/UPDATE `test_tenant`\.treatments SET customer_id/)[0].params[2], 0);
+    assert.equal(changes(/UPDATE `test_tenant`\.treatments SET customer_id/)[0].params[2], -1);
 
     state.queries.length = 0;
     const committed = state.commits;
@@ -73,7 +97,7 @@ const changes = pattern => state.queries.filter(q => pattern.test(q.sql));
     assert.equal(state.rollbacks > 0, true);
 
     state.queries.length = 0;
-    await assert.rejects(run([{ product_id: 2, quantity: 1 }]), /Không thể xóa liệu trình/);
+    await assert.rejects(run([{ product_id: 2, quantity: 1 }]), /số buổi từ lần mua này đã được sử dụng/);
     assert.equal(changes(/UPDATE `test_tenant`\.treatments SET deleted_at/).length, 0);
 
     state.queries.length = 0;

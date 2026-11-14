@@ -11,7 +11,8 @@ for (const value of [new Date(2026, 9, 26, 23, 59), new Date(2026, 9, 28), null,
 const state = { calls: [], history: null };
 const query = async (sql, params = []) => {
     state.calls.push({ sql, params });
-    if (sql.includes('SELECT treatment_id, branch_id, appointment_id')) return [[state.history]];
+    if (sql.includes('FROM `test_tenant`.treatment_history WHERE id = ? AND deleted_at IS NULL FOR UPDATE')) return [state.history ? [state.history] : []];
+    if (sql.includes('FROM `test_tenant`.treatment_history\n                WHERE parent_history_id=? AND deleted_at IS NULL FOR UPDATE')) return [[]];
     if (sql.includes('.branches WHERE')) return [[{ id: 2 }]];
     if (sql.includes('SELECT id FROM `test_tenant`.inventory_imports')) return [[]];
     if (sql.includes('.products WHERE')) return [[{ id: 3, name: 'Product' }]];

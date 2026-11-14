@@ -22,6 +22,7 @@ const getList = async (req, res) => {
         const userBranchId = req.user.branch_id;
         const filters = {
             searchKeyword: req.query.search,
+            customerId: req.query.customerId,
             branchId: req.query.branchId,
             startDate: req.query.startDate,
             endDate: req.query.endDate,

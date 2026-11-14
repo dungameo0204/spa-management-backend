@@ -39,12 +39,12 @@ PUT hóa đơn hỗ trợ sửa thẻ trọn đời/cha-con/đã đóng, giữ I
 - Không tự bổ sung ghi chú cho hóa đơn cũ khi triển khai; API sửa hồ sơ khách vẫn có thể thay thế toàn bộ `customers.note`, nên đây không phải audit log bất biến.
 - Sau khi tạo/sửa/xóa hóa đơn, frontend cần tải lại dữ liệu khách để thấy ghi chú mới; response hóa đơn không đổi.
 
-# STAFF: giới hạn ngày phiếu và xóa lịch sử liệu trình
+# STAFF: giới hạn ngày phiếu và phạm vi cơ sở lịch sử liệu trình
 
 - `POST /api/inventory-imports`, `PUT /api/inventory-imports/:id`: STAFF không được gửi `import_date` hoặc `created_at` (kể cả null/rỗng); vi phạm trả HTTP 400. Khi tạo, ngày được ghi tự động bằng thời gian hiện tại của database.
 - `POST /api/expenses`, `PUT /api/expenses/:id`: STAFF không được gửi `expense_date` hoặc `created_at` (kể cả null/rỗng); vi phạm trả HTTP 400. Frontend cần bỏ các trường này khỏi payload STAFF, không chỉ khóa ô nhập.
-- `DELETE /api/treatments/execute/:historyId`: STAFF chỉ được xóa khi cả `execution_date` và `created_at` đều thuộc hôm nay theo ngày lịch/múi giờ local của backend. Ngày thiếu/không hợp lệ, quá khứ hoặc tương lai đều bị chặn HTTP 400, trước khi hoàn buổi/xóa công ca/lịch hẹn. Giới hạn chi nhánh vẫn áp dụng.
-- MANAGER không bị áp dụng các giới hạn mới này. Không thay đổi các quyền sửa/xóa phiếu khác.
+- Các thao tác treatment history của STAFF (sửa execution nhóm, note/ký, gán nhân viên, xóa/hoàn buổi) chỉ áp dụng cho dữ liệu thuộc `branch_id` trong token. Buổi quá khứ hoặc tương lai trong đúng cơ sở vẫn được thao tác; dữ liệu cơ sở khác bị chặn trước khi thay đổi session/lịch hẹn/hoa hồng.
+- Không thay đổi các giới hạn ngày của phiếu nhập kho/chi phí hoặc các quyền sửa/xóa phiếu khác.
 - Máy chạy Node.js và MySQL cần cấu hình đồng bộ thời gian/múi giờ.
 
 # Tài liệu API cho Frontend — Spa Management Backend
@@ -938,16 +938,19 @@ Thành công `201`:
 {
   "message": "Tạo hóa đơn thành công",
   "invoiceId": 12,
+  "invoiceDate": "2026-11-12 09:15:00",
   "totalAmount": 1350000,
   "debtAmount": 0,
   "walletUsed": 500000,
   "itemMappings": [
-    { "request_index": 0, "invoice_item_id": 31, "treatment_id": 41 }
+    { "request_index": 0, "invoice_item_id": 31, "treatment_id": 41, "parent_treatment_id": null, "root_treatment_id": 41 }
   ]
 }
 ```
 
-`itemMappings` có đúng một phần tử cho **mỗi** phần tử `items` gửi lên, kể cả hàng hóa/dịch vụ không sinh thẻ (`treatment_id: null`). `request_index` là chỉ số **0-based** của dòng trong mảng `items` của chính request POST (không phải thứ tự GET, không phải `product_id`); `invoice_item_id` là ID dòng bán vừa tạo, `treatment_id` là ID thẻ vừa tạo. Ví dụ hai dòng trùng dịch vụ vẫn có hai `request_index`, hai `invoice_item_id` và hai `treatment_id` riêng biệt. Frontend dùng `itemMappings` ngay từ response 201 để ghi nhận “làm ngay” cho đúng thẻ; không suy đoán theo `product_id`, giá hay thứ tự dữ liệu GET. Response này chỉ trả về sau khi transaction commit thành công; nếu bước ghi nhận buổi sau đó lỗi, không POST lại hóa đơn.
+`invoiceDate` là `invoice_date` thực tế đã lưu, luôn theo định dạng local MySQL `YYYY-MM-DD HH:mm:ss`; frontend dùng đúng giá trị này làm `execution_date` khi chọn “làm ngay”. Thẻ mới tạo từ hóa đơn dùng cùng thời điểm này cho `created_at` (thẻ đã tồn tại do nối buổi không đổi `created_at`).
+
+`itemMappings` có đúng một phần tử cho **mỗi** phần tử `items` gửi lên, kể cả hàng hóa/dịch vụ không sinh thẻ (`treatment_id`, `parent_treatment_id`, `root_treatment_id` đều là `null`). `request_index` là chỉ số **0-based** của dòng trong mảng `items` của chính request POST (không phải thứ tự GET, không phải `product_id`); `invoice_item_id` là ID dòng bán vừa tạo. `treatment_id` là thẻ thực tế vừa tạo hoặc được nối buổi; `parent_treatment_id` là group cha hoặc `null`; `root_treatment_id` là thẻ root cần dùng khi thực hiện nhóm. Khi làm ngay: nếu `parent_treatment_id` là `null`, gọi tick đơn với `treatment_id`; nếu khác `null`, gọi grouped execute với `treatment_id: root_treatment_id` và `children: [{ treatment_id }]`. Ví dụ hai dòng trùng dịch vụ vẫn có hai `request_index` và hai `invoice_item_id` riêng biệt. Frontend dùng `itemMappings` ngay từ response 201, không suy đoán theo `product_id`, giá hay thứ tự dữ liệu GET. Response này chỉ trả về sau khi transaction commit thành công; nếu bước ghi nhận buổi sau đó lỗi, không POST lại hóa đơn.
 
 ### `GET /api/invoices`
 

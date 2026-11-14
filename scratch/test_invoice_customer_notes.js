@@ -34,14 +34,17 @@ const connection = {
             state.customers.set(id, combined);
             return [{ affectedRows: 1 }];
         }
+        if (sql.includes("SELECT DATE_FORMAT(invoice_date, '%Y-%m-%d %H:%i:%s') AS invoice_date")) {
+            return [[state.invoice && !state.invoice.deleted_at ? { invoice_date: state.invoice.invoice_date } : undefined].filter(Boolean)];
+        }
         if (sql.includes('.invoices WHERE id = ?')) return [state.invoice && !state.invoice.deleted_at ? [{ ...state.invoice }] : []];
         if (sql.includes('.customers WHERE id = ?')) return [state.customers.has(params[0]) ? [{ id: params[0], wallet_balance: 1000 }] : []];
         if (sql.includes('.products WHERE id = ?')) return [[{ name: 'Service', price: 100, unit: 'buổi', is_product: 0, is_treatment_combo: 1, default_sessions: 0 }]];
-        if (sql.includes('.debt_payments WHERE') || sql.includes('.treatments WHERE') || sql.includes('.invoice_items WHERE')) return [[]];
+        if (sql.includes('.debt_payments WHERE') || sql.includes('.treatment_purchases tp JOIN') || sql.includes('FROM `test_tenant`.treatment_purchases p') || sql.includes('.treatments WHERE') || sql.includes('.invoice_items WHERE')) return [[]];
         if (sql.includes('INSERT INTO `test_tenant`.invoices')) {
             state.invoice = { id: 123, customer_id: params[0], branch_id: params[1], total_amount: params[2],
                 discount_percent: 0, discount_amount: 0, paid_amount: 100, wallet_used: 0, debt_amount: 0,
-                note: params[9], created_at: new Date(), payment_method: 'CASH' };
+                note: params[9], invoice_date: params[10] || '2026-11-13 09:15:00', created_at: new Date(), payment_method: 'CASH' };
         }
         if (sql.includes('UPDATE `test_tenant`.invoices SET customer_id')) {
             state.invoice.customer_id = params[0];

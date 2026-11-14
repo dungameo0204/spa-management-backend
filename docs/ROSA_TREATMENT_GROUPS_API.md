@@ -64,7 +64,7 @@ No new schema migration. Uses existing treatment hierarchy, lifetime, closure an
 - Finite cards do not auto-close when exhausted. Parents with children cannot execute. Closed groups cannot execute. Undo history retains existing soft-delete behavior but cannot increment a closed card or reopen it; it does not erase the completion signature.
 - Invoice PUT supports treatment configuration amendments while preserving card IDs, histories, child price snapshots and closure signatures. See `ROSA_INVOICE_AMENDMENTS_API.md`. Invoice DELETE permits unused/open groups and lifetime cards but rejects any used or signed card. Refund/reopening workflows remain out of scope.
 
-## Per-session note and signature
+## Group execution history, per-session note and signature
 
 `POST /api/treatments/execute` retains existing MANAGER/STAFF execution/branch rules and accepts optional `note` and `customer_signature_svg` at creation:
 
@@ -80,6 +80,31 @@ No new schema migration. Uses existing treatment hierarchy, lifetime, closure an
 `note`: string, max 65535 UTF-8 bytes, trimmed; absent/null/whitespace becomes NULL. Signature: absent/null means unsigned; any supplied string must pass the same narrow SVG validator and 128 KiB limit as completion signatures. Empty strings and malformed SVG are rejected. Server sets `customer_signed_at` when a signature exists; client-supplied `customer_signed_at` is rejected. Existing payloads without these fields remain valid. Metadata is stored atomically with history/session decrement/commissions; errors roll everything back.
 
 Root/child treatment detail and customer overview expose these fields in each card's `histories[]`. Session signatures never set `closed_at` or complete a group, even when a finite card reaches zero sessions. Group completion still requires the separate root `/close` operation. Post-creation note edits (both unsigned and signed sessions; existing signature and signing time remain unchanged) and supplemental signing are supported; see ROSA_TREATMENT_HISTORY_FOLLOWUP_API.md. Render notes as text and signatures via images, not arbitrary HTML.
+
+### Execute several child services in one visit
+
+For a treatment group, call the same endpoint with root `treatment_id` and `children[]`. The server creates one parent `treatment_history` visit for the root and one child history for every selected child card. The optional note and customer signature belong to the parent visit; staff/commission rows belong only to child histories.
+
+```json
+{
+  "treatment_id": 100,
+  "branch_id": 1,
+  "execution_date": "2026-11-11 10:00:00",
+  "note": "Theo dõi phản ứng sau chăm sóc",
+  "customer_signature_svg": "<svg width=\"300\" height=\"100\"><path d=\"M 10 20 L 50 60\"/></svg>",
+  "children": [
+    { "treatment_id": 101, "staffs": [{ "staff_id": 5 }] },
+    { "treatment_id": 102, "staffs": [] }
+  ]
+}
+```
+
+- `children[].treatment_id` is the **child treatment-card ID**, not a product ID. It must be an open child of the supplied root and may appear once only.
+- Only selected children decrement `remaining_sessions`. The parent card does not decrement and has no staff/commission row.
+- The response returns `treatmentHistoryId` (parent visit ID) and `childTreatmentHistoryIds` in the same child order.
+- Reads return parent visits in `histories[]`; their child histories are nested in `history.children[]`. Legacy standalone histories remain visible with `children: []`.
+- The parent signature can be supplied at creation or added later via `POST /api/treatments/execute/:parentHistoryId/sign`. It is never copied to child histories.
+- Use `PUT /api/treatments/execute/:parentHistoryId` to replace selected child cards for an existing visit. Retained children keep their history IDs and are not decremented twice; removed children are soft-deleted and one session is restored; newly selected children create child histories and decrement once. Sending `children: []` soft-deletes the now-empty parent visit.
 
 ## Verification commands
 

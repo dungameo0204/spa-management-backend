@@ -18,7 +18,7 @@ async function main() {
         pool.query = c.query.bind(c);
         pool.getConnection = async () => ({
             query: (sql, params) => {
-                if (failRead && sql.includes('SELECT id, treatment_id, branch_id, note')) throw Error('Injected read failure');
+                if (failRead && sql.includes('SELECT id, treatment_id, parent_history_id, branch_id, note')) throw Error('Injected read failure');
                 return c.query(sql, params);
             },
             beginTransaction: () => c.query('SAVEPOINT followup_test'),

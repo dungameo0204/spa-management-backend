@@ -14,7 +14,7 @@ const connection = {
         }]];
         if (sql.includes('INSERT INTO `test_tenant`.treatment_history (')) return [{ insertId: 51 }];
         if (sql.includes('INSERT INTO `test_tenant`.appointments')) return [{ insertId: 71 }];
-        if (sql.includes('SELECT treatment_id, branch_id, appointment_id')) return [state.history ? [state.history] : []];
+        if (sql.includes('FROM `test_tenant`.treatment_history WHERE id = ? AND deleted_at IS NULL FOR UPDATE')) return [state.history ? [state.history] : []];
         if (sql.includes('UPDATE `test_tenant`.appointments') && state.failAppointmentDelete) throw new Error('DB failure');
         return [{}];
     }

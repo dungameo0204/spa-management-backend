@@ -89,8 +89,16 @@ const attach = async (executor, db, roots, { histories = false, executionStartDa
         let staffs = [];
         if (rows.length) [staffs] = await executor.query(`SELECT ths.*,s.fullname AS staff_name FROM \`${db}\`.treatment_history_staffs ths
             JOIN \`${db}\`.staffs s ON s.id=ths.staff_id WHERE ths.treatment_history_id IN (?) AND ths.deleted_at IS NULL ORDER BY ths.id`, [rows.map(h => h.id)]);
-        for (const h of rows) h.staffs = staffs.filter(s => Number(s.treatment_history_id) === Number(h.id));
-        for (const card of all.values()) card.histories = rows.filter(h => Number(h.treatment_id) === Number(card.id));
+        const byId = new Map(rows.map(history => [Number(history.id), { ...history, staffs: staffs.filter(staff => Number(staff.treatment_history_id) === Number(history.id)), children: [] }]));
+        for (const history of byId.values()) {
+            if (history.parent_history_id == null) continue;
+            const parent = byId.get(Number(history.parent_history_id));
+            if (!parent) throw invalid('Lịch sử thực hiện con không có lần thực hiện cha hợp lệ.');
+            parent.children.push(history);
+        }
+        for (const card of all.values()) {
+            card.histories = [...byId.values()].filter(history => history.parent_history_id == null && Number(history.treatment_id) === Number(card.id));
+        }
     }
     return roots.map(root => all.get(Number(root.id)));
 };
