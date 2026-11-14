@@ -81,6 +81,27 @@ Authorization: Bearer <token-nhận-từ-POST-/api/auth/login>
 
 Token hệ thống có hiệu lực **15 giờ**. Token customer MiniApp (nếu được kích hoạt) có hiệu lực **30 ngày**.
 
+### 2.1. Phiên bản backend đang chạy
+
+#### `GET /api/system/version`
+
+Yêu cầu Bearer token hợp lệ của user hệ thống. Dùng để xác nhận release đã deploy; không cần `tenant_id` hay quyền MANAGER riêng.
+
+Thành công `200`:
+
+```json
+{
+  "message": "Lấy phiên bản máy chủ thành công",
+  "data": {
+    "version": "backend-sparosa-v1.0.7",
+    "commit": "0123456789abcdef0123456789abcdef01234567",
+    "startedAt": "2026-11-13T09:15:00.000Z"
+  }
+}
+```
+
+`version` là Git tag chính xác của release đang chạy; `commit` là Git commit của release; `startedAt` là thời điểm process backend hiện tại khởi động (UTC ISO-8601). Nếu release archive không còn Git metadata và không cấu hình metadata deploy, `version` hoặc `commit` có thể là `"unknown"`; frontend chỉ hiển thị, không dùng hai giá trị này cho nghiệp vụ.
+
 ### 2.2. Các quyền hệ thống
 
 | `system_role` | Phạm vi |
