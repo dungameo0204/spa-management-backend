@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [string]$Root = 'C:\SpaBackend',
-    [string]$MySqlBin = 'C:\Program Files\MySQL\MySQL Server 8.0\bin',
+    [string]$MySqlBin,
     [int]$RetentionDays = 30
 )
 
@@ -13,10 +13,9 @@ foreach ($required in @('DB_HOST', 'DB_USER', 'DB_PASSWORD', 'DB_SYSTEM_NAME')) 
 }
 $dbPort = if ($envValues.ContainsKey('DB_PORT') -and $envValues.DB_PORT) { $envValues.DB_PORT } else { '3306' }
 if ($dbPort -notmatch '^\d{1,5}$' -or [int]$dbPort -lt 1 -or [int]$dbPort -gt 65535) { throw 'DB_PORT must be an integer from 1 to 65535.' }
-$mysql = Join-Path $MySqlBin 'mysql.exe'
-$mysqldump = Join-Path $MySqlBin 'mysqldump.exe'
-if (-not (Test-Path -LiteralPath $mysql -PathType Leaf)) { throw "Not found: $mysql" }
-if (-not (Test-Path -LiteralPath $mysqldump -PathType Leaf)) { throw "Not found: $mysqldump" }
+$mysqlTools = Resolve-MySqlClientTools -MySqlBin $MySqlBin
+$mysql = $mysqlTools.MySql
+$mysqldump = $mysqlTools.MySqlDump
 
 $stamp = Get-Date -Format 'yyyy-MM-dd_HHmmss'
 $backupDir = Join-Path $Root "backups\$stamp"

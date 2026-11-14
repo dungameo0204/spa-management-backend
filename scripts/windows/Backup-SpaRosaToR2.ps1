@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [string]$Root = 'C:\SpaBackend',
-    [string]$MySqlBin = 'C:\Program Files\MySQL\MySQL Server 8.0\bin',
+    [string]$MySqlBin,
     [string]$R2ConfigPath = 'C:\SpaBackend\config\r2-backup.json'
 )
 

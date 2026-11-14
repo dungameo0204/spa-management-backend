@@ -36,6 +36,38 @@ function Get-DotEnvValues {
     return $values
 }
 
+function Resolve-MySqlClientTools {
+    param([string]$MySqlBin)
+
+    $candidateBins = @()
+    if ($MySqlBin) { $candidateBins += $MySqlBin }
+
+    $mysqlCommand = Get-Command 'mysql.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
+    $dumpCommand = Get-Command 'mysqldump.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($mysqlCommand -and $dumpCommand) {
+        return [pscustomobject]@{ MySql = $mysqlCommand.Source; MySqlDump = $dumpCommand.Source }
+    }
+
+    $programFilesRoots = @($env:ProgramFiles, ${env:ProgramFiles(x86)}) | Where-Object { $_ }
+    foreach ($programFiles in $programFilesRoots) {
+        $mysqlRoot = Join-Path $programFiles 'MySQL'
+        if (Test-Path -LiteralPath $mysqlRoot -PathType Container) {
+            $candidateBins += Get-ChildItem -LiteralPath $mysqlRoot -Directory -Filter 'MySQL Server *' -ErrorAction SilentlyContinue |
+                Sort-Object Name -Descending | ForEach-Object { Join-Path $_.FullName 'bin' }
+        }
+    }
+
+    foreach ($bin in @($candidateBins | Select-Object -Unique)) {
+        $mysql = Join-Path $bin 'mysql.exe'
+        $mysqldump = Join-Path $bin 'mysqldump.exe'
+        if ((Test-Path -LiteralPath $mysql -PathType Leaf) -and (Test-Path -LiteralPath $mysqldump -PathType Leaf)) {
+            return [pscustomobject]@{ MySql = $mysql; MySqlDump = $mysqldump }
+        }
+    }
+    $requested = if ($MySqlBin) { " Requested directory: $MySqlBin." } else { '' }
+    throw "Could not find both mysql.exe and mysqldump.exe via PATH or a MySQL Server installation.$requested"
+}
+
 function Assert-SafeVersion {
     param([Parameter(Mandatory)][string]$Version)
     if ($Version -notmatch '^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$') {

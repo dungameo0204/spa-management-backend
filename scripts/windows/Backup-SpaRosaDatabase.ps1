@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [string]$Root = 'C:\SpaBackend',
-    [string]$MySqlBin = 'C:\Program Files\MySQL\MySQL Server 8.0\bin',
+    [string]$MySqlBin,
     [ValidateRange(1, 365)][int]$RetentionDays = 10
 )
 
@@ -17,11 +17,9 @@ if ($envValues.DB_SYSTEM_NAME -ne 'db_system_master') {
     throw 'DB_SYSTEM_NAME must be db_system_master for the Rosa production backup.'
 }
 
-$mysql = Join-Path $MySqlBin 'mysql.exe'
-$mysqldump = Join-Path $MySqlBin 'mysqldump.exe'
-foreach ($path in @($mysql, $mysqldump)) {
-    if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "Not found: $path" }
-}
+$mysqlTools = Resolve-MySqlClientTools -MySqlBin $MySqlBin
+$mysql = $mysqlTools.MySql
+$mysqldump = $mysqlTools.MySqlDump
 
 $dbPort = if ($envValues.ContainsKey('DB_PORT') -and $envValues.DB_PORT) { $envValues.DB_PORT } else { '3306' }
 $stamp = Get-Date -Format 'yyyy-MM-dd_HHmmss'

@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [string]$Root = 'C:\SpaBackend',
-    [string]$MySqlBin = 'C:\Program Files\MySQL\MySQL Server 8.0\bin',
+    [string]$MySqlBin,
     [string]$R2ConfigPath = 'C:\SpaBackend\config\r2-backup.json',
     [ValidatePattern('^\d{2}:\d{2}$')][string]$DailyAt = '01:30',
     [string]$TaskName = 'SpaRosaBackupToR2'
