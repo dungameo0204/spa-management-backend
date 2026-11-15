@@ -9,6 +9,7 @@
 - If Graphify is unavailable, stale, or cannot answer the question, use narrow `search_codebase` patterns; never scan the whole repository by default.
 - Exclude `node_modules`, `dist`, `build`, `coverage`, `artifacts`, `backups`, generated files, SQL dumps, and lockfiles from broad searches unless the task explicitly concerns them.
 - Read known files together and read only the required line ranges. Do not reread unchanged files; inspect a diff or the edited range instead.
+- Assume the working tree is changed only by the coding agent during the current session unless the user explicitly reports external edits. Do not repeatedly re-read unrelated files, re-run broad discovery, compare another branch (`git show <branch>:...`, `git diff <branch>...`), or inspect cross-branch implementations merely for context. Use those operations only when the user asks for a branch comparison/merge, reports outside changes, or the task specifically requires cross-branch compatibility.
 
 ## Change discipline
 

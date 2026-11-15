@@ -10,6 +10,8 @@ Ghi chú liên hệ lưu riêng từng entry trong bảng phụ, không ghi đè
 
 See `docs/ROSA_TREATMENT_GROUPS_API.md` for invoice `items[].treatment` creation, nested children/history, lifetime cards and signed group completion. Invoice creation already creates the cards atomically: **do not send a second POST /api/treatments**. Explicit configured lines require quantity=1; omitted configuration retains legacy behavior. Invoice detail exposes actual cards at `data.items[].treatment`.
 
+`GET /api/treatments/customers` is the Rosa customer-paged treatment overview. It returns root cards only, each with nested `children`, in `active_treatments` and `completed_treatments`; do not render child cards as independent rows. `today_execution_count` is one per grouped root visit, not one per selected child. A completed card/group executed today can occur in both arrays. See `ROSA_TREATMENT_GROUPS_API.md` for the complete filter and closure-signature contract.
+
 ## Rosa: chức năng đã triển khai sau giai đoạn schema nền tảng
 
 Xem `docs/ROSA_SCHEMA.md`. POST thẻ thủ công chấp nhận `total_sessions: null` cho trọn đời, khi đó bỏ `remaining_sessions` hoặc gửi null; không nhận parent_treatment_id. Thẻ trọn đời hoạt động giữ số buổi NULL khi thực hiện; thẻ đóng/cha đóng bị chặn. Bộ lọc active bao gồm thẻ trọn đời còn mở.

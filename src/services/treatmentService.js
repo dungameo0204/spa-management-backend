@@ -1,5 +1,5 @@
 const { masterPool, getTenantDbName } = require('../config/database');
-const { paginateQuery } = require('../utils/pagination');
+const { paginateQuery, parsePagination } = require('../utils/pagination');
 const { loadCommissionBase, calculateCommission } = require('./commissionService');
 const groups = require('./treatmentGroupService');
 const { normalizeSessionMetadata } = require('../utils/treatmentHistory');
@@ -615,6 +615,95 @@ const getTreatments = async (tenantId, filters) => {
     return page;
 };
 
+const rootCardIsClosed = card => card.closed_at != null || card.closure_signature_svg != null;
+const rootCardIsCompleted = card => {
+    if (rootCardIsClosed(card)) return true;
+    if (card.children?.length) return card.children.every(rootCardIsCompleted);
+    return card.total_sessions !== null && Number(card.remaining_sessions) <= 0;
+};
+const rootCardIsUsable = card => {
+    if (rootCardIsClosed(card)) return false;
+    if (card.children?.length) return card.children.some(rootCardIsUsable);
+    return card.remaining_sessions === null || Number(card.remaining_sessions) > 0;
+};
+
+const getTreatmentsByCustomer = async (tenantId, filters = {}) => {
+    const dbName = await getTenantDbName(tenantId);
+    const executionDates = executionDateFilters(filters);
+    const { page, pageSize, offset } = parsePagination(filters);
+    const executionFilterActive = executionDates.start || executionDates.end;
+    const withTree = executionFilterActive ? `WITH RECURSIVE treatment_tree AS (
+        SELECT root_t.id AS root_id, root_t.id FROM \`${dbName}\`.treatments root_t
+        WHERE root_t.parent_treatment_id IS NULL AND root_t.deleted_at IS NULL
+        UNION ALL
+        SELECT tree.root_id, child_t.id FROM \`${dbName}\`.treatments child_t
+        INNER JOIN treatment_tree tree ON child_t.parent_treatment_id=tree.id
+        WHERE child_t.deleted_at IS NULL
+    )` : '';
+    const params = [];
+    let rootWhere = 'WHERE t.deleted_at IS NULL AND t.parent_treatment_id IS NULL';
+    if (filters.invoiceId) { rootWhere += ' AND t.invoice_id=?'; params.push(toNumber(filters.invoiceId, 'invoiceId', { min: 1, integer: true })); }
+    if (filters.productSearch) { rootWhere += ' AND p.name LIKE ?'; params.push(`%${filters.productSearch}%`); }
+    if (filters.status === 'active') rootWhere += ' AND t.closed_at IS NULL';
+    else if (filters.status === 'completed') rootWhere += ' AND t.closed_at IS NOT NULL';
+    else if (filters.status === 'exhausted') rootWhere += ' AND t.closed_at IS NULL AND t.remaining_sessions=0';
+    if (filters.startDate) { rootWhere += ' AND DATE(t.created_at)>=?'; params.push(filters.startDate); }
+    if (filters.endDate) { rootWhere += ' AND DATE(t.created_at)<=?'; params.push(filters.endDate); }
+    if (filters.branchId) { rootWhere += ' AND (i.branch_id=? OR t.invoice_id IS NULL)'; params.push(filters.branchId); }
+    if (executionFilterActive) {
+        const matching = matchingExecutionSql(dbName, 't', executionDates);
+        rootWhere += ` AND ${matching.sql}`;
+        params.push(...matching.params);
+    }
+    const customerSearch = filters.customerSearch ? ' AND (c.fullname LIKE ? OR c.phone_number LIKE ?)' : '';
+    const customerParams = filters.customerSearch ? [`%${filters.customerSearch}%`, `%${filters.customerSearch}%`] : [];
+    const customerBase = `${withTree}
+        SELECT DISTINCT c.id,c.fullname AS customer_name,c.phone_number,c.total_debt
+        FROM \`${dbName}\`.customers c
+        WHERE c.deleted_at IS NULL${customerSearch} AND EXISTS (
+            SELECT 1 FROM \`${dbName}\`.treatments t
+            JOIN \`${dbName}\`.products p ON p.id=t.product_id
+            LEFT JOIN \`${dbName}\`.invoices i ON i.id=t.invoice_id
+            ${rootWhere} AND t.customer_id=c.id
+        )`;
+    const allParams = [...customerParams, ...params];
+    const [countRows] = await masterPool.query(`SELECT COUNT(*) AS total FROM (${customerBase}) AS customer_count`, allParams);
+    const total = Number(countRows[0].total);
+    const [customers] = await masterPool.query(`${customerBase} ORDER BY c.id DESC LIMIT ? OFFSET ?`, [...allParams, pageSize, offset]);
+    if (!customers.length) return { total, page, pageSize, totalPages: Math.ceil(total / pageSize), data: [] };
+
+    const customerIds = customers.map(customer => customer.id);
+    const [roots] = await masterPool.query(`${withTree}
+        SELECT t.*,c.fullname AS customer_name,c.phone_number,p.name AS product_name,i.branch_id,
+            COALESCE(today.today_execution_count, 0) AS today_execution_count
+        FROM \`${dbName}\`.treatments t
+        JOIN \`${dbName}\`.customers c ON c.id=t.customer_id
+        JOIN \`${dbName}\`.products p ON p.id=t.product_id
+        LEFT JOIN \`${dbName}\`.invoices i ON i.id=t.invoice_id
+        LEFT JOIN (
+            SELECT treatment_id,COUNT(*) AS today_execution_count FROM \`${dbName}\`.treatment_history
+            WHERE parent_history_id IS NULL AND deleted_at IS NULL
+                AND execution_date>=CURDATE() AND execution_date<DATE_ADD(CURDATE(), INTERVAL 1 DAY)
+            GROUP BY treatment_id
+        ) today ON today.treatment_id=t.id
+        ${rootWhere} AND t.customer_id IN (?)
+        ORDER BY t.customer_id DESC,t.created_at DESC,t.id DESC`, [...params, customerIds]);
+    const cards = await groups.attach(masterPool, dbName, roots);
+    const byCustomer = new Map(customers.map(customer => [Number(customer.id), {
+        customer_id: customer.id, customer_name: customer.customer_name, phone_number: customer.phone_number,
+        total_debt: Number(customer.total_debt), active_treatments: [], completed_treatments: []
+    }]));
+    for (const card of cards) {
+        const customer = byCustomer.get(Number(card.customer_id));
+        if (!customer) continue;
+        card.today_execution_count = Number(card.today_execution_count);
+        const completed = rootCardIsCompleted(card);
+        if (rootCardIsUsable(card) || card.today_execution_count > 0) customer.active_treatments.push(card);
+        if (completed) customer.completed_treatments.push(card);
+    }
+    return { total, page, pageSize, totalPages: Math.ceil(total / pageSize), data: customers.map(customer => byCustomer.get(Number(customer.id))) };
+};
+
 const getTreatmentDetail = async (tenantId, treatmentId, filters = {}) => {
     const dbName = await getTenantDbName(tenantId);
     const executionDates = executionDateFilters(filters);
@@ -682,6 +771,7 @@ const closeTreatment = async (tenantId, treatmentId, body, actor) => {
 module.exports = {
     closeTreatment,
     getTreatments,
+    getTreatmentsByCustomer,
     getTreatmentDetail, 
     createTreatment, 
     executeTreatmentSession, 
