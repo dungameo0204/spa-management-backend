@@ -70,7 +70,28 @@ Authorization: Bearer <token-nhận-từ-POST-/api/auth/login>
 
 Token hệ thống có hiệu lực **15 giờ**. Token customer MiniApp (nếu được kích hoạt) có hiệu lực **30 ngày**.
 
-### 2.2. Các quyền hệ thống
+### 2.2. Phiên bản backend đang chạy
+
+#### `GET /api/system/version`
+
+Yêu cầu Bearer token hợp lệ của user hệ thống. Dùng để xác nhận release đã deploy; không cần `tenant_id` hay quyền MANAGER riêng.
+
+Thành công `200`:
+
+```json
+{
+  "message": "Lấy phiên bản máy chủ thành công",
+  "data": {
+    "version": "backend-spaxuly-v1.0.0",
+    "commit": "0123456789abcdef0123456789abcdef01234567",
+    "startedAt": "2026-11-15T09:15:00.000Z"
+  }
+}
+```
+
+`version` là Git tag chính xác của release đang chạy; `commit` là Git commit của release; `startedAt` là thời điểm process backend hiện tại khởi động (UTC ISO-8601). Deploy có thể truyền `DEPLOY_VERSION` và `DEPLOY_COMMIT` để ưu tiên metadata release. Nếu release archive không còn Git metadata và không cấu hình metadata deploy, `version` hoặc `commit` có thể là `"unknown"`; frontend chỉ hiển thị, không dùng hai giá trị này cho nghiệp vụ.
+
+### 2.3. Các quyền hệ thống
 
 | `system_role` | Phạm vi |
 |---|---|
@@ -80,7 +101,7 @@ Token hệ thống có hiệu lực **15 giờ**. Token customer MiniApp (nếu 
 
 > Lưu ý: Route `/api/staffs` chỉ dùng `verifyToken`, **không** dùng `verifyManager`. Vì vậy STAFF có thể gọi các API này; service tự giới hạn dữ liệu/thao tác theo chi nhánh trong một số trường hợp.
 
-### 2.3. Mã lỗi xác thực chung
+### 2.4. Mã lỗi xác thực chung
 
 | Tình huống | HTTP | Response |
 |---|---:|---|
@@ -992,8 +1013,9 @@ Ghi nhận khách nạp tiền vào ví. Trong **một transaction**, backend t�
 {
   "customer_id": 1,
   "branch_id": 1,
-    "paid_amount": 1000000,
-    "bonus_percent": 10,
+  "paid_amount": 1000000,
+  "bonus_percent": 10,
+  "created_at": "2026-11-10 14:30:00",
   "payment_method": "TRANSFER",
   "note": "Nạp ví khuyến mãi tháng 10"
 }
@@ -1007,6 +1029,7 @@ Ghi nhận khách nạp tiền vào ví. Trong **một transaction**, backend t�
 - `paid_amount` và `bonus_amount` không được cùng bằng `0`. Nếu gửi đồng thời percent và amount nhưng không khớp với `paid_amount`, backend trả `400`.
 - Backend luôn tự tính/lưu `total_received = paid_amount + bonus_amount`.
 - `payment_method` tùy chọn, mặc định `CASH`; chỉ nhận `CASH`, `TRANSFER`, `CARD`.
+- `created_at` tùy chọn cho MANAGER để ghi nhận ngày/giờ giao dịch; nhận `YYYY-MM-DD` hoặc `YYYY-MM-DD HH:mm:ss` (chỉ ngày được lưu với giờ `00:00:00`). Không gửi thì backend dùng thời điểm hiện tại của MySQL. STAFF không được gửi `created_at` (kể cả `null` hoặc rỗng); ngày do hệ thống ghi nhận.
 - MANAGER bắt buộc gửi `branch_id`. STAFF luôn dùng branch token và bỏ qua `branch_id` gửi lên.
 - Thành công `201` trả `walletLogId`, `paidAmount`, `bonusPercent`, `bonusAmount`, `totalReceived`, `walletBalance` mới.
 

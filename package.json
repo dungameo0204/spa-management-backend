@@ -13,6 +13,8 @@
     "test:release-migrations": "node scratch/test_release_migrations.js",
     "test:customer-bookings": "node scratch/test_customer_bookings.js && node scratch/test_customer_booking_time_filters.js",
     "test:server-config": "node scratch/test_server_config.js",
+    "test:system-version": "node scratch/test_system_version.js",
+    "test:customer-wallet-log-date": "node scratch/test_customer_wallet_log_date.js",
     "test:staff-date-policy": "node scratch/test_staff_date_policy.js && node scratch/test_treatment_appointment_cleanup.js && node scratch/test_expense_items.js",
     "test:invoice-notes": "node scratch/test_invoice_customer_notes.js && node scratch/test_invoice_treatment_sessions.js && node scratch/test_invoice_update_treatments.js",
     "test:auth-session": "node scratch/test_auth_session.js",

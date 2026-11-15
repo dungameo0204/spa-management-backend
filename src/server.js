@@ -22,6 +22,7 @@ const customerBookingRoutes = require('./routes/customerBookingRoutes');
 const customerWalletLogRoutes = require('./routes/customerWalletLogRoutes');
 const debtPaymentRoutes = require('./routes/debtPaymentRoutes');
 const reportRoutes = require('./routes/reportRoutes');
+const systemRoutes = require('./routes/systemRoutes');
 
 // Middlewares cơ bản
 const config = getServerConfig();
@@ -48,6 +49,7 @@ app.use('/api/customer-bookings', customerBookingRoutes);
 app.use('/api/customer-wallet-logs', customerWalletLogRoutes);
 app.use('/api/debt-payments', debtPaymentRoutes);
 app.use('/api/reports', reportRoutes);
+app.use('/api/system', systemRoutes);
 
 const start = async () => {
     const connection = await masterPool.getConnection();

@@ -1,5 +1,6 @@
 const { masterPool, getTenantDbName } = require('../config/database');
 const { paginateQuery } = require('../utils/pagination');
+const { assertStaffDateFieldsAbsent } = require('../utils/staffDatePolicy');
 
 const toNumber = (value, fieldName, { min = 0, integer = false, max } = {}) => {
     const numberValue = Number(value);
@@ -79,6 +80,21 @@ const normalizePaymentMethod = (paymentMethod) => {
     return normalizedPaymentMethod;
 };
 
+const normalizeCreatedAt = (value) => {
+    if (value === undefined) return null;
+    if (typeof value !== 'string') throw new Error('created_at phải có định dạng YYYY-MM-DD hoặc YYYY-MM-DD HH:mm:ss.');
+    const match = value.trim().match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2}):(\d{2}))?$/);
+    if (!match) throw new Error('created_at phải có định dạng YYYY-MM-DD hoặc YYYY-MM-DD HH:mm:ss.');
+
+    const [, year, month, day, hour = '00', minute = '00', second = '00'] = match;
+    const date = new Date(Date.UTC(Number(year), Number(month) - 1, Number(day), Number(hour), Number(minute), Number(second)));
+    if (date.getUTCFullYear() !== Number(year) || date.getUTCMonth() !== Number(month) - 1 || date.getUTCDate() !== Number(day) ||
+        date.getUTCHours() !== Number(hour) || date.getUTCMinutes() !== Number(minute) || date.getUTCSeconds() !== Number(second)) {
+        throw new Error('created_at không hợp lệ.');
+    }
+    return `${year}-${month}-${day} ${hour}:${minute}:${second}`;
+};
+
 const ensureWalletBalanceIsSufficient = (walletBalance, amountToDeduct) => {
     if (Number(walletBalance) + 0.000001 < amountToDeduct) {
         throw new Error('Số dư ví hiện tại không đủ để hoàn tác giao dịch nạp ví này.');
@@ -102,6 +118,8 @@ const getLockedCustomers = async (connection, dbName, customerIds) => {
 };
 
 const createWalletLog = async (tenantId, walletData, executorName, userRole, userBranchId) => {
+    assertStaffDateFieldsAbsent(userRole, walletData, 'created_at');
+    const createdAt = normalizeCreatedAt(walletData.created_at);
     const dbName = await getTenantDbName(tenantId);
     const connection = await masterPool.getConnection();
 
@@ -123,9 +141,9 @@ const createWalletLog = async (tenantId, walletData, executorName, userRole, use
 
         const [result] = await connection.query(
             `INSERT INTO \`${dbName}\`.customer_wallet_logs
-                (customer_id, branch_id, paid_amount, bonus_percent, bonus_amount, total_received, payment_method, note, created_by)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            [customerId, branchId, paidAmount, bonusPercent, bonusAmount, totalReceived, paymentMethod, walletData.note || null, executorName]
+                (customer_id, branch_id, paid_amount, bonus_percent, bonus_amount, total_received, payment_method, note, created_at, created_by)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, NOW()), ?)`,
+            [customerId, branchId, paidAmount, bonusPercent, bonusAmount, totalReceived, paymentMethod, walletData.note || null, createdAt, executorName]
         );
         await connection.query(
             `UPDATE \`${dbName}\`.customers SET wallet_balance = wallet_balance + ?, updated_by = ? WHERE id = ?`,
