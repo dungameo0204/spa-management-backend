@@ -7,6 +7,7 @@ router.use(verifyToken);
 
 // 1. Quản lý Thẻ liệu trình (Chỉ MANAGER mới được tạo thủ công)
 router.get('/', treatmentController.getList);
+router.get('/customers', treatmentController.getCustomerList);
 router.post('/', verifyManager, treatmentController.createManualTreatment);
 
 // 2. Lịch sử thực hiện phải khai báo trước '/:id' để Express không hiểu 'execute' là ID thẻ.

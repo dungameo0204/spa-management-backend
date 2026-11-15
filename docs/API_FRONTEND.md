@@ -1135,6 +1135,49 @@ API này hỗ trợ query filter để tìm danh sách thẻ liệu trình. Tấ
 - `executionStartDate`, `executionEndDate`: lọc theo ngày thực hiện, bao gồm hai đầu ngày. Thẻ được trả khi có ít nhất một `treatment_history` chưa xóa của chính thẻ với `execution_date` trong khoảng. Hai param có thể dùng độc lập hoặc kết hợp với `startDate`/`endDate`; định dạng không hợp lệ hoặc `executionStartDate` sau `executionEndDate` trả `400`. Filter được áp dụng trong SQL trước khi tính `total` và phân trang.
 - Thành công `200`: `{ "message": "Lấy danh sách liệu trình thành công", "total": 1, "page": 1, "pageSize": 20, "totalPages": 1, "data": [ ... ] }`.
 
+### `GET /api/treatments/customers`
+
+Danh sách tối ưu cho màn hình liệu trình theo **khách hàng**. Phân trang áp dụng cho khách hàng (`page` mặc định `1`, `pageSize` mặc định `20`, tối đa `100`), không áp dụng riêng cho các thẻ bên trong mỗi khách. `total` là số khách có ít nhất một thẻ khớp filter; mỗi khách trong trang trả toàn bộ thẻ khớp filter của mình.
+
+Nhận các filter của `GET /api/treatments`: `customerId`, `invoiceId`, `customerSearch`, `productSearch`, `status`, `startDate`, `endDate`, `executionStartDate`, `executionEndDate`, `branchId`, cùng `page`, `pageSize`. `startDate`/`endDate` vẫn là ngày tạo thẻ; filter execution vẫn áp dụng theo ít nhất một lịch sử chưa xóa của chính thẻ.
+
+```json
+{
+  "message": "Lấy danh sách liệu trình theo khách hàng thành công",
+  "total": 85,
+  "page": 1,
+  "pageSize": 20,
+  "totalPages": 5,
+  "data": [
+    {
+      "customer_id": 76,
+      "customer_name": "Nguyễn Thị Lan",
+      "phone_number": "0901234567",
+      "total_debt": 1500000,
+      "active_treatments": [
+        {
+          "id": 123,
+          "customer_id": 76,
+          "product_id": 8,
+          "product_name": "PRP",
+          "total_sessions": 20,
+          "remaining_sessions": 7,
+          "created_at": "2026-10-01 09:00:00",
+          "today_execution_count": 2
+        }
+      ],
+      "completed_treatments": []
+    }
+  ]
+}
+```
+
+- `total_debt` là tổng nợ hiện lưu của khách trong tenant, không bị tính lại theo filter thẻ.
+- `today_execution_count` là số `treatment_history` chưa xóa có `execution_date` trong ngày hiện tại theo ngày database.
+- `active_treatments` gồm thẻ còn buổi hoặc thẻ không giới hạn (`total_sessions`/`remaining_sessions` là `null`), và gồm cả thẻ đã hết buổi nhưng có thực hiện hôm nay.
+- `completed_treatments` gồm thẻ hữu hạn đã hết buổi. Vì giữ đúng giao diện cũ, một thẻ hết buổi vừa thực hiện hôm nay có thể xuất hiện trong **cả hai mảng**; đây không phải dữ liệu trùng lỗi.
+- API không nhúng histories. Khi mở lịch sử của một thẻ, frontend tiếp tục gọi `GET /api/treatments/:id`.
+
 Ví dụ tìm các thẻ liệu trình có tên dịch vụ chứa `lông`:
 
 ```http

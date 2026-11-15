@@ -1,5 +1,5 @@
 const { masterPool, getTenantDbName } = require('../config/database');
-const { paginateQuery } = require('../utils/pagination');
+const { paginateQuery, parsePagination } = require('../utils/pagination');
 const { isToday } = require('../utils/staffDatePolicy');
 const { loadCommissionBase, calculateCommission } = require('./commissionService');
 
@@ -404,6 +404,122 @@ const getTreatments = async (tenantId, filters) => {
     return paginateQuery(masterPool, query, params, 't.created_at DESC, t.id DESC', filters);
 };
 
+const appendTreatmentFilters = (query, params, dbName, filters, executionDates, treatmentAlias = 't', customerAlias = 'c', productAlias = 'p', invoiceAlias = 'i') => {
+    if (filters.customerId) {
+        query += ` AND ${treatmentAlias}.customer_id = ?`;
+        params.push(toNumber(filters.customerId, 'customerId', { min: 1, integer: true }));
+    }
+    if (filters.invoiceId) {
+        query += ` AND ${treatmentAlias}.invoice_id = ?`;
+        params.push(toNumber(filters.invoiceId, 'invoiceId', { min: 1, integer: true }));
+    }
+    if (filters.customerSearch) {
+        query += ` AND (${customerAlias}.fullname LIKE ? OR ${customerAlias}.phone_number LIKE ?)`;
+        params.push(`%${filters.customerSearch}%`, `%${filters.customerSearch}%`);
+    }
+    if (filters.productSearch) {
+        query += ` AND ${productAlias}.name LIKE ?`;
+        params.push(`%${filters.productSearch}%`);
+    }
+    if (filters.status === 'active') {
+        query += ` AND ${treatmentAlias}.remaining_sessions > 0`;
+    } else if (filters.status === 'completed') {
+        query += ` AND ${treatmentAlias}.remaining_sessions = 0`;
+    }
+    if (filters.startDate) {
+        query += ` AND DATE(${treatmentAlias}.created_at) >= ?`;
+        params.push(filters.startDate);
+    }
+    if (filters.endDate) {
+        query += ` AND DATE(${treatmentAlias}.created_at) <= ?`;
+        params.push(filters.endDate);
+    }
+    if (filters.branchId) {
+        query += ` AND (${invoiceAlias}.branch_id = ? OR ${treatmentAlias}.invoice_id IS NULL)`;
+        params.push(toNumber(filters.branchId, 'branchId', { min: 1, integer: true }));
+    }
+    if (executionDates.start || executionDates.end) {
+        query += ` AND EXISTS (
+            SELECT 1 FROM \`${dbName}\`.treatment_history th
+            WHERE th.treatment_id = ${treatmentAlias}.id AND th.deleted_at IS NULL`;
+        if (executionDates.start) {
+            query += ' AND th.execution_date >= ?';
+            params.push(executionDates.start);
+        }
+        if (executionDates.end) {
+            query += ' AND th.execution_date < DATE_ADD(?, INTERVAL 1 DAY)';
+            params.push(executionDates.end);
+        }
+        query += ')';
+    }
+    return query;
+};
+
+const getTreatmentsByCustomer = async (tenantId, filters = {}) => {
+    const dbName = await getTenantDbName(tenantId);
+    const executionDates = executionDateFilters(filters);
+    const { page, pageSize, offset } = parsePagination(filters);
+    const treatmentParams = [];
+    let treatmentWhere = 'WHERE t.deleted_at IS NULL';
+    treatmentWhere = appendTreatmentFilters(treatmentWhere, treatmentParams, dbName, filters, executionDates);
+
+    const customerBase = `
+        SELECT DISTINCT c.id, c.fullname AS customer_name, c.phone_number, c.total_debt
+        FROM \`${dbName}\`.customers c
+        WHERE c.deleted_at IS NULL
+          AND EXISTS (
+              SELECT 1
+              FROM \`${dbName}\`.treatments t
+              JOIN \`${dbName}\`.products p ON p.id=t.product_id
+              LEFT JOIN \`${dbName}\`.invoices i ON i.id=t.invoice_id
+              ${treatmentWhere}
+                AND t.customer_id=c.id
+          )`;
+    const [countRows] = await masterPool.query(`SELECT COUNT(*) AS total FROM (${customerBase}) AS customer_count`, treatmentParams);
+    const total = Number(countRows[0].total);
+    const [customers] = await masterPool.query(`${customerBase}
+        ORDER BY EXISTS (
+            SELECT 1 FROM \`${dbName}\`.treatments t
+            WHERE t.customer_id=c.id AND t.deleted_at IS NULL AND (t.remaining_sessions IS NULL OR t.remaining_sessions > 0)
+        ) DESC, c.id DESC
+        LIMIT ? OFFSET ?`, [...treatmentParams, pageSize, offset]);
+    if (!customers.length) return { total, page, pageSize, totalPages: Math.ceil(total / pageSize), data: [] };
+
+    const customerIds = customers.map(customer => customer.id);
+    const cardParams = [...treatmentParams, customerIds];
+    const [cards] = await masterPool.query(`
+        SELECT t.id,t.customer_id,t.product_id,p.name AS product_name,t.total_sessions,t.remaining_sessions,t.created_at,
+            COUNT(th.id) AS today_execution_count
+        FROM \`${dbName}\`.treatments t
+        JOIN \`${dbName}\`.customers c ON c.id=t.customer_id
+        JOIN \`${dbName}\`.products p ON p.id=t.product_id
+        LEFT JOIN \`${dbName}\`.invoices i ON i.id=t.invoice_id
+        LEFT JOIN \`${dbName}\`.treatment_history th
+            ON th.treatment_id=t.id AND th.deleted_at IS NULL AND th.execution_date >= CURDATE() AND th.execution_date < CURDATE() + INTERVAL 1 DAY
+        ${treatmentWhere} AND t.customer_id IN (?)
+        GROUP BY t.id,t.customer_id,t.product_id,p.name,t.total_sessions,t.remaining_sessions,t.created_at
+        ORDER BY t.customer_id DESC,t.created_at DESC,t.id DESC`, cardParams);
+
+    const byCustomer = new Map(customers.map(customer => [Number(customer.id), {
+        customer_id: customer.id,
+        customer_name: customer.customer_name,
+        phone_number: customer.phone_number,
+        total_debt: Number(customer.total_debt),
+        active_treatments: [],
+        completed_treatments: []
+    }]));
+    for (const card of cards) {
+        const customer = byCustomer.get(Number(card.customer_id));
+        if (!customer) continue;
+        const treatment = { ...card, today_execution_count: Number(card.today_execution_count) };
+        const unlimited = card.total_sessions === null;
+        const completed = !unlimited && Number(card.remaining_sessions) <= 0;
+        if (!completed || treatment.today_execution_count > 0) customer.active_treatments.push(treatment);
+        if (completed) customer.completed_treatments.push(treatment);
+    }
+    return { total, page, pageSize, totalPages: Math.ceil(total / pageSize), data: customers.map(customer => byCustomer.get(Number(customer.id))) };
+};
+
 const getTreatmentDetail = async (tenantId, treatmentId) => {
     const dbName = await getTenantDbName(tenantId);
     
@@ -445,6 +561,7 @@ const getTreatmentDetail = async (tenantId, treatmentId) => {
 
 module.exports = {
     getTreatments,
+    getTreatmentsByCustomer,
     getTreatmentDetail, 
     createTreatment, 
     executeTreatmentSession, 
