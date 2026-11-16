@@ -33,6 +33,15 @@ const getList = async (req, res) => {
     }
 };
 
+const getCustomerList = async (req, res) => {
+    try {
+        const result = await treatmentService.getTreatmentsByCustomer(req.user.tenant_id, req.query);
+        res.status(200).json({ message: 'Lấy danh sách liệu trình theo khách hàng thành công', ...result });
+    } catch (error) {
+        respondListError(res, error);
+    }
+};
+
 const getDetail = async (req, res) => {
     try {
         const tenantId = req.user.tenant_id;
@@ -124,6 +133,7 @@ module.exports = {
     signHistory: historyMetadata('sign'),
     close,
     getList,
+    getCustomerList,
     getDetail, 
     createManualTreatment, 
     executeSession, 

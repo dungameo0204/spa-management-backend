@@ -7,6 +7,7 @@ router.use(verifyToken);
 
 // 1. Quản lý Thẻ liệu trình (Chỉ MANAGER mới được tạo thủ công)
 router.get('/', treatmentController.getList);
+router.get('/customers', treatmentController.getCustomerList);
 router.post('/', verifyManager, treatmentController.createManualTreatment);
 // Both managers and staff can close a treatment group; Xuly does not require a customer signature.
 router.post('/:id/close', (req, res, next) => {
