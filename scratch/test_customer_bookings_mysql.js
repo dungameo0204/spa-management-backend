@@ -26,12 +26,24 @@ async function main() {
                 ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
             return { status: r.status, body: await r.json() };
         };
-        const base = { customer_type: 'NEW', customer_name: 'Khách mới', customer_phone: '0901234567', branch_id: branch.id, arrival_date: '2028-02-29', arrival_time: '09:30', promotion_note: 'Ưu đãi', consultation_total: '1234.50', note: 'Ghi chú' };
+        const newCustomerPhone = `N${Date.now()}`;
+        const base = { customer_type: 'NEW', customer_name: 'Khách mới', customer_phone: newCustomerPhone, branch_id: branch.id, arrival_date: '2028-02-29', arrival_time: '09:30', promotion_note: 'Ưu đãi', consultation_total: '1234.50', note: 'Ghi chú' };
         let r = await request('POST', '', base); assert.equal(r.status, 201, JSON.stringify(r.body));
         const id = r.body.bookingId;
+        const [[newBooking]] = await c.query(`SELECT customer_id FROM \`${db}\`.customer_bookings WHERE id=?`, [id]);
+        assert.equal(newBooking.customer_id, null, 'NEW booking keeps customer_id null under the existing constraint');
+        assert.equal((await c.query(`SELECT COUNT(*) total FROM \`${db}\`.customers WHERE phone_number=? AND deleted_at IS NULL`, [newCustomerPhone]))[0][0].total, 1);
+        const updatedNewCustomerPhone = `U${Date.now()}`;
+        r = await request('PUT', `/${id}`, { customer_name: 'Khách mới đã sửa', customer_phone: updatedNewCustomerPhone });
+        assert.equal(r.status, 200, JSON.stringify(r.body));
+        const [[updatedNewCustomer]] = await c.query(`SELECT fullname,phone_number FROM \`${db}\`.customers WHERE phone_number=? AND deleted_at IS NULL`, [updatedNewCustomerPhone]);
+        assert.deepEqual(updatedNewCustomer, { fullname: 'Khách mới đã sửa', phone_number: updatedNewCustomerPhone });
+        assert.equal((await c.query(`SELECT COUNT(*) total FROM \`${db}\`.customers WHERE phone_number=? AND deleted_at IS NULL`, [newCustomerPhone]))[0][0].total, 0,
+            'PUT NEW updates the original customer instead of inserting another record');
+        r = await request('POST', '', { ...base, customer_phone: updatedNewCustomerPhone }); assert.equal(r.status, 400); assert.match(r.body.message, /đã tồn tại trong hệ thống/);
         r = await request('GET', `/${id}`); assert.equal(r.status, 200); assert.equal(r.body.data.arrival_time, '09:30:00'); assert.equal(r.body.data.promotion_note, 'Ưu đãi'); assert.equal(Number(r.body.data.consultation_total), 1234.5);
         assert.equal((await request('PUT', `/${id}`, { note: 'Sửa ghi chú', status: 'CONFIRMED' }, 'STAFF')).status, 200);
-        r = await request('GET', `/${id}`); assert.equal(r.body.data.note, 'Sửa ghi chú'); assert.equal(r.body.data.customer_name, 'Khách mới');
+        r = await request('GET', `/${id}`); assert.equal(r.body.data.note, 'Sửa ghi chú'); assert.equal(r.body.data.customer_name, 'Khách mới đã sửa');
         assert.equal((await request('PUT', `/${id}`, { arrival_time: null, promotion_note: null })).status, 200);
         assert.equal((await request('GET', `/${id}`)).body.data.booking_time, null);
         assert.equal((await request('GET', `/${id}`, undefined, 'STAFF', 2147483647)).status, 200);
@@ -46,11 +58,17 @@ async function main() {
         assert.equal(r.status, 201, JSON.stringify(r.body));
         const existingId = r.body.bookingId;
         r = await request('GET', `/${existingId}`); assert.equal(r.body.data.customer_name, 'Booking customer'); assert.equal(r.body.data.arrival_time, null);
-        assert.equal((await request('PUT', `/${existingId}`, { customer_type: 'NEW' })).status, 400);
+        const customerCountBeforeTransition = (await c.query(`SELECT COUNT(*) total FROM \`${db}\`.customers WHERE deleted_at IS NULL`))[0][0].total;
+        assert.equal((await request('PUT', `/${existingId}`, { customer_type: 'NEW' })).status, 200);
+        const [[transitionedBooking]] = await c.query(`SELECT customer_type,customer_id FROM \`${db}\`.customer_bookings WHERE id=?`, [existingId]);
+        assert.deepEqual(transitionedBooking, { customer_type: 'NEW', customer_id: null });
+        assert.equal((await c.query(`SELECT COUNT(*) total FROM \`${db}\`.customers WHERE deleted_at IS NULL`))[0][0].total, customerCountBeforeTransition,
+            'changing an existing booking to NEW does not create another customer');
         assert.equal((await request('PUT', `/${existingId}`, { customer_type: 'NEW', customer_id: null, customer_name: 'Khách chuyển loại', customer_phone: '0901111222' })).status, 200);
         assert.equal((await request('GET', `/${existingId}`)).body.data.customer_type, 'NEW');
         assert.equal((await request('PUT', `/${existingId}`, { customer_type: 'EXISTING', customer_id: customer.insertId })).status, 200);
-        assert.equal((await request('GET', `/${existingId}`)).body.data.customer_name, 'Booking customer');
+        assert.equal((await request('GET', `/${existingId}`)).body.data.customer_name, 'Khách chuyển loại',
+            'the matching registered customer was synchronized while the booking was NEW');
         assert.equal((await request('GET', `?customerId=${customer.insertId}&startDate=2028-03-01&endDate=2028-03-01`)).body.total, 1);
         assert.equal((await request('GET', '?startDate=invalid')).status, 400);
         const scope = `?customerId=${customer.insertId}`;
@@ -68,8 +86,8 @@ async function main() {
         }
         assert.equal((await request('GET', `${scope}&startTime=08:00:01`)).body.total, 1);
         assert.equal((await request('GET', `${scope}&endTime=08:00:00`)).body.total, 0);
-        assert.equal((await request('GET', `${scope}&search=Booking`)).body.total, 1);
-        assert.equal((await request('GET', `${scope}&search=T`)).body.total, 1);
+        assert.equal((await request('GET', `${scope}&search=chuyển loại`)).body.total, 1);
+        assert.equal((await request('GET', `${scope}&search=0901111222`)).body.total, 1);
         assert.equal((await request('GET', `/${existingId}`)).body.data.has_arrived, false);
         // Booking created the previous day: only activity from arrival_date midnight counts.
         await c.query(`UPDATE \`${db}\`.customer_bookings SET created_at='2026-01-01 18:00:00',arrival_date='2026-01-02' WHERE id=?`, [existingId]);
@@ -87,12 +105,11 @@ async function main() {
         const [card] = await c.query(`INSERT INTO \`${db}\`.treatments (customer_id,product_id,total_sessions,remaining_sessions,created_at) VALUES (?,?,1,1,'2026-01-02 08:00:00')`, [customer.insertId, product.insertId]);
         assert.equal((await request('GET', `/${existingId}`)).body.data.has_arrived, true, 'standalone card is enough');
         const phone = (await c.query(`SELECT phone_number FROM \`${db}\`.customers WHERE id=?`, [customer.insertId]))[0][0].phone_number;
-        const newBooking = await request('POST', '', { ...base, customer_phone: phone });
-        assert.equal(newBooking.status, 201);
-        const newId = newBooking.body.bookingId;
-        await c.query(`UPDATE \`${db}\`.customer_bookings SET created_at='2026-01-01 18:00:00',arrival_date='2026-01-02' WHERE id=?`, [newId]);
-        assert.equal((await request('GET', `/${newId}`)).body.data.has_arrived, true, 'NEW exact phone match');
-        await request('PUT', `/${newId}`, { customer_phone: `${phone}0` });
+        assert.equal((await request('PUT', `/${id}`, { customer_phone: phone })).status, 400, 'NEW booking cannot take another active customer phone');
+        await c.query(`UPDATE \`${db}\`.customer_bookings SET created_at='2026-01-01 18:00:00',arrival_date='2026-01-02' WHERE id=?`, [id]);
+        const newId = id;
+        assert.equal((await request('GET', `/${newId}`)).body.data.has_arrived, false, 'NEW booking does not borrow arrival evidence from another customer');
+        assert.equal((await request('PUT', `/${newId}`, { customer_phone: `${updatedNewCustomerPhone}0` })).status, 200);
         assert.equal((await request('GET', `/${newId}`)).body.data.has_arrived, false, 'no partial phone matching');
         await c.query(`UPDATE \`${db}\`.treatments SET deleted_at=NOW() WHERE id=?`, [card.insertId]);
         assert.equal((await request('GET', `/${existingId}`)).body.data.has_arrived, false);

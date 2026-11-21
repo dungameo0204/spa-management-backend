@@ -1,4 +1,5 @@
 const groups = require('./treatmentGroupService');
+const purchases = require('./treatmentPurchaseService');
 
 const usedSessions = async (connection, db, card) => {
     const [rows] = await connection.query(`SELECT id FROM \`${db}\`.treatment_history WHERE treatment_id=? AND deleted_at IS NULL FOR UPDATE`, [card.id]);
@@ -12,7 +13,7 @@ const remaining = (card, total, used) => {
     return card.closed_at ? 0 : total === null ? null : total - used;
 };
 
-const reconcileGroup = async (connection, db, root, cards, config, customerId, actor) => {
+const reconcileGroup = async (connection, db, root, cards, config, customerId, actor, source) => {
     const children = cards.filter(card => Number(card.parent_treatment_id) === Number(root.id));
     if (children.some(child => cards.some(card => Number(card.parent_treatment_id) === Number(child.id)))) {
         throw new Error('Nhóm nhiều tầng cần đối soát trước khi sửa hóa đơn.');
@@ -26,14 +27,27 @@ const reconcileGroup = async (connection, db, root, cards, config, customerId, a
     if (Number(root.customer_id) !== Number(customerId) && (root.closed_at || [...counts.values()].some(count => count > 0))) {
         throw new Error('Không thể chuyển liệu trình đã sử dụng hoặc đã ký sang khách hàng khác.');
     }
+    // A standalone lifetime card takes this specialized path too. Its ledger contribution,
+    // rather than the card aggregate, must change when amended to a finite entitlement.
+    if (!children.length && source && config !== undefined) {
+        await purchases.replaceInvoiceItemContribution(connection, db, root, source.invoiceId,
+            source.invoiceItemId, normalized.total_sessions, actor);
+        await connection.query(`UPDATE \`${db}\`.treatments SET customer_id=?,updated_by=? WHERE id=? AND deleted_at IS NULL`,
+            [customerId, actor, root.id]);
+        return [root.id];
+    }
     for (const child of children) {
         const next = desired.find(entry => entry.product_id === Number(child.product_id));
         if (!next || next.total_sessions === 0) {
             if (counts.get(child.id) > 0 || child.closed_at) throw new Error(`Không thể xóa liệu trình ID ${child.id} đã được sử dụng hoặc đã ký.`);
-            await connection.query(`UPDATE \`${db}\`.treatments SET deleted_at=NOW(),deleted_by=? WHERE id=?`, [actor, child.id]);
+            await purchases.revokeTreatmentInvoiceItem(connection, db, child.id, source.invoiceId, source.invoiceItemId, actor);
         } else {
-            await connection.query(`UPDATE \`${db}\`.treatments SET customer_id=?,total_sessions=?,remaining_sessions=?,updated_by=? WHERE id=?`,
-                [customerId, next.total_sessions, remaining(child, next.total_sessions, counts.get(child.id)), actor, child.id]);
+            if (config !== undefined) {
+                await purchases.replaceInvoiceItemContribution(connection, db, child, source.invoiceId,
+                    source.invoiceItemId, next.total_sessions, actor);
+            }
+            await connection.query(`UPDATE \`${db}\`.treatments SET customer_id=?,updated_by=? WHERE id=? AND deleted_at IS NULL`,
+                [customerId, actor, child.id]);
             retained.push(child.id);
         }
     }
@@ -48,10 +62,15 @@ const reconcileGroup = async (connection, db, root, cards, config, customerId, a
             VALUES (?,?,?,?,?,?,?,?,1,?,?)`, [customerId, child.product_id, root.invoice_id, root.invoice_item_id, root.id,
             child.total_sessions, child.total_sessions, child.price, actor, root.created_at]);
         retained.push(insert.insertId);
+        await purchases.insert(connection, db, { treatmentId: insert.insertId, invoiceId: source.invoiceId,
+            invoiceItemId: source.invoiceItemId, totalSessions: child.total_sessions, actor });
     }
-    const rootRemaining = remaining(root, normalized.total_sessions, rootUsed);
-    await connection.query(`UPDATE \`${db}\`.treatments SET customer_id=?,total_sessions=?,remaining_sessions=?,updated_by=? WHERE id=?`,
-        [customerId, normalized.total_sessions, rootRemaining, actor, root.id]);
+    if (config !== undefined) {
+        await purchases.replaceInvoiceItemContribution(connection, db, root, source.invoiceId,
+            source.invoiceItemId, normalized.total_sessions, actor);
+    }
+    await connection.query(`UPDATE \`${db}\`.treatments SET customer_id=?,updated_by=? WHERE id=? AND deleted_at IS NULL`,
+        [customerId, actor, root.id]);
     return [root.id, ...retained];
 };
 

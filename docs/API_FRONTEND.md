@@ -26,7 +26,7 @@ PUT hóa đơn hỗ trợ sửa thẻ trọn đời/cha-con/đã đóng, giữ I
 - API mới: `POST /api/debt-payments/legacy` với `customer_id`, `amount`, `collection_branch_id` (MANAGER); STAFF dùng cơ sở từ token. Không yêu cầu hóa đơn.
 - Giảm `total_debt` trong transaction, chỉ thu phần nợ không được bao phủ bởi nợ còn lại của hóa đơn.
 - Dòng tiền và doanh thu thuộc cơ sở thực thu. Báo cáo tổng kỳ/ngày thêm `legacyDebtRevenue`; `totalRevenue = serviceRevenue + productRevenue + legacyDebtRevenue`. Các công thức hai thành phần ở ví dụ cũ bên dưới chỉ áp dụng khi `legacyDebtRevenue = 0`.
-- `receipts.debtPayments` đã bao gồm tiền thu nợ cũ, không cộng thêm lần hai vào dòng tiền. Phiếu có hóa đơn không cộng lại doanh thu.
+- `receipts.debtPayments` đã bao gồm tiền thu nợ cũ, không cộng thêm lần hai vào dòng tiền. Phiếu có hóa đơn không cộng lại doanh thu. `receipts.byPaymentMethod` phân loại toàn bộ tiền thực thu (hóa đơn, thu nợ, nạp ví) theo phương thức thanh toán.
 - Chi tiết payload, sửa/xóa, migration và lưu ý triển khai: xem tài liệu thu nợ cũ `docs/LEGACY_DEBT_PAYMENTS_API.md`.
 
 ## Lịch sử ghi chú hóa đơn trong hồ sơ khách hàng
@@ -1045,6 +1045,8 @@ Xóa mềm lịch hẹn. MANAGER xóa được mọi branch; STAFF chỉ xóa đ
 
 API đặt lịch nội bộ do nhân viên tạo theo schema Rosa, dành cho MANAGER/STAFF; hỗ trợ POST/GET danh sách và GET/PUT/DELETE chi tiết. Cả hai vai trò xem được toàn bộ booking trong cùng spa; STAFF thêm/sửa/xóa vẫn giới hạn branch token. Không giới hạn ngày đến là hôm nay vì đây là ngày hẹn. MiniApp hiện không được mount. Chi tiết hợp đồng payload: `docs/ROSA_CUSTOMER_BOOKINGS_API.md`.
 
+Khi `POST /api/customer-bookings` tạo khách `NEW`, backend dùng `customer_name` và `customer_phone` để tạo một hồ sơ trong `customers` cùng transaction; booking NEW vẫn giữ `customer_id: null` theo constraint hiện có. Frontend không gửi `customer_id` cho NEW. Nếu số điện thoại đã tồn tại ở khách chưa xóa mềm, API trả `400` với `Khách hàng với số điện thoại '…' đã tồn tại trong hệ thống!`; không tạo customer/booking nào. `PUT` trên booking NEW chỉ cập nhật booking, không tạo lại customer. Khách đã có phải gửi `customer_type: "EXISTING"` cùng `customer_id`.
+
 ### `GET /api/customer-bookings`
 
 Query tùy chọn: `search`, `branchId`, `customerId`, `productId`, `status`, `startDate`, `endDate`, `startTime`, `endTime`.
@@ -1054,7 +1056,7 @@ Query tùy chọn: `search`, `branchId`, `customerId`, `productId`, `status`, `s
 - `customerId`, `productId`, `status`: lọc khớp chính xác.
 - `startDate`, `endDate`: lọc theo `arrival_date` dạng `YYYY-MM-DD`, bao gồm hai đầu. Thứ tự `arrival_date`, `arrival_time`, `created_at`, `id` tăng dần.
 - `startTime`, `endTime`: lọc giờ hẹn `arrival_time`, nhận HH:mm/HH:mm:ss, bao gồm hai đầu; có thể gửi một đầu. Ví dụ 07:00–08:00 áp dụng cho mỗi ngày trong khoảng lọc, bao gồm cả giờ NULL (chưa xác nhận giờ). Khi lọc giờ, nhóm có giờ nằm trong khoảng được xếp trước toàn bộ nhóm giờ NULL, kể cả khi lọc nhiều ngày; trong mỗi nhóm giữ thứ tự ngày/giờ, created_at, id. Các bộ lọc khác vẫn áp dụng cho cả hai nhóm; total/phân trang bao gồm cả hai. Sai định dạng hoặc đầu > cuối trả 400, không hỗ trợ qua đêm.
-- `has_arrived`: boolean tính động ở list/detail, true nếu hóa đơn hoặc thẻ liệu trình chưa xóa mềm của khách có `created_at` từ 00:00 **ngày hẹn (`arrival_date`)** đến hiện tại. Không lấy ngày tạo booking làm mốc; lịch hẹn ngày mai không được tính bằng giao dịch hôm nay. Không xét giờ hẹn, invoice_date hay lịch sử thực hiện. Khách EXISTING ghép customer_id; NEW chưa có ID ghép số điện thoại trùng chính xác. Kiểm tra toàn spa; không tự đổi status hay thêm cột DB.
+- `has_arrived`: boolean tính động ở list/detail, true nếu hóa đơn hoặc thẻ liệu trình chưa xóa mềm của khách có `created_at` từ 00:00 **ngày hẹn (`arrival_date`)** đến hiện tại. Không lấy ngày tạo booking làm mốc; lịch hẹn ngày mai không được tính bằng giao dịch hôm nay. Không xét giờ hẹn, invoice_date hay lịch sử thực hiện. Khách EXISTING và NEW vừa tạo đều ghép `customer_id`; booking NEW lịch sử chưa có ID mới ghép số điện thoại trùng chính xác. Kiểm tra toàn spa; không tự đổi status hay thêm cột DB.
 - Kết quả trả thêm `branch_name`, `product_name`; nếu booking liên kết customer hệ thống thì có thêm `registered_customer_name`, `registered_customer_phone`.
 - Thành công `200`: `{ "message": "Lấy danh sách booking khách hàng thành công", "total": 1, "page": 1, "pageSize": 20, "totalPages": 1, "data": [ ... ] }`.
 
@@ -1210,7 +1212,7 @@ Soft-delete phiếu và cộng lại `amount` vào `customers.total_debt` trong 
 
 ## 20. Thẻ Liệu trình `/api/treatments`
 
-Hệ thống tự động sinh thẻ khi item là dịch vụ (`is_product = 0`) hoặc combo (`is_treatment_combo = 1`); dịch vụ không phải combo chỉ 1 buổi và `note` ghi số lượng + `products.unit`, combo tính `quantity × default_sessions`. MANAGER cũng có thể tạo thẻ thủ công. Tất cả người dùng đã đăng nhập đều xem được thẻ liệu trình của **mọi cơ sở trong cùng tenant**. STAFF chỉ được tạo/sửa/xóa history tại cơ sở trong token; `branch_id` trong history là cơ sở khách đến làm.
+Hệ thống chỉ tự động sinh thẻ từ hóa đơn khi item là dịch vụ (`is_product = 0`) hoặc combo (`is_treatment_combo = 1`); dịch vụ không phải combo chỉ 1 buổi và `note` ghi số lượng + `products.unit`, combo tính `quantity × default_sessions`. Không có API tạo thẻ thủ công. Tất cả người dùng đã đăng nhập đều xem được thẻ liệu trình của **mọi cơ sở trong cùng tenant**. STAFF chỉ được tạo/sửa/xóa history tại cơ sở trong token; `branch_id` trong history là cơ sở khách đến làm.
 
 ### `GET /api/treatments`
 
@@ -1227,11 +1229,11 @@ API này hỗ trợ query filter để tìm danh sách thẻ liệu trình. Tấ
 | `endDate` | `YYYY-MM-DD` | Lọc đến ngày tạo thẻ, theo `treatments.created_at`. |
 | `executionStartDate` | `YYYY-MM-DD` | Lọc từ ngày thực hiện, theo `treatment_history.execution_date`. |
 | `executionEndDate` | `YYYY-MM-DD` | Lọc đến ngày thực hiện, theo `treatment_history.execution_date`. |
-| `branchId` | number | Lọc theo branch của hóa đơn gốc. Thẻ tạo thủ công không có invoice vẫn được bao gồm theo logic hiện tại. |
+| `branchId` | number | Lọc theo branch của hóa đơn gốc. |
 
 - `customerSearch` tìm theo tên/số điện thoại; `productSearch` tìm tên dịch vụ.
 - `status=active` lọc thẻ chưa ký kết thúc; `status=exhausted` lọc thẻ hết buổi nhưng chưa ký kết thúc; `status=completed` lọc thẻ đã ký kết thúc. Chữ ký từng buổi không làm thẻ chuyển sang completed.
-- `startDate`, `endDate`: lọc ngày tạo thẻ; `invoiceId` lọc toàn bộ thẻ liệu trình được sinh từ một hóa đơn, không phụ thuộc branch của hóa đơn; `branchId` lọc thẻ tạo từ hóa đơn của một cơ sở (thẻ thủ công không có invoice vẫn được bao gồm theo nghiệp vụ hiện tại).
+- `startDate`, `endDate`: lọc ngày tạo thẻ; `invoiceId` lọc toàn bộ thẻ liệu trình được sinh từ một hóa đơn, không phụ thuộc branch của hóa đơn; `branchId` lọc thẻ tạo từ hóa đơn của một cơ sở.
 - `executionStartDate`, `executionEndDate`: lọc theo ngày thực hiện, bao gồm hai đầu ngày. Thẻ gốc được trả nếu chính thẻ đó **hoặc bất kỳ thẻ con nào** có ít nhất một `treatment_history` chưa xóa với `execution_date` trong khoảng. Hai param có thể dùng độc lập hoặc kết hợp với `startDate`/`endDate`; `executionStartDate` sau `executionEndDate`, định dạng không hợp lệ trả `400`. Filter được áp dụng trong SQL trước khi tính `total`/phân trang.
 - Thành công `200`: `{ "message": "Lấy danh sách liệu trình thành công", "total": 1, "page": 1, "pageSize": 20, "totalPages": 1, "data": [ ... ] }`.
 
@@ -1476,7 +1478,7 @@ Ví dụ báo cáo tuần `GET /api/reports/revenue?startDate=2026-10-05&endDate
 
 **Quy tắc tiền:** `productRevenue` và `serviceRevenue` là giá trị bán sau chiết khấu, **không phải tiền thực thu**. Mỗi hóa đơn: tổng trước chiết khấu cấp hóa đơn = tổng `invoice_items.final_price` sau chiết khấu từng dòng; lấy phần chênh giữa số đó và `invoices.total_amount` để trừ **dịch vụ trước**, phần dư trừ **sản phẩm**. Ví dụ dịch vụ 500.000 + sản phẩm 3.000.000, giảm tổng hóa đơn 1.000.000 ⇒ `serviceRevenue=0`, `productRevenue=2500000`. Combo được phân loại theo `products.is_product` (`0` dịch vụ, `1` sản phẩm). Hóa đơn/chi tiết đã xóa mềm không tính. `totalRevenue = serviceRevenue + productRevenue`; số tiền ví đã dùng (`wallet_used`) nằm trong giá trị doanh thu hóa đơn nhưng không được cộng vào **tổng thu tiền mặt** lần nữa.
 
-`receipts.total = invoices.paid_amount` theo `invoice_date` + `debt_payments.amount` theo `payment_date` + `customer_wallet_logs.paid_amount` theo `created_at`. Nạp ví thưởng (`bonus_amount`) không phải tiền thu; tiền thu nợ chỉ cộng ở ngày thực thu, không cộng lại vào doanh thu hóa đơn. Tiền thu nợ phân theo `debt_payments.branch_id` (chi nhánh của hóa đơn); response chi tiết còn có `collection_branch_id` (nơi thực thu). `expenses.total = expense_vouchers.amount` theo `expense_date` + `inventory_imports.total_amount` theo `import_date`; theo quy trình này tiền nhập kho **không** ghi thêm phiếu chi. `netCashFlow = receipts.total - expenses.total`, không phải lợi nhuận sau giá vốn. Hoa hồng/tư vấn là báo cáo riêng, **không trừ thêm** vào chi nếu chưa ghi phiếu chi.
+`receipts.total = invoices.paid_amount` theo `invoice_date` + `debt_payments.amount` theo `payment_date` + `customer_wallet_logs.paid_amount` theo `created_at`. Nạp ví thưởng (`bonus_amount`) không phải tiền thu; tiền thu nợ chỉ cộng ở ngày thực thu, không cộng lại vào doanh thu hóa đơn. Tiền thu nợ phân theo `debt_payments.branch_id` (chi nhánh của hóa đơn); response chi tiết còn có `collection_branch_id` (nơi thực thu). `receipts.byPaymentMethod` phân loại đúng ba mã chuẩn `CASH`, `TRANSFER`, `CARD`; dữ liệu legacy rỗng hoặc ngoài ba mã này nằm ở `OTHER`. Bốn bucket luôn có mặt và có tổng bằng `receipts.total`. `expenses.total = expense_vouchers.amount` theo `expense_date` + `inventory_imports.total_amount` theo `import_date`; theo quy trình này tiền nhập kho **không** ghi thêm phiếu chi. `netCashFlow = receipts.total - expenses.total`, không phải lợi nhuận sau giá vốn. Hoa hồng/tư vấn là báo cáo riêng, **không trừ thêm** vào chi nếu chưa ghi phiếu chi.
 
 ### 1. `GET /api/reports/revenue` — các thẻ tổng quan
 
@@ -1494,7 +1496,8 @@ Thành công `200` (mọi số tiền ở endpoint này là `number` tính theo 
     "debtPayments": 200000,
     "walletTopups": 500000,
     "total": 1700000,
-    "walletUsedExcluded": 300000
+    "walletUsedExcluded": 300000,
+    "byPaymentMethod": { "CASH": 1000000, "TRANSFER": 200000, "CARD": 500000, "OTHER": 0 }
   },
   "expenses": { "expenseVouchers": 100000, "inventoryImports": 600000, "total": 700000 },
   "netCashFlow": 1000000,
@@ -1502,18 +1505,18 @@ Thành công `200` (mọi số tiền ở endpoint này là `number` tính theo 
     {
       "date": "2026-10-05",
       "serviceRevenue": 0, "productRevenue": 2500000, "totalRevenue": 2500000,
-      "receipts": { "invoiceCash": 1000000, "debtPayments": 200000, "walletTopups": 500000, "total": 1700000, "walletUsedExcluded": 300000 },
+      "receipts": { "invoiceCash": 1000000, "debtPayments": 200000, "walletTopups": 500000, "total": 1700000, "walletUsedExcluded": 300000, "byPaymentMethod": { "CASH": 1000000, "TRANSFER": 200000, "CARD": 500000, "OTHER": 0 } },
       "expenses": { "expenseVouchers": 100000, "inventoryImports": 600000, "total": 700000 },
       "netCashFlow": 1000000
     },
     { "date": "2026-10-06", "serviceRevenue": 0, "productRevenue": 0, "totalRevenue": 0,
-      "receipts": { "invoiceCash": 0, "debtPayments": 0, "walletTopups": 0, "total": 0, "walletUsedExcluded": 0 },
+      "receipts": { "invoiceCash": 0, "debtPayments": 0, "walletTopups": 0, "total": 0, "walletUsedExcluded": 0, "byPaymentMethod": { "CASH": 0, "TRANSFER": 0, "CARD": 0, "OTHER": 0 } },
       "expenses": { "expenseVouchers": 0, "inventoryImports": 0, "total": 0 }, "netCashFlow": 0 }
   ]
 }
 ```
 
-`daily` gồm **tất cả ngày lịch** từ `startDate` đến `endDate` (bao gồm cả hai đầu), sắp xếp tăng dần, kể cả ngày không có chứng từ (mọi chỉ tiêu bằng `0`). Ví dụ `2026-10-01` đến `2026-10-30` trả đúng 30 phần tử; ví dụ JSON trên chỉ minh họa hai phần tử đầu. Mỗi phần tử có `date` dạng `YYYY-MM-DD` và **cùng cấu trúc chỉ tiêu** với tổng kỳ: `totalRevenue` (doanh thu bán hàng) = `serviceRevenue` (dịch vụ) + `productRevenue` (sản phẩm); `receipts.invoiceCash` là tiền **thực thu trên hóa đơn**, `receipts.total` là **tổng thu** (thêm thu nợ và nạp ví), `expenses.total` là **tổng chi**, `netCashFlow = receipts.total - expenses.total` là thực thu sau chi/tiền ròng. Tiền thu nợ tính vào ngày `payment_date`, nạp ví vào ngày `created_at`, chi theo ngày phiếu; hóa đơn theo `invoice_date`, cùng quy tắc `branchId` và loại trừ bản ghi xóa mềm như tổng kỳ. Không cần request riêng; các trường tổng hiện có không đổi. `walletUsedExcluded` chỉ là chỉ tiêu tham khảo (tổng ví đã sử dụng trên hóa đơn **trong khoảng lọc**), **không trừ** khỏi `receipts.total` lần nữa; không phải doanh thu nạp ví. Nếu không lọc chi nhánh thì `period.branchId=null`. Kỳ không có chứng từ trả các tổng bằng `0` và `daily` vẫn có đầy đủ ngày.
+`daily` gồm **tất cả ngày lịch** từ `startDate` đến `endDate` (bao gồm cả hai đầu), sắp xếp tăng dần, kể cả ngày không có chứng từ (mọi chỉ tiêu bằng `0`). Ví dụ `2026-10-01` đến `2026-10-30` trả đúng 30 phần tử; ví dụ JSON trên chỉ minh họa hai phần tử đầu. Mỗi phần tử có `date` dạng `YYYY-MM-DD` và **cùng cấu trúc chỉ tiêu** với tổng kỳ: `totalRevenue` (doanh thu bán hàng) = `serviceRevenue` (dịch vụ) + `productRevenue` (sản phẩm); `receipts.invoiceCash` là tiền **thực thu trên hóa đơn**, `receipts.total` là **tổng thu** (thêm thu nợ và nạp ví), `receipts.byPaymentMethod` là thực thu theo phương thức trong chính ngày đó, `expenses.total` là **tổng chi**, `netCashFlow = receipts.total - expenses.total` là thực thu sau chi/tiền ròng. Tiền thu nợ tính vào ngày `payment_date`, nạp ví vào ngày `created_at`, chi theo ngày phiếu; hóa đơn theo `invoice_date`, cùng quy tắc `branchId` và loại trừ bản ghi xóa mềm như tổng kỳ. Không cần request riêng; các trường tổng hiện có không đổi. `walletUsedExcluded` chỉ là chỉ tiêu tham khảo (tổng ví đã sử dụng trên hóa đơn **trong khoảng lọc**), **không trừ** khỏi `receipts.total` lần nữa; không phải doanh thu nạp ví. Nếu không lọc chi nhánh thì `period.branchId=null`. Kỳ không có chứng từ trả các tổng bằng `0` và `daily` vẫn có đầy đủ ngày.
 
 ### 2. `GET /api/reports/details/:type` — các bảng chứng từ có phân trang
 

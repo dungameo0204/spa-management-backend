@@ -4,7 +4,6 @@ const { loadCommissionBase, calculateCommission } = require('./commissionService
 const groups = require('./treatmentGroupService');
 const { normalizeSessionMetadata } = require('../utils/treatmentHistory');
 const { normalizeClosureSignature } = require('../utils/treatmentSignature');
-const purchases = require('./treatmentPurchaseService');
 
 const toNumber = (value, fieldName, { min = 0, integer = false } = {}) => {
     const numberValue = Number(value);
@@ -56,69 +55,6 @@ const matchingExecutionSql = (dbName, rootAlias, dates) => {
         )`,
         params
     };
-};
-
-// ==========================
-// 1. QUẢN LÝ THẺ LIỆU TRÌNH
-// ==========================
-
-const createTreatment = async (tenantId, treatmentData, executorName) => {
-    if (treatmentData.parent_treatment_id != null) throw new Error('Tạo thẻ con cần luồng gói dịch vụ riêng; không gán cha qua API thẻ thủ công hiện tại.');
-    const dbName = await getTenantDbName(tenantId);
-    const { customer_id, product_id, total_sessions, remaining_sessions, note, commission_base_price, commission_quantity } = treatmentData;
-
-    const customerId = toNumber(customer_id, 'customer_id', { min: 1, integer: true });
-    const productId = toNumber(product_id, 'product_id', { min: 1, integer: true });
-    // Keep numeric form strings compatible, but reject coercions such as null/false/[] -> 0.
-    const sessionCount = (value, field, min) => {
-        if (!['number', 'string'].includes(typeof value) || !/^\d+$/.test(String(value)) || !Number.isSafeInteger(Number(value)) || Number(value) > 2147483647) {
-            throw new Error(`${field} không hợp lệ.`);
-        }
-        return toNumber(value, field, { min, integer: true });
-    };
-    const totalSessions = total_sessions === null ? null : sessionCount(total_sessions, 'total_sessions', 1);
-    const remainingSessions = remaining_sessions === undefined ? totalSessions :
-        remaining_sessions === null && totalSessions === null ? null : sessionCount(remaining_sessions, 'remaining_sessions', 0);
-    if (totalSessions === null && remainingSessions !== null) throw new Error('Thẻ trọn đời mới phải có remaining_sessions = null.');
-    if (treatmentData.invoice_id != null) throw new Error('Thẻ thủ công không nhận invoice_id; thẻ từ hóa đơn phải tạo qua API hóa đơn.');
-    if (commission_base_price === undefined || commission_base_price === null || commission_base_price === '') throw new Error('commission_base_price bắt buộc.');
-    const basePrice = toNumber(commission_base_price, 'commission_base_price');
-    const quantity = toNumber(commission_quantity ?? 1, 'commission_quantity', { min: 1, integer: true });
-
-    if (totalSessions !== null && remainingSessions > totalSessions) {
-        throw new Error('Số buổi còn lại không được lớn hơn tổng số buổi.');
-    }
-
-    const connection = await masterPool.getConnection();
-    try {
-        await connection.beginTransaction();
-        const [customers] = await connection.query(`SELECT id FROM \`${dbName}\`.customers WHERE id=? AND deleted_at IS NULL FOR UPDATE`, [customerId]);
-        if (!customers.length) throw groups.invalid('Khách hàng không tồn tại hoặc đã bị xóa.');
-        if (treatmentData.children !== undefined) {
-            const config = await groups.prepare(connection, dbName, productId, { total_sessions: totalSessions, children: treatmentData.children });
-            const result = await groups.create(connection, dbName, { customerId, productId, basePrice, quantity, remaining: remainingSessions, note }, config, executorName);
-            await purchases.insert(connection, dbName, { treatmentId: result.treatmentId, totalSessions, actor: executorName });
-            for (const child of result.children) await purchases.insert(connection, dbName, { treatmentId: child.id, totalSessions: child.total_sessions, actor: executorName });
-            await connection.commit();
-            return result;
-        }
-        const current = await purchases.findMergeable(connection, dbName, customerId, productId);
-        if (current) {
-            const treatmentId = await purchases.merge(connection, dbName, current, totalSessions, executorName);
-            await connection.commit();
-            return { treatmentId, merged: true };
-        }
-        const [result] = await connection.query(
-            `INSERT INTO \`${dbName}\`.treatments
-                (customer_id, product_id, total_sessions, remaining_sessions, commission_base_price, commission_quantity, note, created_by)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-            [customerId, productId, totalSessions, remainingSessions, basePrice, quantity, note || null, executorName]
-        );
-        await purchases.insert(connection, dbName, { treatmentId: result.insertId, totalSessions, actor: executorName });
-        await connection.commit();
-        return { treatmentId: result.insertId, merged: false };
-    } catch (error) { await connection.rollback(); throw error; }
-    finally { connection.release(); }
 };
 
 // ==========================
@@ -186,14 +122,14 @@ const executeTreatmentSession = async (tenantId, historyData, executorName, user
                     VALUES (?,?,?,COALESCE(?,NOW()),?,NULL,NULL,NULL)`, [child.id, parentHistoryId, branchId, execution_date || null, executorName]);
                 childHistoryIds.push(insert.insertId);
                 if (child.staffs.length) {
-                    const base = await loadCommissionBase(connection, dbName, child.id);
                     for (const staff of child.staffs) {
                         const staffId = toNumber(staff.staff_id, 'staff_id', { min: 1, integer: true });
                         const [staffInfo] = await connection.query(`SELECT role_id,branch_id FROM \`${dbName}\`.staffs WHERE id=? AND deleted_at IS NULL`, [staffId]);
                         if (!staffInfo.length) throw new Error(`Nhân viên ID ${staffId} không tồn tại.`);
                         if (normalizedRole === 'STAFF' && Number(staffInfo[0].branch_id) !== branchId) throw new Error(`Nhân viên ID ${staffId} không thuộc cơ sở của tài khoản STAFF.`);
                         await connection.query(`INSERT INTO \`${dbName}\`.treatment_history_staffs (treatment_history_id,staff_id,commission_amount_snapshot,created_by) VALUES (?,?,?,?)`,
-                            [insert.insertId, staffId, await calculateCommission(connection, dbName, base, staffInfo[0].role_id), executorName]);
+                            [insert.insertId, staffId, await calculateCommission(connection, dbName,
+                                await loadCommissionBase(connection, dbName, child.id, staffInfo[0].role_id), staffInfo[0].role_id), executorName]);
                     }
                 }
             }
@@ -257,7 +193,6 @@ const executeTreatmentSession = async (tenantId, historyData, executorName, user
 
         // 5. Lưu tiền công dựa trên giá bán của thẻ.
         if (Array.isArray(staffs) && staffs.length > 0) {
-            const base = await loadCommissionBase(connection, dbName, treatmentId);
             for (const staff of staffs) {
                 const staffId = toNumber(staff.staff_id, 'staff_id', { min: 1, integer: true });
                 
@@ -269,7 +204,8 @@ const executeTreatmentSession = async (tenantId, historyData, executorName, user
                 }
                 await connection.query(
                     `INSERT INTO \`${dbName}\`.treatment_history_staffs (treatment_history_id, staff_id, commission_amount_snapshot, created_by) VALUES (?, ?, ?, ?)`,
-                    [treatmentHistoryId, staffId, await calculateCommission(connection, dbName, base, staffInfo[0].role_id), executorName]
+                    [treatmentHistoryId, staffId, await calculateCommission(connection, dbName,
+                        await loadCommissionBase(connection, dbName, treatmentId, staffInfo[0].role_id), staffInfo[0].role_id), executorName]
                 );
             }
         }
@@ -343,11 +279,11 @@ const updateGroupedExecution = async (tenantId, parentHistoryId, body, executorN
             }
             await connection.query(`UPDATE \`${dbName}\`.treatment_history_staffs SET deleted_at=NOW(),deleted_by=? WHERE treatment_history_id=? AND deleted_at IS NULL`, [executorName, history.id]);
             if (child.staffIds.length) {
-                const base = await loadCommissionBase(connection, dbName, child.treatmentId);
                 for (const staffId of child.staffIds) {
                     const [staffInfo] = await connection.query(`SELECT role_id,branch_id FROM \`${dbName}\`.staffs WHERE id=? AND deleted_at IS NULL`, [staffId]);
                     if (!staffInfo.length || (role === 'STAFF' && Number(staffInfo[0].branch_id) !== branchId)) throw Object.assign(new Error(`Nhân viên ID ${staffId} không tồn tại hoặc không thuộc cơ sở.`), { status: 400 });
-                    await connection.query(`INSERT INTO \`${dbName}\`.treatment_history_staffs (treatment_history_id,staff_id,commission_amount_snapshot,created_by) VALUES (?,?,?,?)`, [history.id, staffId, await calculateCommission(connection, dbName, base, staffInfo[0].role_id), executorName]);
+                    await connection.query(`INSERT INTO \`${dbName}\`.treatment_history_staffs (treatment_history_id,staff_id,commission_amount_snapshot,created_by) VALUES (?,?,?,?)`, [history.id, staffId, await calculateCommission(connection, dbName,
+                        await loadCommissionBase(connection, dbName, child.treatmentId, staffInfo[0].role_id), staffInfo[0].role_id), executorName]);
                 }
             }
             childTreatmentHistoryIds.push(history.id);
@@ -388,8 +324,6 @@ const assignStaffToHistory = async (tenantId, historyId, staffData, executorName
         if (normalizedRole === 'STAFF' && Number(history.branch_id) !== Number(userBranchId)) {
             throw new Error('Bạn không có quyền thao tác trên lịch sử của cơ sở khác.');
         }
-        const base = staffs.length ? await loadCommissionBase(connection, dbName, history.treatment_id) : null;
-
         // Cơ chế Ghi đè: Xóa mềm các nhân viên cũ đã gán (nếu có)
         await connection.query(
             `UPDATE \`${dbName}\`.treatment_history_staffs SET deleted_at = NOW(), deleted_by = ? WHERE treatment_history_id = ?`,
@@ -408,7 +342,8 @@ const assignStaffToHistory = async (tenantId, historyId, staffData, executorName
             }
             await connection.query(
                 `INSERT INTO \`${dbName}\`.treatment_history_staffs (treatment_history_id, staff_id, commission_amount_snapshot, created_by) VALUES (?, ?, ?, ?)`,
-                [historyId, staffId, await calculateCommission(connection, dbName, base, staffInfo[0].role_id), executorName]
+                [historyId, staffId, await calculateCommission(connection, dbName,
+                    await loadCommissionBase(connection, dbName, history.treatment_id, staffInfo[0].role_id), staffInfo[0].role_id), executorName]
             );
         }
 
@@ -567,7 +502,8 @@ const getTreatments = async (tenantId, filters) => {
         params.push(filters.customerId);
     }
     if (filters.invoiceId) {
-        query += ' AND t.invoice_id = ?';
+        query += ` AND EXISTS (SELECT 1 FROM \`${dbName}\`.treatment_purchases tp
+            WHERE tp.treatment_id=t.id AND tp.invoice_id=? AND tp.deleted_at IS NULL)`;
         params.push(toNumber(filters.invoiceId, 'invoiceId', { min: 1, integer: true }));
     }
     if (filters.customerSearch) {
@@ -642,7 +578,11 @@ const getTreatmentsByCustomer = async (tenantId, filters = {}) => {
     )` : '';
     const params = [];
     let rootWhere = 'WHERE t.deleted_at IS NULL AND t.parent_treatment_id IS NULL';
-    if (filters.invoiceId) { rootWhere += ' AND t.invoice_id=?'; params.push(toNumber(filters.invoiceId, 'invoiceId', { min: 1, integer: true })); }
+    if (filters.invoiceId) {
+        rootWhere += ` AND EXISTS (SELECT 1 FROM \`${dbName}\`.treatment_purchases tp
+            WHERE tp.treatment_id=t.id AND tp.invoice_id=? AND tp.deleted_at IS NULL)`;
+        params.push(toNumber(filters.invoiceId, 'invoiceId', { min: 1, integer: true }));
+    }
     if (filters.productSearch) { rootWhere += ' AND p.name LIKE ?'; params.push(`%${filters.productSearch}%`); }
     if (filters.status === 'active') rootWhere += ' AND t.closed_at IS NULL';
     else if (filters.status === 'completed') rootWhere += ' AND t.closed_at IS NOT NULL';
@@ -773,7 +713,6 @@ module.exports = {
     getTreatments,
     getTreatmentsByCustomer,
     getTreatmentDetail, 
-    createTreatment, 
     executeTreatmentSession, 
     updateGroupedExecution,
     assignStaffToHistory, 

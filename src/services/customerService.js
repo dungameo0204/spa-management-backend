@@ -110,14 +110,18 @@ const getCustomerOverview = async (tenantId, customerId) => {
     if (!customers.length) { const error = new Error('Khách hàng không tồn tại hoặc đã bị xóa.'); error.status = 404; throw error; }
 
     const [purchases] = await masterPool.query(
-        `SELECT ii.id AS invoice_item_id, ii.invoice_id, ii.product_id, ii.snapshot_name AS product_name,
+        `SELECT DISTINCT ii.id AS invoice_item_id, ii.invoice_id, ii.product_id, ii.snapshot_name AS product_name,
                 ii.snapshot_price AS unit_price, ii.quantity, ii.discount_percent, ii.discount_amount,
-                ii.final_price, p.is_product, i.invoice_date AS purchase_date, i.branch_id
+                ii.final_price, p.is_product, i.invoice_date AS purchase_date, i.branch_id,
+                COALESCE(source_parent.id, source_treatment.id) AS treatment_id
          FROM \`${dbName}\`.invoices i
          JOIN \`${dbName}\`.invoice_items ii ON ii.invoice_id = i.id AND ii.deleted_at IS NULL
          JOIN \`${dbName}\`.products p ON p.id = ii.product_id
+         LEFT JOIN \`${dbName}\`.treatment_purchases tp ON tp.invoice_item_id=ii.id AND tp.deleted_at IS NULL
+         LEFT JOIN \`${dbName}\`.treatments source_treatment ON source_treatment.id=tp.treatment_id AND source_treatment.deleted_at IS NULL
+         LEFT JOIN \`${dbName}\`.treatments source_parent ON source_parent.id=source_treatment.parent_treatment_id AND source_parent.deleted_at IS NULL
          WHERE i.customer_id = ? AND i.deleted_at IS NULL
-         ORDER BY i.invoice_date DESC, i.id DESC, ii.id DESC`, [id]);
+         ORDER BY i.invoice_date DESC, ii.invoice_id DESC, ii.id DESC`, [id]);
     const [cards] = await masterPool.query(
         `SELECT t.*, p.name AS product_name, i.invoice_date AS purchase_date, i.branch_id,
                  (SELECT ii.snapshot_price FROM \`${dbName}\`.invoice_items ii
@@ -156,7 +160,9 @@ const getCustomerOverview = async (tenantId, customerId) => {
     });
     const rootCards = cards.filter(card => card.parent_treatment_id == null);
     const purchasesWithTreatments = purchases.map(item => {
-        const treatment = rootCards.find(card => card.invoice_item_id != null && Number(card.invoice_item_id) === Number(item.invoice_item_id)) || null;
+        const treatment = item.treatment_id == null ?
+            rootCards.find(card => card.invoice_item_id != null && Number(card.invoice_item_id) === Number(item.invoice_item_id)) || null :
+            cardMap.get(Number(item.treatment_id)) || null;
         if (treatment) matchedCardIds.add(treatment.id);
         return { ...item, treatment };
     });

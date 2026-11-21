@@ -13,6 +13,11 @@ require.cache[configPath] = { id: configPath, filename: configPath, loaded: true
                 ? [[{ date: '2026-10-02', value: String(legacyAmount) }]]
                 : [[{ value: String(legacyAmount) }]];
         }
+        if (sql.includes('AS date') && sql.includes('AS cash')) {
+            if (sql.includes('.invoices i')) return [[{ date: '2026-10-01', cash: '100.00', transfer: '0.00', card: '0.00', other: '0.00' }]];
+            if (sql.includes('.debt_payments dp')) return [[{ date: '2026-10-02', cash: '0.00', transfer: '20.00', card: '0.00', other: '0.00' }]];
+            if (sql.includes('.customer_wallet_logs w')) return [[{ date: '2026-10-02', cash: '0.00', transfer: '0.00', card: '45.00', other: '5.00' }]];
+        }
         if (sql.includes("DATE_FORMAT(i.invoice_date, '%Y-%m-%d') AS date")) return [[
             { date: '2026-10-01', service_revenue: '0.00', product_revenue: '2500000.00', invoice_cash: '100.00', wallet_used: '30.00' }
         ]];
@@ -27,6 +32,11 @@ require.cache[configPath] = { id: configPath, filename: configPath, loaded: true
         if (sql.includes('GROUP BY th.branch_id') || sql.includes('GROUP BY i.branch_id')) return [[{ branch_id: 1, branch_name: 'A', staff_id: 3, staff_name: 'B', total_amount: '120.00', record_count: 2 }]];
         if (sql.includes('ORDER BY')) return [[{ id: 1, revenue_amount: '100.00' }]];
         if (sql.includes('AS service_revenue') && sql.includes('AS invoice_cash')) return [[{ service_revenue: '0.00', product_revenue: '2500000.00', invoice_cash: '100.00', wallet_used: '30.00' }]];
+        if (sql.includes('AS cash')) {
+            if (sql.includes('.invoices i')) return [[{ cash: '100.00', transfer: '0.00', card: '0.00', other: '0.00' }]];
+            if (sql.includes('.debt_payments dp')) return [[{ cash: '0.00', transfer: '20.00', card: '0.00', other: '0.00' }]];
+            if (sql.includes('.customer_wallet_logs w')) return [[{ cash: '0.00', transfer: '0.00', card: '45.00', other: '5.00' }]];
+        }
         if (sql.includes('COALESCE(SUM(')) {
             if (sql.includes('SUM(dp.amount)')) return [[{ value: '20.00' }]];
             if (sql.includes('SUM(w.paid_amount)')) return [[{ value: '50.00' }]];
@@ -49,12 +59,15 @@ const jwt = require('jsonwebtoken');
     assert.equal(summary.legacyDebtRevenue, 0);
     assert.equal(summary.receipts.total, 170);
     assert.equal(summary.receipts.walletUsedExcluded, 30);
+    assert.deepEqual(summary.receipts.byPaymentMethod, { CASH: 100, TRANSFER: 20, CARD: 45, OTHER: 5 });
     assert.equal(summary.expenses.total, 50);
     assert.equal(summary.netCashFlow, 120);
     assert.equal(summary.daily.length, 31);
     assert.deepEqual(summary.daily.slice(0, 3).map(day => day.date), ['2026-10-01', '2026-10-02', '2026-10-03']);
     assert.equal(summary.daily.at(-1).date, '2026-10-31');
     assert.equal(summary.daily[0].totalRevenue, 2500000);
+    assert.deepEqual(summary.daily[0].receipts.byPaymentMethod, { CASH: 100, TRANSFER: 0, CARD: 0, OTHER: 0 });
+    assert.deepEqual(summary.daily[1].receipts.byPaymentMethod, { CASH: 0, TRANSFER: 20, CARD: 45, OTHER: 5 });
     assert.equal(summary.daily[0].receipts.invoiceCash, 100);
     assert.equal(summary.daily[0].receipts.walletUsedExcluded, 30);
     assert.equal(summary.daily[1].receipts.total, 70);
@@ -82,7 +95,9 @@ const jwt = require('jsonwebtoken');
         assert.match(query.sql, new RegExp(`GROUP BY DATE_FORMAT\\(${column.replace('.', '\\.')}, '%Y-%m-%d'\\)`));
         assert.deepEqual(query.params, ['2026-10-01', '2026-10-31', 1]);
     }
-    assert.equal(calls.filter(c => c.sql.includes('FROM `test_tenant`.invoices i')).length, 6);
+    const invoicePaymentMethodSql = calls.find(c => c.sql.includes('FROM `test_tenant`.invoices i') && c.sql.includes("UPPER(TRIM(COALESCE(i.payment_method, '')))"));
+    assert.match(invoicePaymentMethodSql.sql, /SUM\(CASE WHEN .* = 'CASH' THEN i\.paid_amount ELSE 0 END\)/);
+    assert.deepEqual(invoicePaymentMethodSql.params, ['2026-10-01', '2026-10-31', 1]);
 
     const details = await service.getDetails(1, 'consultants', { ...filters, page: '2', pageSize: '10', staffId: '3' });
     assert.equal(details.total, 42);

@@ -12,7 +12,7 @@ require.cache[configPath] = { id: configPath, filename: configPath, loaded: true
         return [[]];
     } }
 } };
-const { getTreatments, getTreatmentDetail } = require('../src/services/treatmentService');
+const { getTreatments, getTreatmentsByCustomer, getTreatmentDetail } = require('../src/services/treatmentService');
 (async () => {
     let page = await getTreatments(7, { executionStartDate: '2026-11-01', executionEndDate: '2026-11-30', page: 2, pageSize: 10 });
     assert.equal(page.total, 2); assert.equal(page.totalPages, 1);
@@ -34,6 +34,15 @@ const { getTreatments, getTreatmentDetail } = require('../src/services/treatment
     const history = calls.find(call => call.sql.includes('FROM `test_tenant`.treatment_history th'));
     assert.ok(history); assert.match(history.sql, /th\.execution_date >= \?/); assert.match(history.sql, /th\.execution_date < DATE_ADD\(\?, INTERVAL 1 DAY\)/);
     assert.deepEqual(history.params, [[10], '2026-11-01', '2026-11-30']);
+    calls.length = 0;
+    await getTreatments(7, { invoiceId: 55 });
+    assert.match(calls[0].sql, /EXISTS \(SELECT 1 FROM `test_tenant`\.treatment_purchases tp/);
+    assert.match(calls[0].sql, /tp\.treatment_id=t\.id AND tp\.invoice_id=\?/);
+    assert.deepEqual(calls[0].params, [55]);
+    calls.length = 0;
+    await getTreatmentsByCustomer(7, { invoiceId: 55 });
+    assert.match(calls[0].sql, /EXISTS \(SELECT 1 FROM `test_tenant`\.treatment_purchases tp/);
+    assert.match(calls[1].sql, /EXISTS \(SELECT 1 FROM `test_tenant`\.treatment_purchases tp/);
     for (const filters of [{ executionStartDate: 'bad' }, { executionEndDate: '2026-02-30' }, { executionStartDate: '2026-12-01', executionEndDate: '2026-11-30' }]) await assert.rejects(getTreatments(7, filters), error => error.status === 400);
-    console.log('PASS: execution-date treatment filtering uses descendant histories in shared count/page SQL and detail histories honor the range.');
+    console.log('PASS: execution-date filters use descendant histories, invoice filters use active purchase-ledger sources, and detail histories honor the range.');
 })().catch(error => { console.error(error); process.exitCode = 1; });

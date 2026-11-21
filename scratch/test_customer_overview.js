@@ -22,7 +22,7 @@ const { getCustomerOverview } = require('../src/services/customerService');
             { invoice_item_id: 83, invoice_id: 64, product_id: 23, product_name: 'tẩy nốt ruồi', is_product: 0, purchase_date: '2026-10-12', unit_price: '50000.00', quantity: 5, final_price: '250000.00' },
             { invoice_item_id: 85, invoice_id: 64, product_id: 23, is_product: 0, purchase_date: '2026-10-12' },
             { invoice_item_id: 84, invoice_id: 64, product_id: 24, is_product: 1, purchase_date: '2026-10-12' },
-            { invoice_item_id: 78, invoice_id: 63, product_id: 23, is_product: 0, purchase_date: '2026-10-11' },
+            { invoice_item_id: 78, invoice_id: 63, product_id: 23, is_product: 0, purchase_date: '2026-10-11', treatment_id: 54 },
             { invoice_item_id: 7, invoice_id: 50, product_id: 2, is_product: 0, purchase_date: '2026-10-10' }
         ],
         cards: [
@@ -42,13 +42,14 @@ const { getCustomerOverview } = require('../src/services/customerService');
     assert.equal(result.purchases[0].treatment.histories[0].staffs[0].staff_id, 9);
     assert.equal(result.purchases[1].treatment.id, 55);
     assert.equal(result.purchases[2].treatment, null);
-    assert.equal(result.purchases[3].treatment, null); // Same product, different invoice.
+    assert.equal(result.purchases[3].treatment.id, 54, 'a later invoice contribution resolves to the merged root card');
     assert.equal(result.purchases[4].treatment, null);
-    assert.equal(result.timeline.length, 7);
+    assert.equal(result.timeline.length, 7, 'each invoice item remains a separate timeline purchase after treatment merge');
     assert.deepEqual(result.timeline.filter(entry => entry.type === 'treatment').map(entry => entry.treatment.id), [56, 57]);
     assert.equal(result.timeline.find(entry => entry.type === 'purchase' && entry.item.invoice_item_id === 83).item.treatment.id, 54);
     assert.match(calls[2].sql, /t\.deleted_at IS NULL AND \(t\.invoice_id IS NULL OR i\.id IS NOT NULL\)/);
     assert.doesNotMatch(calls[2].sql, /remaining_sessions\s*>/);
+    assert.match(calls[1].sql, /treatment_purchases tp/);
     assert.match(calls[1].sql, /ORDER BY i\.invoice_date DESC, i\.id DESC, ii\.id DESC/);
 
     dataset = { purchases: [], cards: [], histories: [], staffs: [] };
@@ -56,5 +57,5 @@ const { getCustomerOverview } = require('../src/services/customerService');
     assert.deepEqual(empty.purchases, []);
     assert.deepEqual(empty.treatments, []);
     assert.deepEqual(empty.timeline, []);
-    console.log('PASS: overview merges service purchase with card once; distinct invoices, duplicate products, manual/unmatched cards and empty result');
+    console.log('PASS: overview keeps every invoice purchase separate while ledger contributions resolve merged treatment cards; duplicate products, manual/unmatched cards and empty result remain supported');
 })().catch(error => { console.error(error); process.exitCode = 1; });

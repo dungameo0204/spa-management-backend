@@ -375,11 +375,14 @@ const getInvoiceDetail = async (tenantId, invoiceId, userRole, userBranchId) => 
         JOIN \`${dbName}\`.products p ON p.id=t.product_id
         WHERE tp.invoice_id=? AND tp.deleted_at IS NULL AND t.parent_treatment_id IS NULL AND t.deleted_at IS NULL ORDER BY t.id`, [invoiceId]);
     const roots = await groups.attach(masterPool, dbName, cards);
-    const [links] = items.length ? await masterPool.query(`SELECT treatment_id,invoice_item_id FROM \`${dbName}\`.treatment_purchases
+    const [links] = items.length ? await masterPool.query(`SELECT treatment_id,invoice_item_id,total_sessions FROM \`${dbName}\`.treatment_purchases
         WHERE invoice_item_id IN (?) AND deleted_at IS NULL`, [items.map(item => item.id)]) : [[]];
     for (const item of items) {
-        const treatmentIds = new Set(links.filter(link => Number(link.invoice_item_id) === Number(item.id)).map(link => Number(link.treatment_id)));
-        item.treatment = roots.find(card => treatmentIds.has(Number(card.id))) || null;
+        const purchase = links.find(link => Number(link.invoice_item_id) === Number(item.id));
+        const card = purchase && roots.find(root => Number(root.id) === Number(purchase.treatment_id));
+        // A merged card's total_sessions is the aggregate entitlement. The invoice edit form must
+        // use this invoice item's ledger contribution instead.
+        item.treatment = card ? { ...card, purchased_total_sessions: purchase.total_sessions } : null;
     }
     invoice.items = items;
     return invoice;
@@ -402,7 +405,8 @@ const updateInvoice = async (tenantId, invoiceId, updateData, executorName, user
         const newNote = updateData.note === undefined ? oldNote : normalizeInvoiceNote(updateData.note);
         await ensureInvoiceHasNoDebtPayments(connection, dbName, invoiceId, 'sửa');
         const [oldTreatments] = await connection.query(
-            `SELECT t.*,tp.invoice_item_id AS purchase_invoice_item_id FROM \`${dbName}\`.treatment_purchases tp JOIN \`${dbName}\`.treatments t ON t.id=tp.treatment_id
+            `SELECT t.*,product.name AS product_name,tp.invoice_item_id AS purchase_invoice_item_id FROM \`${dbName}\`.treatment_purchases tp JOIN \`${dbName}\`.treatments t ON t.id=tp.treatment_id
+             LEFT JOIN \`${dbName}\`.products product ON product.id=t.product_id
              WHERE tp.invoice_id = ? AND tp.deleted_at IS NULL AND t.deleted_at IS NULL ORDER BY t.id FOR UPDATE`,
             [invoiceId]
         );
@@ -417,7 +421,8 @@ const updateInvoice = async (tenantId, invoiceId, updateData, executorName, user
             );
         }
 
-        // Thẻ liệu trình được đối chiếu sau khi chuẩn hóa items mới; không xóa hàng loạt.
+        // Thẻ liệu trình được đối chiếu sau khi chuẩn hóa items mới. Dòng bán được giữ lại
+        // phải giữ nguyên id: liên kết treatment/commission phụ thuộc vào identity này.
         const [oldItems] = await connection.query(`SELECT id, product_id, quantity FROM \`${dbName}\`.invoice_items WHERE invoice_id = ? AND deleted_at IS NULL ORDER BY id`, [invoiceId]);
         for (const card of oldTreatments) {
             if (card.purchase_invoice_item_id == null && card.invoice_item_id == null && oldItems.filter(i => Number(i.product_id) === Number(card.product_id)).length > 1) {
@@ -431,8 +436,6 @@ const updateInvoice = async (tenantId, invoiceId, updateData, executorName, user
                     await adjustInventory(connection, dbName, oldInvoice.branch_id, item.product_id, item.quantity, executorName);
                 }
             }
-            await connection.query(`UPDATE \`${dbName}\`.invoice_item_consultants SET deleted_at = NOW(), deleted_by = ? WHERE invoice_item_id IN (?)`, [executorName, oldItems.map(i => i.id)]);
-            await connection.query(`UPDATE \`${dbName}\`.invoice_items SET deleted_at = NOW(), deleted_by = ? WHERE invoice_id = ?`, [executorName, invoiceId]);
         }
 
         // 2. Tính toán Hóa đơn mới
@@ -497,9 +500,8 @@ const updateInvoice = async (tenantId, invoiceId, updateData, executorName, user
                 claimedItems.add(previous.id);
             }
         }
-        if (oldTreatments.some(card => card.purchase_invoice_item_id != null || card.invoice_item_id != null) &&
-            oldItems.some(oldItem => oldItems.filter(i => Number(i.product_id) === Number(oldItem.product_id)).length > 1 &&
-                normalizedItems.some(item => item.product_id === Number(oldItem.product_id) && item.previous_invoice_item_id == null))) {
+        if (oldItems.some(oldItem => oldItems.filter(i => Number(i.product_id) === Number(oldItem.product_id)).length > 1 &&
+            normalizedItems.some(item => item.product_id === Number(oldItem.product_id) && item.previous_invoice_item_id == null))) {
             throw new Error('Nhiều dòng cùng dịch vụ: cần gửi invoice_item_id cho mỗi dòng cũ để giữ đúng thẻ.');
         }
         for (const item of normalizedItems) {
@@ -511,7 +513,10 @@ const updateInvoice = async (tenantId, invoiceId, updateData, executorName, user
             const candidates = availableTreatments.get(item.product_id) || [];
             const ids = availableItems.get(item.product_id) || [];
             const oldItemId = item.previous_invoice_item_id ?? ids.find(id => !claimedItems.has(id));
-            if (oldItemId != null) claimedItems.add(oldItemId);
+            if (oldItemId != null) {
+                item.previous_invoice_item_id = oldItemId;
+                claimedItems.add(oldItemId);
+            }
             const index = candidates.findIndex(card => Number(card.purchase_invoice_item_id ?? card.invoice_item_id) === Number(oldItemId) && (card.purchase_invoice_item_id ?? card.invoice_item_id) != null);
             const oldTreatment = index >= 0 ? candidates.splice(index, 1)[0] :
                 (candidates.some(card => (card.purchase_invoice_item_id ?? card.invoice_item_id) != null) ? undefined : candidates.shift());
@@ -529,7 +534,7 @@ const updateInvoice = async (tenantId, invoiceId, updateData, executorName, user
                     : groups.normalizeConfig(item.requestedTreatment);
                 groups.validateInvoiceQuantity(quantityConfig, item.quantity);
                 const ids = await treatmentUpdates.reconcileGroup(connection, dbName, oldTreatment, oldTreatments,
-                    item.requestedTreatment, newCustomerId, executorName);
+                    item.requestedTreatment, newCustomerId, executorName, { invoiceId, invoiceItemId: oldItemId });
                 for (const id of ids) retainedTreatmentIds.add(id);
                 treatmentChanges.push({ item, oldTreatment, oldItemId, groupIds: ids });
                 continue;
@@ -544,22 +549,23 @@ const updateInvoice = async (tenantId, invoiceId, updateData, executorName, user
             retainedTreatmentIds.add(oldTreatment.id);
             treatmentChanges.push({ item, details, oldTreatment, oldItemId, remainingSessions: details.totalSessions - usedSessions });
         }
+        // Legacy callers that omit invoice_item_id remain supported only for an unambiguous
+        // remaining line of the same product. The client always sends the ID when editing.
+        for (const item of normalizedItems) {
+            if (item.previous_invoice_item_id != null) continue;
+            const candidates = (availableItems.get(item.product_id) || []).filter(id => !claimedItems.has(id));
+            if (candidates.length === 1) {
+                item.previous_invoice_item_id = candidates[0];
+                claimedItems.add(candidates[0]);
+            }
+        }
         for (const change of treatmentChanges) {
             if (change.groupIds) continue;
             if (!change.oldTreatment) continue;
-            const [[source]] = await connection.query(`SELECT id,total_sessions FROM \`${dbName}\`.treatment_purchases
-                WHERE treatment_id=? AND invoice_id=? AND invoice_item_id=? AND deleted_at IS NULL FOR UPDATE`,
-            [change.oldTreatment.id, invoiceId, change.oldItemId]);
-            if (!source) throw new Error(`Không tìm thấy nguồn mua của liệu trình ID ${change.oldTreatment.id}.`);
-            const delta = change.details.totalSessions - Number(source.total_sessions);
-            if (delta < 0 && Number(change.oldTreatment.remaining_sessions) < -delta) {
-                throw new Error(`Không thể giảm số buổi của liệu trình ID ${change.oldTreatment.id} vì phần buổi mua thêm đã được sử dụng.`);
-            }
-            await connection.query(
-                `UPDATE \`${dbName}\`.treatments SET customer_id = ?, total_sessions = total_sessions + ?, remaining_sessions = remaining_sessions + ?, note = ?, updated_by = ? WHERE id = ? AND deleted_at IS NULL`,
-                [newCustomerId, delta, delta, change.details.note, executorName, change.oldTreatment.id]
-            );
-            await connection.query(`UPDATE \`${dbName}\`.treatment_purchases SET total_sessions=?,updated_by=? WHERE id=?`, [change.details.totalSessions, executorName, source.id]);
+            await purchases.replaceInvoiceItemContribution(connection, dbName, change.oldTreatment, invoiceId,
+                change.oldItemId, change.details.totalSessions, executorName);
+            await connection.query(`UPDATE \`${dbName}\`.treatments SET customer_id=?,note=?,updated_by=?
+                WHERE id=? AND deleted_at IS NULL`, [newCustomerId, change.details.note, executorName, change.oldTreatment.id]);
         }
 
         const invDiscountPercent = updateData.discount_percent !== undefined ? toNumber(updateData.discount_percent, 'discount_percent') : oldInvoice.discount_percent;
@@ -574,35 +580,46 @@ const updateInvoice = async (tenantId, invoiceId, updateData, executorName, user
 
         const basePaymentMethod = updateData.payment_method ? updateData.payment_method : (oldInvoice.payment_method ? oldInvoice.payment_method.replace(/\s*\[WALLET:[0-9]+(?:\.[0-9]+)?\]/, '') : 'Tiền mặt');
 
-        // 3. Insert & Update Database
+        // 3. Update retained lines in place; insert only genuinely new lines.
         await connection.query(
             `UPDATE \`${dbName}\`.invoices SET customer_id = ?, total_amount = ?, discount_percent = ?, discount_amount = ?, paid_amount = ?, wallet_used = ?, debt_amount = ?, payment_method = ?, note = ?, invoice_date = COALESCE(?, invoice_date), updated_by = ? WHERE id = ?`,
             [newCustomerId, totalAmount, invDiscountPercent, invDiscountAmount, paid, newWalletUsed, debtAmount, basePaymentMethod, newNote, updateData.invoice_date || null, executorName, invoiceId]
         );
 
         for (const item of normalizedItems) {
-            const [itemResult] = await connection.query(
-                `INSERT INTO \`${dbName}\`.invoice_items (invoice_id, product_id, snapshot_name, snapshot_price, quantity, discount_percent, discount_amount, final_price, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                [invoiceId, item.product_id, item.snapshot_name, item.snapshot_price, item.quantity, item.discount_percent, item.discount_amount, item.final_price, executorName]
-            );
+            let itemId = item.previous_invoice_item_id;
+            if (itemId != null) {
+                await connection.query(`UPDATE \`${dbName}\`.invoice_items SET snapshot_name=?,snapshot_price=?,quantity=?,discount_percent=?,discount_amount=?,final_price=?,updated_by=?
+                    WHERE id=? AND invoice_id=? AND deleted_at IS NULL`,
+                [item.snapshot_name, item.snapshot_price, item.quantity, item.discount_percent, item.discount_amount, item.final_price, executorName, itemId, invoiceId]);
+                await connection.query(`UPDATE \`${dbName}\`.invoice_item_consultants SET deleted_at=NOW(),deleted_by=?
+                    WHERE invoice_item_id=? AND deleted_at IS NULL`, [executorName, itemId]);
+            } else {
+                const [itemResult] = await connection.query(
+                    `INSERT INTO \`${dbName}\`.invoice_items (invoice_id, product_id, snapshot_name, snapshot_price, quantity, discount_percent, discount_amount, final_price, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                    [invoiceId, item.product_id, item.snapshot_name, item.snapshot_price, item.quantity, item.discount_percent, item.discount_amount, item.final_price, executorName]
+                );
+                itemId = itemResult.insertId;
+            }
             if (item.consultants.length > 0) {
-                for (const c of item.consultants) await connection.query(`INSERT INTO \`${dbName}\`.invoice_item_consultants (invoice_item_id, staff_id, revenue_amount, role_type, created_by) VALUES (?, ?, ?, ?, ?)`, [itemResult.insertId, c.staff_id, c.revenue_amount, c.role_type, executorName]);
+                for (const c of item.consultants) await connection.query(`INSERT INTO \`${dbName}\`.invoice_item_consultants (invoice_item_id, staff_id, revenue_amount, role_type, created_by) VALUES (?, ?, ?, ?, ?)`, [itemId, c.staff_id, c.revenue_amount, c.role_type, executorName]);
             }
             // Chỉ tạo thẻ cho dòng mới; thẻ cũ giữ nguyên id, created_at và lịch sử.
             const change = treatmentChanges.find(c => c.item === item);
             if (change && !change.oldTreatment) {
-                await createInvoiceTreatment(connection, dbName, newCustomerId, invoiceId, itemResult.insertId, item, executorName, oldInvoice.created_at);
+                await createInvoiceTreatment(connection, dbName, newCustomerId, invoiceId, itemId, item, executorName, oldInvoice.created_at);
             } else if (change) {
                 if (change.groupIds) {
                     await connection.query(`UPDATE \`${dbName}\`.treatment_purchases tp
                         JOIN \`${dbName}\`.treatments t ON t.id=tp.treatment_id
-                        SET tp.invoice_item_id=?,tp.total_sessions=t.total_sessions,tp.updated_by=?
+                        SET tp.invoice_item_id=?,tp.updated_by=?
                         WHERE tp.invoice_id=? AND tp.invoice_item_id=? AND tp.treatment_id IN (?) AND tp.deleted_at IS NULL`,
-                    [itemResult.insertId, executorName, invoiceId, change.oldItemId, change.groupIds]);
-                    await connection.query(`UPDATE \`${dbName}\`.treatments SET commission_base_price=?,commission_quantity=? WHERE id=?`, [item.snapshot_price, item.quantity, change.oldTreatment.id]);
+                    [itemId, executorName, invoiceId, change.oldItemId, change.groupIds]);
+                    await connection.query(`UPDATE \`${dbName}\`.treatments SET invoice_item_id=?,commission_base_price=?,commission_quantity=? WHERE id IN (?) AND deleted_at IS NULL`, [itemId, item.snapshot_price, item.quantity, change.groupIds]);
                 } else {
                     await connection.query(`UPDATE \`${dbName}\`.treatment_purchases SET invoice_item_id=?,updated_by=? WHERE invoice_id=? AND invoice_item_id=? AND treatment_id=? AND deleted_at IS NULL`,
-                        [itemResult.insertId, executorName, invoiceId, change.oldItemId, change.oldTreatment.id]);
+                        [itemId, executorName, invoiceId, change.oldItemId, change.oldTreatment.id]);
+                    await connection.query(`UPDATE \`${dbName}\`.treatments SET invoice_item_id=? WHERE id=? AND deleted_at IS NULL`, [itemId, change.oldTreatment.id]);
                 }
                 await recalculateTreatmentCommissions(connection, dbName, change.oldTreatment.id, executorName);
             }
@@ -610,9 +627,15 @@ const updateInvoice = async (tenantId, invoiceId, updateData, executorName, user
                 await adjustInventory(connection, dbName, oldInvoice.branch_id, item.product_id, -item.quantity, executorName);
             }
         }
-        const retainedOldItemIds = new Set(treatmentChanges.filter(change => change.oldTreatment).map(change => Number(change.oldItemId)));
+        const retainedOldItemIds = new Set(normalizedItems.filter(item => item.previous_invoice_item_id != null).map(item => Number(item.previous_invoice_item_id)));
         for (const oldItem of oldItems) {
-            if (!retainedOldItemIds.has(Number(oldItem.id))) await purchases.revokeInvoiceItem(connection, dbName, oldItem.id, executorName);
+            if (!retainedOldItemIds.has(Number(oldItem.id))) {
+                await purchases.revokeInvoiceItem(connection, dbName, oldItem.id, executorName);
+                await connection.query(`UPDATE \`${dbName}\`.invoice_item_consultants SET deleted_at=NOW(),deleted_by=?
+                    WHERE invoice_item_id=? AND deleted_at IS NULL`, [executorName, oldItem.id]);
+                await connection.query(`UPDATE \`${dbName}\`.invoice_items SET deleted_at=NOW(),deleted_by=?
+                    WHERE id=? AND invoice_id=? AND deleted_at IS NULL`, [executorName, oldItem.id, invoiceId]);
+            }
         }
 
         if (debtAmount > 0 || newWalletUsed > 0) {

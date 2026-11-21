@@ -8,9 +8,10 @@ assert.equal(normalize(base).customer_name, 'Khách mới');
 assert.equal(normalize(base).booking_time, null);
 assert.equal(normalize({ ...base, arrival_time: '09:30' }).booking_time, '2028-02-29 09:30:00');
 assert.equal(normalize({ ...base, consultation_total: '1200.50' }).consultation_total, '1200.50');
-for (const patch of [{ arrival_date: '2026-02-29' }, { arrival_time: '24:00' }, { customer_id: 1 }, { customer_name: '' },
+for (const patch of [{ arrival_date: '2026-02-29' }, { arrival_time: '24:00' }, { customer_name: '' },
     { customer_phone: null }, { consultation_total: -1 }, { consultation_total: 1.234 }, { branch_id: true }, { status: '' }, { note: {} }, { booking_time: '2028-01-01' }]) {
     assert.throws(() => normalize({ ...base, ...patch }), e => e.status === 400);
 }
 assert.equal(normalize({ customer_type: 'EXISTING', customer_id: 1, branch_id: 1, arrival_date: '2028-01-01' }).customer_id, 1);
+assert.equal(normalize({ ...base, customer_id: 1 }).customer_id, 1, 'service rejects client-set NEW customer_id before writing');
 console.log('PASS: booking schema payload, calendar date/time, money precision, customer rules and protected fields.');

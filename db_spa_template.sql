@@ -231,7 +231,7 @@ CREATE TABLE `customer_bookings` (
   CONSTRAINT `fk_cb_branch` FOREIGN KEY (`branch_id`) REFERENCES `branches` (`id`),
   CONSTRAINT `fk_cb_customer` FOREIGN KEY (`customer_id`) REFERENCES `customers` (`id`),
   CONSTRAINT `fk_cb_product` FOREIGN KEY (`product_id`) REFERENCES `products` (`id`),
-  CONSTRAINT `chk_booking_customer` CHECK ((((`customer_type` = _utf8mb4'NEW') and (`customer_id` is null) and (char_length(trim(`customer_name`)) > 0) and (`customer_phone` is not null) and (char_length(trim(`customer_phone`)) > 0)) or ((`customer_type` = _utf8mb4'EXISTING') and (`customer_id` is not null)))),
+  CONSTRAINT `chk_booking_customer` CHECK ((((`customer_type` = _utf8mb4'NEW') and (`customer_id` is null) and (char_length(trim(`customer_name`)) > 0) and (`customer_phone` is not null) and (char_length(trim(`customer_phone`)) > 0)) or ((`customer_type` = _utf8mb4'EXISTING') and (`customer_id` is not null))))
   CONSTRAINT `chk_booking_time` CHECK (((`arrival_time` is null) or ((`arrival_time` >= '00:00:00') and (`arrival_time` < '24:00:00')))),
   CONSTRAINT `chk_booking_total` CHECK ((`consultation_total` >= 0))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

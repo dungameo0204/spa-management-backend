@@ -143,12 +143,48 @@ const dailyFor = async (source, field) => {
 };
 
 const round = value => Math.round(value * 100) / 100;
-const revenueAmounts = (serviceRevenue, productRevenue, invoiceCash, walletUsed, debtPayments, walletTopups, expenseVouchers, inventoryImports, legacyDebtRevenue = 0) => {
+const paymentMethodAmountColumns = field => {
+    const method = `UPPER(TRIM(COALESCE(${field}, '')))`;
+    return `COALESCE(SUM(CASE WHEN ${method} = 'CASH' THEN amount ELSE 0 END), 0) AS cash,
+        COALESCE(SUM(CASE WHEN ${method} = 'TRANSFER' THEN amount ELSE 0 END), 0) AS transfer,
+        COALESCE(SUM(CASE WHEN ${method} = 'CARD' THEN amount ELSE 0 END), 0) AS card,
+        COALESCE(SUM(CASE WHEN ${method} NOT IN ('CASH', 'TRANSFER', 'CARD') THEN amount ELSE 0 END), 0) AS other`;
+};
+
+const paymentMethodTotalsFor = async (source, amount, paymentMethod) => {
+    const [rows] = await masterPool.query(
+        `SELECT ${paymentMethodAmountColumns(paymentMethod).replaceAll('amount', amount)} ${source.from} WHERE ${source.where}`,
+        source.params
+    );
+    return rows[0];
+};
+
+const dailyPaymentMethodTotalsFor = async (source, amount, paymentMethod) => {
+    const [rows] = await masterPool.query(
+        `SELECT DATE_FORMAT(${source.date}, '%Y-%m-%d') AS date, ${paymentMethodAmountColumns(paymentMethod).replaceAll('amount', amount)} ${source.from} WHERE ${source.where} GROUP BY DATE_FORMAT(${source.date}, '%Y-%m-%d') ORDER BY date`,
+        source.params
+    );
+    return new Map(rows.map(row => [row.date, row]));
+};
+
+const addPaymentMethodTotals = (...totals) => ['cash', 'transfer', 'card', 'other'].reduce((result, key) => {
+    result[key] = round(totals.reduce((sum, values) => sum + money(values?.[key]), 0));
+    return result;
+}, {});
+
+const paymentMethodResponse = totals => ({
+    CASH: totals.cash,
+    TRANSFER: totals.transfer,
+    CARD: totals.card,
+    OTHER: totals.other
+});
+
+const revenueAmounts = (serviceRevenue, productRevenue, invoiceCash, walletUsed, debtPayments, walletTopups, expenseVouchers, inventoryImports, legacyDebtRevenue = 0, paymentMethodTotals = {}) => {
     const totalReceipts = round(invoiceCash + debtPayments + walletTopups);
     const totalExpenses = round(expenseVouchers + inventoryImports);
     return {
         serviceRevenue, productRevenue, legacyDebtRevenue, totalRevenue: round(serviceRevenue + productRevenue + legacyDebtRevenue),
-        receipts: { invoiceCash, debtPayments, walletTopups, total: totalReceipts, walletUsedExcluded: walletUsed },
+        receipts: { invoiceCash, debtPayments, walletTopups, total: totalReceipts, walletUsedExcluded: walletUsed, byPaymentMethod: paymentMethodResponse(paymentMethodTotals) },
         expenses: { expenseVouchers, inventoryImports, total: totalExpenses },
         netCashFlow: round(totalReceipts - totalExpenses)
     };
@@ -165,7 +201,9 @@ const getRevenue = async (tenantId, input) => {
     const expenseSource = getSource(dbName, 'expenses', filters);
     const inventorySource = getSource(dbName, 'inventory_imports', filters);
     const [[invoiceTotals], debtPayments, walletTopups, expenseVouchers, inventoryImports,
-        [invoiceDays], debtDays, walletDays, expenseDays, inventoryDays, legacyDebtRevenue, legacyDebtDays] = await Promise.all([
+        [invoiceDays], debtDays, walletDays, expenseDays, inventoryDays, legacyDebtRevenue, legacyDebtDays,
+        invoicePaymentMethods, debtPaymentMethods, walletPaymentMethods,
+        invoicePaymentMethodDays, debtPaymentMethodDays, walletPaymentMethodDays] = await Promise.all([
         masterPool.query(`SELECT COALESCE(SUM(${serviceNet}), 0) AS service_revenue, COALESCE(SUM(${productNet}), 0) AS product_revenue, COALESCE(SUM(i.paid_amount), 0) AS invoice_cash, COALESCE(SUM(i.wallet_used), 0) AS wallet_used ${invoice.from} WHERE ${invoice.where}`, invoice.params),
         totalFor(debtSource, 'dp.amount'),
         totalFor(walletSource, 'w.paid_amount'),
@@ -180,7 +218,13 @@ const getRevenue = async (tenantId, input) => {
         dailyFor(expenseSource, 'e.amount'),
         dailyFor(inventorySource, 'imp.total_amount'),
         totalFor(legacyDebtSource, 'dp.amount'),
-        dailyFor(legacyDebtSource, 'dp.amount')
+        dailyFor(legacyDebtSource, 'dp.amount'),
+        paymentMethodTotalsFor(invoice, 'i.paid_amount', 'i.payment_method'),
+        paymentMethodTotalsFor(debtSource, 'dp.amount', 'dp.payment_method'),
+        paymentMethodTotalsFor(walletSource, 'w.paid_amount', 'w.payment_method'),
+        dailyPaymentMethodTotalsFor(invoice, 'i.paid_amount', 'i.payment_method'),
+        dailyPaymentMethodTotalsFor(debtSource, 'dp.amount', 'dp.payment_method'),
+        dailyPaymentMethodTotalsFor(walletSource, 'w.paid_amount', 'w.payment_method')
     ]);
     const { service_revenue, product_revenue, invoice_cash, wallet_used } = invoiceTotals[0];
     const invoiceByDay = new Map(invoiceDays.map(row => [row.date, row]));
@@ -189,14 +233,16 @@ const getRevenue = async (tenantId, input) => {
     for (let time = Date.parse(`${filters.startDate}T00:00:00Z`); time <= end; time += 86400000) {
         const date = new Date(time).toISOString().slice(0, 10);
         const row = invoiceByDay.get(date) || {};
+        const paymentMethods = addPaymentMethodTotals(invoicePaymentMethodDays.get(date), debtPaymentMethodDays.get(date), walletPaymentMethodDays.get(date));
         daily.push({ date, ...revenueAmounts(
             money(row.service_revenue), money(row.product_revenue), money(row.invoice_cash), money(row.wallet_used),
-            debtDays.get(date) || 0, walletDays.get(date) || 0, expenseDays.get(date) || 0, inventoryDays.get(date) || 0, legacyDebtDays.get(date) || 0
+            debtDays.get(date) || 0, walletDays.get(date) || 0, expenseDays.get(date) || 0, inventoryDays.get(date) || 0, legacyDebtDays.get(date) || 0, paymentMethods
         ) });
     }
+    const paymentMethods = addPaymentMethodTotals(invoicePaymentMethods, debtPaymentMethods, walletPaymentMethods);
     return { period: { startDate: filters.startDate, endDate: filters.endDate, branchId: filters.branchId ?? null },
         ...revenueAmounts(money(service_revenue), money(product_revenue), money(invoice_cash), money(wallet_used),
-            debtPayments, walletTopups, expenseVouchers, inventoryImports, legacyDebtRevenue), daily };
+            debtPayments, walletTopups, expenseVouchers, inventoryImports, legacyDebtRevenue, paymentMethods), daily };
 };
 
 const getDetails = async (tenantId, type, input) => {

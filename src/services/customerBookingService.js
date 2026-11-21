@@ -25,6 +25,55 @@ const toNumber = (value, fieldName, { min = 0, integer = false } = {}) => {
     return numberValue;
 };
 
+const createNewBookingCustomer = async (connection, db, data, actor) => {
+    const [existing] = await connection.query(
+        `SELECT id FROM \`${db}\`.customers WHERE phone_number=? AND deleted_at IS NULL FOR UPDATE`,
+        [data.customer_phone]
+    );
+    if (existing.length) throw booking.fail(`Khách hàng với số điện thoại '${data.customer_phone}' đã tồn tại trong hệ thống!`);
+    try {
+        await connection.query(
+            `INSERT INTO \`${db}\`.customers (fullname,phone_number,created_by) VALUES (?,?,?)`,
+            [data.customer_name, data.customer_phone, actor]
+        );
+    } catch (error) {
+        if (error.code === 'ER_DUP_ENTRY') throw booking.fail(`Khách hàng với số điện thoại '${data.customer_phone}' đã tồn tại trong hệ thống!`);
+        throw error;
+    }
+};
+
+const updateNewBookingCustomer = async (connection, db, old, data, actor) => {
+    const [customers] = await connection.query(
+        `SELECT id FROM \`${db}\`.customers WHERE phone_number=? AND deleted_at IS NULL FOR UPDATE`,
+        [old.customer_phone]
+    );
+    // Older NEW bookings may predate automatic customer creation. Preserve their booking
+    // update behavior, but never create a second customer during PUT.
+    if (!customers.length) return;
+    if (customers.length !== 1) {
+        throw Object.assign(new Error('Không xác định được duy nhất hồ sơ khách hàng đã tạo từ booking NEW.'), { status: 409 });
+    }
+    const customerId = customers[0].id;
+    if (data.customer_phone !== old.customer_phone) {
+        const [duplicate] = await connection.query(
+            `SELECT id FROM \`${db}\`.customers WHERE phone_number=? AND deleted_at IS NULL FOR UPDATE`,
+            [data.customer_phone]
+        );
+        if (duplicate.some(customer => Number(customer.id) !== Number(customerId))) {
+            throw booking.fail(`Khách hàng với số điện thoại '${data.customer_phone}' đã tồn tại trong hệ thống!`);
+        }
+    }
+    try {
+        await connection.query(
+            `UPDATE \`${db}\`.customers SET fullname=?,phone_number=?,updated_by=? WHERE id=? AND deleted_at IS NULL`,
+            [data.customer_name, data.customer_phone, actor, customerId]
+        );
+    } catch (error) {
+        if (error.code === 'ER_DUP_ENTRY') throw booking.fail(`Khách hàng với số điện thoại '${data.customer_phone}' đã tồn tại trong hệ thống!`);
+        throw error;
+    }
+};
+
 const getCustomerBookings = async (tenantId, filters, userRole, userBranchId) => {
     const dbName = await getTenantDbName(tenantId);
     let query = `
@@ -117,8 +166,20 @@ const writeBooking = async (tenantId, bookingId, body, actor, role, branchId, re
         } else {
             const data = booking.normalize(role === 'STAFF' && !old && body && !Object.hasOwn(body, 'branch_id') ? { ...body, branch_id: branchId } : body, old);
             if (role === 'STAFF' && data.branch_id !== Number(branchId)) throw Object.assign(new Error('Nhân viên chỉ được thao tác booking tại cơ sở trong token.'), { status: 403 });
+            if (data.customer_type === 'NEW') data.customer_id = null;
+            if (data.customer_type === 'NEW' && body && Object.hasOwn(body, 'customer_id') && (
+                (!old && body.customer_id != null)
+                || (old && old.customer_type === 'NEW' && body.customer_id != null)
+                || (old && old.customer_type !== 'NEW' && body.customer_id != null)
+            )) {
+                throw booking.fail('Khách NEW không được tự đặt customer_id.');
+            }
             const [branches] = await connection.query(`SELECT id FROM \`${db}\`.branches WHERE id=? AND deleted_at IS NULL FOR SHARE`, [data.branch_id]);
             if (!branches.length) throw booking.fail('Cơ sở không tồn tại hoặc đã xóa.');
+            if (!old && data.customer_type === 'NEW') await createNewBookingCustomer(connection, db, data, actor);
+            if (old && old.customer_type === 'NEW' && data.customer_type === 'NEW') {
+                await updateNewBookingCustomer(connection, db, old, data, actor);
+            }
             if (data.customer_id !== null) {
                 const [customers] = await connection.query(`SELECT fullname,phone_number FROM \`${db}\`.customers WHERE id=? AND deleted_at IS NULL FOR SHARE`, [data.customer_id]);
                 if (!customers.length) throw booking.fail('Khách hàng không tồn tại hoặc đã xóa.');

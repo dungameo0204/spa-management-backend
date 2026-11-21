@@ -11,18 +11,6 @@ const historyMetadata = action => async (req, res) => {
     } catch (error) { res.status(error.status || 400).json({ message: error.message }); }
 };
 
-const createManualTreatment = async (req, res) => {
-    try {
-        const tenantId = req.user.tenant_id;
-        const executorName = req.user.fullname || req.user.username;
-
-        const result = await treatmentService.createTreatment(tenantId, req.body, executorName);
-        res.status(201).json({ message: 'Tạo thẻ liệu trình thủ công thành công', ...result });
-    } catch (error) {
-        res.status(error.status || 400).json({ message: error.message });
-    }
-};
-
 const getList = async (req, res) => {
     try {
         const tenantId = req.user.tenant_id;
@@ -135,7 +123,6 @@ module.exports = {
     getList,
     getCustomerList,
     getDetail, 
-    createManualTreatment, 
     executeSession, 
     updateExecution,
     assignStaffs, 

@@ -21,6 +21,8 @@
 
 ## Validation discipline
 
+- For backend/API changes, validate the affected behavior by making direct authenticated HTTP requests to the locally running API using `HOST` and `PORT` from `.env` (currently `http://127.0.0.1:5002`) against the real configured database. Use credentials from `.env.api-validation.local`; never commit that file or place credentials in rules, source, logs, or reports.
+- Write or run focused unit/regression tests only when they add useful coverage; keep them minimal and do not treat them as proof that the API works. Do not declare an API task complete unless the direct HTTP validation succeeds. If the API cannot be reached, has not been restarted/reloaded with the changed code, or no safe non-mutating request can validate the behavior, report it as unverified.
 - Do not run all tests after every edit. Run syntax checks after a logical edit group, then the smallest relevant unit/regression tests, then only the affected integration tests.
 - Diagnose a failed command before retrying; read the exact assertion/error and the minimal surrounding code first.
 - Run tests that monkey-patch shared globals, `masterPool`, ports, databases, or savepoints sequentially, never in parallel.

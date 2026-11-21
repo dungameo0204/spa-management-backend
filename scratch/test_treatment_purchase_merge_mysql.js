@@ -24,7 +24,7 @@ async function main() {
         const sale = (quantity, treatmentConfig, invoiceDate) => request('POST', '/invoices', { customer_id: customer.insertId, branch_id: branch.id, paid_amount: quantity * 1000, ...(invoiceDate === undefined ? {} : { invoice_date: invoiceDate }), items: [{ product_id: product.insertId, quantity, unit_price: 1000, ...(treatmentConfig === undefined ? {} : { treatment: treatmentConfig }) }] });
         const invoiceDate = '2026-10-28 09:15:00';
         const first = await sale(2, undefined, invoiceDate); assert.equal(first.status, 201, JSON.stringify(first.body));
-        const second = await sale(1); assert.equal(second.status, 201, JSON.stringify(second.body));
+        const second = await sale(1, { total_sessions: 1 }); assert.equal(second.status, 201, JSON.stringify(second.body));
         assert.equal(first.body.invoiceDate, invoiceDate);
         const [[createdDates]] = await connection.query(`SELECT DATE_FORMAT(i.invoice_date, '%Y-%m-%d %H:%i:%s') AS invoice_date,DATE_FORMAT(t.created_at, '%Y-%m-%d %H:%i:%s') AS treatment_created_at FROM \`${db}\`.invoices i JOIN \`${db}\`.treatments t ON t.invoice_id=i.id WHERE i.id=?`, [first.body.invoiceId]);
         assert.deepEqual([createdDates.invoice_date, createdDates.treatment_created_at], [invoiceDate, invoiceDate]);
@@ -33,8 +33,12 @@ async function main() {
         assert.equal(first.body.itemMappings[0].root_treatment_id, first.body.itemMappings[0].treatment_id);
         const treatmentId = first.body.itemMappings[0].treatment_id;
         let [[card]] = await connection.query(`SELECT total_sessions,remaining_sessions FROM \`${db}\`.treatments WHERE id=?`, [treatmentId]);
-        assert.deepEqual([Number(card.total_sessions), Number(card.remaining_sessions)], [15, 15]);
+        assert.deepEqual([Number(card.total_sessions), Number(card.remaining_sessions)], [11, 11]);
         assert.equal((await connection.query(`SELECT COUNT(*) count FROM \`${db}\`.treatment_purchases WHERE treatment_id=? AND deleted_at IS NULL`, [treatmentId]))[0][0].count, 2);
+        const secondDetail = await request('GET', `/invoices/${second.body.invoiceId}`);
+        assert.equal(secondDetail.status, 200, JSON.stringify(secondDetail.body));
+        assert.equal(Number(secondDetail.body.data.items[0].treatment.total_sessions), 11);
+        assert.equal(Number(secondDetail.body.data.items[0].treatment.purchased_total_sessions), 1);
         const [[dates]] = await connection.query('SELECT DATE_FORMAT(CURDATE(),\'%Y-%m-%d\') AS today,DATE_FORMAT(DATE_ADD(CURDATE(),INTERVAL 1 DAY),\'%Y-%m-%d\') AS tomorrow');
         const execute = await request('POST', '/treatments/execute', { treatment_id: treatmentId, branch_id: branch.id, execution_date: `${dates.today}T09:00:00` }); assert.equal(execute.status, 201, JSON.stringify(execute.body));
         const duplicate = await request('POST', '/treatments/execute', { treatment_id: treatmentId, branch_id: branch.id, execution_date: `${dates.today}T15:00:00` });
@@ -59,10 +63,23 @@ async function main() {
         assert.equal(afterUnlimitedFinite.body.itemMappings[0].treatment_id, treatmentId);
         card = (await connection.query(`SELECT total_sessions,remaining_sessions FROM \`${db}\`.treatments WHERE id=?`, [treatmentId]))[0][0];
         assert.deepEqual([card.total_sessions, card.remaining_sessions], [null, null]);
+        const revokeFiniteWhileUnlimited = await request('DELETE', `/invoices/${afterUnlimitedFinite.body.invoiceId}`);
+        assert.equal(revokeFiniteWhileUnlimited.status, 200, JSON.stringify(revokeFiniteWhileUnlimited.body));
+        card = (await connection.query(`SELECT total_sessions,remaining_sessions FROM \`${db}\`.treatments WHERE id=?`, [treatmentId]))[0][0];
+        assert.deepEqual([card.total_sessions, card.remaining_sessions], [null, null]);
+        const amendUnlimited = await request('PUT', `/invoices/${unlimited.body.invoiceId}`, {
+            customer_id: customer.insertId, paid_amount: 1000,
+            items: [{ product_id: product.insertId, invoice_item_id: unlimited.body.itemMappings[0].invoice_item_id,
+                quantity: 1, unit_price: 1000, treatment: { total_sessions: 5 } }]
+        });
+        assert.equal(amendUnlimited.status, 200, JSON.stringify(amendUnlimited.body));
+        card = (await connection.query(`SELECT total_sessions,remaining_sessions FROM \`${db}\`.treatments WHERE id=?`, [treatmentId]))[0][0];
+        assert.deepEqual([Number(card.total_sessions), Number(card.remaining_sessions)], [15, 15]);
         const revokeUnlimited = await request('DELETE', `/invoices/${unlimited.body.invoiceId}`);
-        assert.equal(revokeUnlimited.status, 400, JSON.stringify(revokeUnlimited.body));
-        assert.match(revokeUnlimited.body.message, /nối trọn đời/);
-        console.log('PASS: finite purchase merges to unlimited, unlimited remains dominant, and merged unlimited purchase cannot be revoked.');
+        assert.equal(revokeUnlimited.status, 200, JSON.stringify(revokeUnlimited.body));
+        card = (await connection.query(`SELECT total_sessions,remaining_sessions,deleted_at FROM \`${db}\`.treatments WHERE id=?`, [treatmentId]))[0][0];
+        assert.deepEqual([Number(card.total_sessions), Number(card.remaining_sessions), card.deleted_at], [10, 10, null]);
+        console.log('PASS: finite purchase merges to unlimited; removing a finite contribution keeps unlimited; amending unlimited to finite reconstructs entitlement; removing that purchase restores the remaining finite entitlement.');
     } finally {
         if (server) await new Promise(resolve => server.close(resolve));
         if (connection) { await connection.rollback(); connection.release(); }

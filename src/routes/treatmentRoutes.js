@@ -1,14 +1,13 @@
 const express = require('express');
 const router = express.Router();
 const treatmentController = require('../controllers/treatmentController');
-const { verifyToken, verifyManager } = require('../middlewares/auth');
+const { verifyToken } = require('../middlewares/auth');
 
 router.use(verifyToken);
 
-// 1. Quản lý Thẻ liệu trình (Chỉ MANAGER mới được tạo thủ công)
+// 1. Quản lý thẻ liệu trình. Thẻ mới chỉ được tạo từ hóa đơn.
 router.get('/', treatmentController.getList);
 router.get('/customers', treatmentController.getCustomerList);
-router.post('/', verifyManager, treatmentController.createManualTreatment);
 // Both managers and staff can close a treatment group; Xuly does not require a customer signature.
 router.post('/:id/close', (req, res, next) => {
     if (req.user.customer_id !== undefined || !['MANAGER', 'STAFF'].includes(req.user.system_role) ||

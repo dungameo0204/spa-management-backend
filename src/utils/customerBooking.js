@@ -26,7 +26,6 @@ const normalize = (body, old = null) => {
     data.branch_id = id(data.branch_id, 'branch_id');
     data.customer_id = data.customer_id == null ? null : id(data.customer_id, 'customer_id');
     data.product_id = data.product_id == null ? null : id(data.product_id, 'product_id');
-    if (data.customer_type === 'NEW' && data.customer_id !== null) throw fail('Khách NEW không được có customer_id.');
     if (data.customer_type === 'EXISTING' && data.customer_id === null) throw fail('Khách EXISTING bắt buộc customer_id.');
     data.customer_name = text(data.customer_name, 'customer_name', 255, data.customer_type === 'NEW');
     data.customer_phone = text(data.customer_phone, 'customer_phone', 50, data.customer_type === 'NEW');
